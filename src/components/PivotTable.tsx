@@ -65,8 +65,8 @@ export default function PivotTable() {
           passenger_last_name
         )
       `)
-      .neq('activity_bookings.status', 'CANCELLED')
-      .neq('status', 'CANCELLED')  // AGGIUNGI QUESTO: filtra anche activity_bookings.status
+      .neq('bookings.status', 'CANCELLED')
+      .neq('activity_bookings.status', 'CANCELLED')  // AGGIUNGI QUESTO: filtra anche activity_bookings.status
       .gte('start_date_time', `${dateRange.start}T00:00:00`)
       .lte('start_date_time', `${dateRange.end}T23:59:59`)
 
