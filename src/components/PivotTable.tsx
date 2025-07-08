@@ -96,8 +96,8 @@ export default function PivotTable() {
       // Calcola totali e partecipanti
       let totalAmount = 0
       const participants: any = {}
-      let lastReservation = null
-      let firstReservation = null
+      let lastReservation: { date: string; id: string; name?: string } | null = null
+      let firstReservation: { date: string; id: string } | null = null
 
       validBookings.forEach((booking: any) => {
         totalAmount += booking.total_price || 0
