@@ -40,168 +40,115 @@ export default function PivotTable() {
   const fetchData = async () => {
     setLoading(true)
     
-    // Prendi le prenotazioni
-    let bookingsQuery = supabase
-      .from('activity_bookings')
-      .select(`
-        *,
-        activities!inner (
-          activity_id,
-          title
-        ),
-        bookings!inner (
-          booking_id,
-          status,
-          total_price,
-          currency,
-          confirmation_code,
-          creation_date
-        ),
-        pricing_category_bookings (
-          booked_title,
-          quantity,
-          age,
-          passenger_first_name,
-          passenger_last_name
-        )
-      `)
-      .neq('bookings.status', 'CANCELLED')
-      .gte('start_date_time', `${dateRange.start}T00:00:00`)
-      .lte('start_date_time', `${dateRange.end}T23:59:59`)
-
-    if (selectedProduct !== 'all') {
-      bookingsQuery = bookingsQuery.eq('activity_id', selectedProduct)
-    }
-
-    const { data: bookings, error: bookingsError } = await bookingsQuery
-    
-    // Prendi le disponibilità
-    let availabilityQuery = supabase
+    // Query unica ottimizzata
+    let query = supabase
       .from('activity_availability')
       .select(`
         *,
         activities!inner (
           activity_id,
           title
+        ),
+        activity_bookings!left (
+          activity_booking_id,
+          booking_id,
+          total_price,
+          bookings!inner (
+            status,
+            confirmation_code,
+            creation_date
+          ),
+          pricing_category_bookings (
+            booked_title,
+            quantity,
+            passenger_first_name,
+            passenger_last_name
+          )
         )
       `)
       .gte('local_date', dateRange.start)
       .lte('local_date', dateRange.end)
       .order('local_date_time', { ascending: true })
 
+    // Filtra per prodotto se selezionato
     if (selectedProduct !== 'all') {
-      availabilityQuery = availabilityQuery.eq('activity_id', selectedProduct)
+      query = query.eq('activity_id', selectedProduct)
     }
 
-    const { data: availabilities, error: availError } = await availabilityQuery
+    // Aggiungi filtro per escludere le prenotazioni cancellate
+    query = query.or('activity_bookings.bookings.status.neq.CANCELLED,activity_bookings.id.is.null')
 
-    // Crea una mappa di tutti gli slot USANDO SOLO DATA E ORA
-    const allSlots = new Map()
+    const { data: results, error } = await query
 
-    // Prima aggiungi tutti gli slot dalle disponibilità
-    availabilities?.forEach(avail => {
-      // Normalizza l'ora per essere sicuri del formato
-      const time = avail.local_time.substring(0, 5)
-      const key = `${avail.activity_id}_${avail.local_date}_${time}`
-      
-      allSlots.set(key, {
-        product_title: avail.activities.title,
-        activity_id: avail.activity_id,
-        date: avail.local_date,
-        time: time,
-        date_time: avail.local_date_time,
-        vacancy_available: avail.vacancy_available || 0,
-        vacancy_opening: avail.vacancy_opening || 0,
-        status: avail.status,
-        bookings: [],
-        total_amount: 0,
-        participants: {},
-        last_reservation: null,
-        first_reservation: null
-      })
-    })
+    if (error) {
+      console.error('Errore query:', error)
+      setLoading(false)
+      return
+    }
 
-    // Ora aggiungi le prenotazioni agli slot esistenti
-    bookings?.forEach(booking => {
-      // Estrai data e ora dalla prenotazione
-      const bookingDateTime = new Date(booking.start_date_time)
-      const bookingDate = bookingDateTime.toISOString().split('T')[0]
-      const bookingTime = bookingDateTime.toTimeString().substring(0, 5)
-      
-      const key = `${booking.activity_id}_${bookingDate}_${bookingTime}`
-      
-      // Trova lo slot esistente o creane uno nuovo se non esiste
-      let slot = allSlots.get(key)
-      
-      if (!slot) {
-        console.warn(`⚠️ Prenotazione senza disponibilità: ${key}`)
-        // Se non c'è disponibilità, crea comunque lo slot per mostrare la prenotazione
-        slot = {
-          product_title: booking.activities?.title || booking.product_title || 'N/A',
-          activity_id: booking.activity_id,
-          date: bookingDate,
-          time: bookingTime,
-          date_time: booking.start_date_time,
-          vacancy_available: 0,
-          vacancy_opening: 0,
-          status: 'SOLD_OUT',
-          bookings: [],
-          total_amount: 0,
-          participants: {},
-          last_reservation: null,
-          first_reservation: null
+    // Processa i risultati
+    const processedData = results?.map(slot => {
+      // Filtra solo le prenotazioni valide (non cancellate)
+      const validBookings = slot.activity_bookings?.filter(
+        (booking: any) => booking.bookings?.status !== 'CANCELLED'
+      ) || []
+
+      // Calcola totali e partecipanti
+      let totalAmount = 0
+      const participants: any = {}
+      let lastReservation = null
+      let firstReservation = null
+
+      validBookings.forEach((booking: any) => {
+        totalAmount += booking.total_price || 0
+
+        // Conta partecipanti
+        booking.pricing_category_bookings?.forEach((pax: any) => {
+          const category = pax.booked_title || 'Unknown'
+          participants[category] = (participants[category] || 0) + (pax.quantity || 1)
+        })
+
+        // Traccia prima e ultima prenotazione
+        if (booking.bookings) {
+          const bookingDate = new Date(booking.bookings.creation_date)
+          
+          if (!firstReservation || bookingDate < new Date(firstReservation.date)) {
+            firstReservation = {
+              date: booking.bookings.creation_date,
+              id: booking.bookings.confirmation_code
+            }
+          }
+          
+          if (!lastReservation || bookingDate > new Date(lastReservation.date)) {
+            lastReservation = {
+              date: booking.bookings.creation_date,
+              id: booking.bookings.confirmation_code,
+              name: (booking.pricing_category_bookings?.[0]?.passenger_first_name || '') + ' ' + 
+                    (booking.pricing_category_bookings?.[0]?.passenger_last_name || '')
+            }
+          }
         }
-        allSlots.set(key, slot)
-      }
-
-      // Aggiungi la prenotazione allo slot
-      slot.bookings.push(booking)
-      slot.total_amount += booking.total_price || 0
-
-      // Conta i partecipanti
-      let totalParticipants = 0
-      booking.pricing_category_bookings?.forEach((pax: any) => {
-        const category = pax.booked_title || 'Unknown'
-        if (!slot.participants[category]) {
-          slot.participants[category] = 0
-        }
-        slot.participants[category] += pax.quantity || 1
-        totalParticipants += pax.quantity || 1
       })
 
-      // Traccia prima e ultima prenotazione
-      const bookingCreationDate = new Date(booking.bookings.creation_date)
-      if (!slot.first_reservation || bookingCreationDate < new Date(slot.first_reservation.date)) {
-        slot.first_reservation = {
-          date: booking.bookings.creation_date,
-          id: booking.bookings.confirmation_code
-        }
+      return {
+        product_title: slot.activities.title,
+        activity_id: slot.activity_id,
+        date: slot.local_date,
+        time: slot.local_time.substring(0, 5),
+        date_time: slot.local_date_time,
+        vacancy_available: slot.vacancy_available || 0,
+        status: slot.status,
+        bookings: validBookings,
+        total_amount: totalAmount,
+        participants: participants,
+        last_reservation: lastReservation,
+        first_reservation: firstReservation
       }
-      if (!slot.last_reservation || bookingCreationDate > new Date(slot.last_reservation.date)) {
-        slot.last_reservation = {
-          date: booking.bookings.creation_date,
-          id: booking.bookings.confirmation_code,
-          name: (booking.pricing_category_bookings?.[0]?.passenger_first_name || '') + ' ' + 
-                (booking.pricing_category_bookings?.[0]?.passenger_last_name || '')
-        }
-      }
-    })
-
-    // Converti in array e ordina
-    const finalData = Array.from(allSlots.values())
-      .sort((a, b) => {
-        if (a.date !== b.date) {
-          return new Date(a.date).getTime() - new Date(b.date).getTime()
-        }
-        if (a.time !== b.time) {
-          return a.time.localeCompare(b.time)
-        }
-        return a.product_title.localeCompare(b.product_title)
-      })
+    }) || []
 
     // Estrai categorie partecipanti
     const allCategories = new Set<string>()
-    finalData.forEach(row => {
+    processedData.forEach(row => {
       Object.keys(row.participants).forEach(cat => allCategories.add(cat))
     })
 
@@ -214,7 +161,7 @@ export default function PivotTable() {
     })
 
     setParticipantCategories(sortedCategories)
-    setData(finalData)
+    setData(processedData)
     setLoading(false)
   }
 
@@ -249,33 +196,33 @@ export default function PivotTable() {
   const exportToExcel = () => {
     // Prepara i dati per l'export
     const exportData = data.map(row => {
-        const date = new Date(row.date)
-        const days = ['domenica', 'lunedì', 'martedì', 'mercoledì', 'giovedì', 'venerdì', 'sabato']
-        
-        const rowData: any = {
-          'Product Title': row.product_title,
-          'Week Day': days[date.getDay()], // Solo giorno della settimana
-          'Date': date.toLocaleDateString('it-IT', { day: '2-digit', month: '2-digit', year: 'numeric' }), // Solo data
-          'Start Time': row.time,
-          'Total Amount': row.total_amount > 0 ? row.total_amount : 0,
-          'Booking Count': row.bookings.length
-        }
+      const date = new Date(row.date)
+      const days = ['domenica', 'lunedì', 'martedì', 'mercoledì', 'giovedì', 'venerdì', 'sabato']
       
-        // Aggiungi colonne dinamiche partecipanti
-        participantCategories.forEach(category => {
-          rowData[category] = row.participants[category] || 0
-        })
-      
-        // Aggiungi le altre colonne
-        rowData['Availability Left'] = row.vacancy_available
-        rowData['Status'] = row.status
-        rowData['Last Reservation Name'] = row.last_reservation?.name || ''
-        rowData['Last Reservation ID'] = row.last_reservation?.id || ''
-        rowData['Last Reservation Date'] = row.last_reservation ? new Date(row.last_reservation.date).toLocaleDateString('it-IT') : ''
-        rowData['First Reservation Date'] = row.first_reservation ? new Date(row.first_reservation.date).toLocaleDateString('it-IT') : ''
-      
-        return rowData
+      const rowData: any = {
+        'Product Title': row.product_title,
+        'Week Day': days[date.getDay()], // Solo giorno della settimana
+        'Date': date.toLocaleDateString('it-IT', { day: '2-digit', month: '2-digit', year: 'numeric' }), // Solo data
+        'Start Time': row.time,
+        'Total Amount': row.total_amount > 0 ? row.total_amount : 0,
+        'Booking Count': row.bookings.length
+      }
+
+      // Aggiungi colonne dinamiche partecipanti
+      participantCategories.forEach(category => {
+        rowData[category] = row.participants[category] || 0
       })
+
+      // Aggiungi le altre colonne
+      rowData['Availability Left'] = row.vacancy_available
+      rowData['Status'] = row.status
+      rowData['Last Reservation Name'] = row.last_reservation?.name || ''
+      rowData['Last Reservation ID'] = row.last_reservation?.id || ''
+      rowData['Last Reservation Date'] = row.last_reservation ? new Date(row.last_reservation.date).toLocaleDateString('it-IT') : ''
+      rowData['First Reservation Date'] = row.first_reservation ? new Date(row.first_reservation.date).toLocaleDateString('it-IT') : ''
+
+      return rowData
+    })
 
     // Crea un nuovo workbook
     const wb = XLSX.utils.book_new()

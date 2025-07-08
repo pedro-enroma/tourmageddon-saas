@@ -13,7 +13,7 @@ export default function Login() {
     e.preventDefault()
     setLoading(true)
     
-    const { error } = await supabase.auth.signInWithPassword({
+    const { data, error } = await supabase.auth.signInWithPassword({
       email,
       password,
     })
@@ -21,6 +21,8 @@ export default function Login() {
     if (error) {
       alert(error.message)
     } else {
+      // Salva il token in un cookie
+      document.cookie = `sb-access-token=${data.session?.access_token}; path=/`
       router.push('/dashboard')
     }
     setLoading(false)
