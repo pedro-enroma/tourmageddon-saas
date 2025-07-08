@@ -249,29 +249,33 @@ export default function PivotTable() {
   const exportToExcel = () => {
     // Prepara i dati per l'export
     const exportData = data.map(row => {
-      const rowData: any = {
-        'Product Title': row.product_title,
-        'Date': formatDate(row.date),
-        'Start Time': row.time,
-        'Total Amount': row.total_amount > 0 ? row.total_amount : 0,
-        'Booking Count': row.bookings.length
-      }
-
-      // Aggiungi colonne dinamiche partecipanti
-      participantCategories.forEach(category => {
-        rowData[category] = row.participants[category] || 0
+        const date = new Date(row.date)
+        const days = ['domenica', 'lunedì', 'martedì', 'mercoledì', 'giovedì', 'venerdì', 'sabato']
+        
+        const rowData: any = {
+          'Product Title': row.product_title,
+          'Week Day': days[date.getDay()], // Solo giorno della settimana
+          'Date': date.toLocaleDateString('it-IT', { day: '2-digit', month: '2-digit', year: 'numeric' }), // Solo data
+          'Start Time': row.time,
+          'Total Amount': row.total_amount > 0 ? row.total_amount : 0,
+          'Booking Count': row.bookings.length
+        }
+      
+        // Aggiungi colonne dinamiche partecipanti
+        participantCategories.forEach(category => {
+          rowData[category] = row.participants[category] || 0
+        })
+      
+        // Aggiungi le altre colonne
+        rowData['Availability Left'] = row.vacancy_available
+        rowData['Status'] = row.status
+        rowData['Last Reservation Name'] = row.last_reservation?.name || ''
+        rowData['Last Reservation ID'] = row.last_reservation?.id || ''
+        rowData['Last Reservation Date'] = row.last_reservation ? new Date(row.last_reservation.date).toLocaleDateString('it-IT') : ''
+        rowData['First Reservation Date'] = row.first_reservation ? new Date(row.first_reservation.date).toLocaleDateString('it-IT') : ''
+      
+        return rowData
       })
-
-      // Aggiungi le altre colonne
-      rowData['Availability Left'] = row.vacancy_available
-      rowData['Status'] = row.status
-      rowData['Last Reservation Name'] = row.last_reservation?.name || ''
-      rowData['Last Reservation ID'] = row.last_reservation?.id || ''
-      rowData['Last Reservation Date'] = row.last_reservation ? new Date(row.last_reservation.date).toLocaleDateString('it-IT') : ''
-      rowData['First Reservation Date'] = row.first_reservation ? new Date(row.first_reservation.date).toLocaleDateString('it-IT') : ''
-
-      return rowData
-    })
 
     // Crea un nuovo workbook
     const wb = XLSX.utils.book_new()
