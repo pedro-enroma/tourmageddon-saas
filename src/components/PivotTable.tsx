@@ -40,7 +40,7 @@ export default function PivotTable() {
   const fetchData = async () => {
     setLoading(true)
     
-    // Prendi le prenotazioni
+    // Prendi le prenotazioni - FILTRO AGGIORNATO per escludere ANCHE activity_bookings.status = CANCELLED
     let bookingsQuery = supabase
       .from('activity_bookings')
       .select(`
@@ -66,6 +66,7 @@ export default function PivotTable() {
         )
       `)
       .neq('bookings.status', 'CANCELLED')
+      .neq('status', 'CANCELLED')  // AGGIUNGI QUESTO: filtra anche activity_bookings.status
       .gte('start_date_time', `${dateRange.start}T00:00:00`)
       .lte('start_date_time', `${dateRange.end}T23:59:59`)
 
@@ -95,6 +96,23 @@ export default function PivotTable() {
 
     const { data: availabilities, error: availError } = await availabilityQuery
 
+    // Per gestire gli UPDATE, raggruppa le prenotazioni per activity_booking_id
+    // e prendi solo l'ultima versione (quella con la data più recente)
+    const bookingsByActivityId = new Map()
+    
+    bookings?.forEach(booking => {
+      const activityBookingId = booking.activity_booking_id
+      const existingBooking = bookingsByActivityId.get(activityBookingId)
+      
+      // Se non esiste o questo booking è più recente, usa questo
+      if (!existingBooking || new Date(booking.created_at) > new Date(existingBooking.created_at)) {
+        bookingsByActivityId.set(activityBookingId, booking)
+      }
+    })
+    
+    // Converti la mappa in array con solo le versioni più recenti
+    const filteredBookings = Array.from(bookingsByActivityId.values())
+
     // Crea una mappa di tutti gli slot USANDO SOLO DATA E ORA
     const allSlots = new Map()
 
@@ -121,8 +139,8 @@ export default function PivotTable() {
       })
     })
 
-    // Ora aggiungi le prenotazioni agli slot esistenti
-    bookings?.forEach(booking => {
+    // Ora aggiungi le prenotazioni filtrate agli slot esistenti
+    filteredBookings.forEach(booking => {
       // Estrai data e ora dalla prenotazione
       const bookingDateTime = new Date(booking.start_date_time)
       const bookingDate = bookingDateTime.toISOString().split('T')[0]
@@ -218,8 +236,9 @@ export default function PivotTable() {
     setLoading(false)
 
     // Debug
+    console.log('Prenotazioni totali (prima del filtro):', bookings?.length)
+    console.log('Prenotazioni filtrate (dopo deduplica):', filteredBookings.length)
     console.log('Slot totali:', finalData.length)
-    console.log('Esempio slot con prenotazione:', finalData.find(s => s.bookings.length > 0))
   }
 
   const formatDate = (dateStr: string) => {
