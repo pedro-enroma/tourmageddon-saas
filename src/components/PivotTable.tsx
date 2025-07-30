@@ -76,9 +76,9 @@ export default function PivotTable() {
 
     const { data: bookings, error: bookingsError } = await bookingsQuery
     
-    // Prendi le disponibilità
+    // Prendi le disponibilità da activity_availability_rome
     let availabilityQuery = supabase
-      .from('activity_availability')
+      .from('activity_availability_rome')
       .select(`
         *,
         activities!inner (
@@ -118,8 +118,8 @@ export default function PivotTable() {
 
     // Prima aggiungi tutti gli slot dalle disponibilità
     availabilities?.forEach(avail => {
-      // Normalizza l'ora per essere sicuri del formato
-      const time = avail.local_time.substring(0, 5)
+      // Usa local_time_rome invece di local_time
+      const time = avail.local_time_rome.substring(0, 5)
       const key = `${avail.activity_id}_${avail.local_date}_${time}`
       
       allSlots.set(key, {
@@ -130,9 +130,11 @@ export default function PivotTable() {
         date_time: avail.local_date_time,
         vacancy_available: avail.vacancy_available || 0,
         vacancy_opening: avail.vacancy_opening || 0,
+        vacancy_sold: avail.vacancy_sold || 0,
         status: avail.status,
         bookings: [],
         total_amount: 0,
+        total_participants: 0,
         participants: {},
         last_reservation: null,
         first_reservation: null
@@ -162,9 +164,11 @@ export default function PivotTable() {
           date_time: booking.start_date_time,
           vacancy_available: 0,
           vacancy_opening: 0,
+          vacancy_sold: 0,
           status: 'SOLD_OUT',
           bookings: [],
           total_amount: 0,
+          total_participants: 0,
           participants: {},
           last_reservation: null,
           first_reservation: null
@@ -186,6 +190,9 @@ export default function PivotTable() {
         slot.participants[category] += pax.quantity || 1
         totalParticipants += pax.quantity || 1
       })
+      
+      // Aggiungi al totale partecipanti dello slot
+      slot.total_participants += totalParticipants
 
       // Traccia prima e ultima prenotazione
       const bookingCreationDate = new Date(booking.bookings.creation_date)
@@ -281,7 +288,8 @@ export default function PivotTable() {
         'Date': date.toLocaleDateString('it-IT', { day: '2-digit', month: '2-digit', year: 'numeric' }), // Solo data
         'Start Time': row.time,
         'Total Amount': row.total_amount > 0 ? row.total_amount : 0,
-        'Booking Count': row.bookings.length
+        'Booking Count': row.bookings.length,
+        'Vacancy Sold': row.vacancy_sold || 0
       }
 
       // Aggiungi colonne dinamiche partecipanti
@@ -290,6 +298,7 @@ export default function PivotTable() {
       })
 
       // Aggiungi le altre colonne
+      rowData['Total Participants'] = row.total_participants || 0
       rowData['Availability Left'] = row.vacancy_available
       rowData['Status'] = row.status
       rowData['Last Reservation Name'] = row.last_reservation?.name || ''
@@ -393,12 +402,14 @@ export default function PivotTable() {
               <th className="px-4 py-2 border text-left">Start Time</th>
               <th className="px-4 py-2 border text-right">Total Amount</th>
               <th className="px-4 py-2 border text-center">Booking Count</th>
+              <th className="px-4 py-2 border text-center">Vacancy Sold</th>
               {/* Colonne dinamiche partecipanti */}
               {participantCategories.map(category => (
                 <th key={category} className="px-4 py-2 border text-center bg-blue-50">
                   {category}
                 </th>
               ))}
+              <th className="px-4 py-2 border text-center">Total Participants</th>
               <th className="px-4 py-2 border text-center">Availability Left</th>
               <th className="px-4 py-2 border text-center">Status</th>
               <th className="px-4 py-2 border text-left">Last Reservation</th>
@@ -417,12 +428,18 @@ export default function PivotTable() {
                 <td className="px-4 py-2 border text-center font-bold">
                   {row.bookings.length || 0}
                 </td>
+                <td className="px-4 py-2 border text-center">
+                  {row.vacancy_sold || 0}
+                </td>
                 {/* Valori partecipanti */}
                 {participantCategories.map(category => (
                   <td key={category} className="px-4 py-2 border text-center bg-blue-50">
                     {row.participants[category] || 0}
                   </td>
                 ))}
+                <td className="px-4 py-2 border text-center font-bold">
+                  {row.total_participants || 0}
+                </td>
                 <td className={`px-4 py-2 border text-center font-bold ${
                   row.vacancy_available === 0 ? 'text-red-600' :
                   row.vacancy_available <= 5 ? 'text-orange-600' : 
