@@ -130,7 +130,6 @@ export default function PivotTable() {
         date_time: avail.local_date_time,
         vacancy_available: avail.vacancy_available || 0,
         vacancy_opening: avail.vacancy_opening || 0,
-        vacancy_sold: avail.vacancy_sold || 0,
         status: avail.status,
         bookings: [],
         total_amount: 0,
@@ -164,7 +163,6 @@ export default function PivotTable() {
           date_time: booking.start_date_time,
           vacancy_available: 0,
           vacancy_opening: 0,
-          vacancy_sold: 0,
           status: 'SOLD_OUT',
           bookings: [],
           total_amount: 0,
@@ -289,7 +287,7 @@ export default function PivotTable() {
         'Start Time': row.time,
         'Total Amount': row.total_amount > 0 ? row.total_amount : 0,
         'Booking Count': row.bookings.length,
-        'Vacancy Sold': row.vacancy_sold || 0
+        'Total Participants': row.total_participants || 0
       }
 
       // Aggiungi colonne dinamiche partecipanti
@@ -298,7 +296,6 @@ export default function PivotTable() {
       })
 
       // Aggiungi le altre colonne
-      rowData['Total Participants'] = row.total_participants || 0
       rowData['Availability Left'] = row.vacancy_available
       rowData['Status'] = row.status
       rowData['Last Reservation Name'] = row.last_reservation?.name || ''
@@ -402,14 +399,13 @@ export default function PivotTable() {
               <th className="px-4 py-2 border text-left">Start Time</th>
               <th className="px-4 py-2 border text-right">Total Amount</th>
               <th className="px-4 py-2 border text-center">Booking Count</th>
-              <th className="px-4 py-2 border text-center">Vacancy Sold</th>
+              <th className="px-4 py-2 border text-center">Total Participants</th>
               {/* Colonne dinamiche partecipanti */}
               {participantCategories.map(category => (
                 <th key={category} className="px-4 py-2 border text-center bg-blue-50">
                   {category}
                 </th>
               ))}
-              <th className="px-4 py-2 border text-center">Total Participants</th>
               <th className="px-4 py-2 border text-center">Availability Left</th>
               <th className="px-4 py-2 border text-center">Status</th>
               <th className="px-4 py-2 border text-left">Last Reservation</th>
@@ -428,8 +424,8 @@ export default function PivotTable() {
                 <td className="px-4 py-2 border text-center font-bold">
                   {row.bookings.length || 0}
                 </td>
-                <td className="px-4 py-2 border text-center">
-                  {row.vacancy_sold || 0}
+                <td className="px-4 py-2 border text-center font-bold">
+                  {row.total_participants || 0}
                 </td>
                 {/* Valori partecipanti */}
                 {participantCategories.map(category => (
@@ -437,9 +433,6 @@ export default function PivotTable() {
                     {row.participants[category] || 0}
                   </td>
                 ))}
-                <td className="px-4 py-2 border text-center font-bold">
-                  {row.total_participants || 0}
-                </td>
                 <td className={`px-4 py-2 border text-center font-bold ${
                   row.vacancy_available === 0 ? 'text-red-600' :
                   row.vacancy_available <= 5 ? 'text-orange-600' : 
