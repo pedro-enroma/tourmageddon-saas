@@ -80,7 +80,7 @@ export default function PivotTable() {
   const fetchData = async () => {
     setLoading(true)
     
-    // Prendi le prenotazioni - FILTRO AGGIORNATO per escludere ANCHE activity_bookings.status = CANCELLED
+    // Prendi le prenotazioni - FILTRO SOLO su activity_bookings.status
     let bookingsQuery = supabase
       .from('activity_bookings')
       .select(`
@@ -105,8 +105,7 @@ export default function PivotTable() {
           passenger_last_name
         )
       `)
-      .neq('bookings.status', 'CANCELLED')
-      .neq('status', 'CANCELLED')  // AGGIUNGI QUESTO: filtra anche activity_bookings.status
+      .neq('status', 'CANCELLED')  // SOLO activity_bookings.status
       .gte('start_date_time', `${dateRange.start}T00:00:00`)
       .lte('start_date_time', `${dateRange.end}T23:59:59`)
 
@@ -174,6 +173,7 @@ export default function PivotTable() {
         bookings: [],
         total_amount: 0,
         participants: {},
+        totalParticipants: 0,  // AGGIUNTO
         last_reservation: null,
         first_reservation: null
       })
@@ -206,6 +206,7 @@ export default function PivotTable() {
           bookings: [],
           total_amount: 0,
           participants: {},
+          totalParticipants: 0,  // AGGIUNTO
           last_reservation: null,
           first_reservation: null
         }
@@ -226,6 +227,9 @@ export default function PivotTable() {
         slot.participants[category] += pax.quantity || 1
         totalParticipants += pax.quantity || 1
       })
+
+      // Aggiungi al totale partecipanti dello slot
+      slot.totalParticipants = (slot.totalParticipants || 0) + totalParticipants
 
       // Traccia prima e ultima prenotazione
       const bookingCreationDate = new Date(booking.bookings.creation_date)
@@ -263,11 +267,31 @@ export default function PivotTable() {
       Object.keys(row.participants).forEach(cat => allCategories.add(cat))
     })
 
+    // ORDINAMENTO MIGLIORATO PER ETÀ
     const sortedCategories = Array.from(allCategories).sort((a, b) => {
       const aLower = a.toLowerCase()
       const bLower = b.toLowerCase()
+      
+      // Prima gli adulti
       if (aLower.includes('adult')) return -1
       if (bLower.includes('adult')) return 1
+      
+      // Poi ordina per età (assumendo che l'età sia nel nome, es: "Child (6-12)")
+      // Estrai i numeri dalle categorie
+      const extractAge = (category: string) => {
+        const match = category.match(/\d+/)
+        return match ? parseInt(match[0]) : 0
+      }
+      
+      const ageA = extractAge(a)
+      const ageB = extractAge(b)
+      
+      // Ordina dal più vecchio al più giovane
+      if (ageA !== ageB) {
+        return ageB - ageA
+      }
+      
+      // Se non ci sono età, ordina alfabeticamente
       return a.localeCompare(b)
     })
 
@@ -321,7 +345,8 @@ export default function PivotTable() {
         'Date': date.toLocaleDateString('it-IT', { day: '2-digit', month: '2-digit', year: 'numeric' }), // Solo data
         'Start Time': row.time,
         'Total Amount': row.total_amount > 0 ? row.total_amount : 0,
-        'Booking Count': row.bookings.length
+        'Booking Count': row.bookings.length,
+        'Total Participants': row.totalParticipants || 0  // AGGIUNTO
       }
 
       // Aggiungi colonne dinamiche partecipanti
@@ -541,6 +566,7 @@ export default function PivotTable() {
               <th className="px-4 py-2 border text-left">Start Time</th>
               <th className="px-4 py-2 border text-right">Total Amount</th>
               <th className="px-4 py-2 border text-center">Booking Count</th>
+              <th className="px-4 py-2 border text-center bg-yellow-50">Total Participants</th>
               {/* Colonne dinamiche partecipanti */}
               {participantCategories.map(category => (
                 <th key={category} className="px-4 py-2 border text-center bg-blue-50">
@@ -564,6 +590,9 @@ export default function PivotTable() {
                 </td>
                 <td className="px-4 py-2 border text-center font-bold">
                   {row.bookings.length || 0}
+                </td>
+                <td className="px-4 py-2 border text-center font-bold bg-yellow-50">
+                  {row.totalParticipants || 0}
                 </td>
                 {/* Valori partecipanti */}
                 {participantCategories.map(category => (
