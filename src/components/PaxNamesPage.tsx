@@ -2,7 +2,7 @@
 'use client'
 import { useState, useEffect, useRef } from 'react'
 import { supabase } from '@/lib/supabase'
-import { RefreshCw, Download, Calendar, ChevronDown, Search, X } from 'lucide-react'
+import { RefreshCw, Download, ChevronDown, Search, X } from 'lucide-react'
 import * as XLSX from 'xlsx'
 import {
   Table,
@@ -14,13 +14,6 @@ import {
   TableRow,
 } from "@/components/ui/table"
 import { Button } from "@/components/ui/button"
-import {
-  Select,
-  SelectContent,
-  SelectItem,
-  SelectTrigger,
-  SelectValue,
-} from "@/components/ui/select"
 import { Input } from "@/components/ui/input"
 import { Label } from "@/components/ui/label"
 
