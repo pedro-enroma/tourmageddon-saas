@@ -1,16 +1,534 @@
-import React from 'react'
-import { Users } from 'lucide-react'
+/* eslint-disable @typescript-eslint/no-explicit-any */
+'use client'
+import { useState, useEffect, useRef } from 'react'
+import { supabase } from '@/lib/supabase'
+import { RefreshCw, Download, Calendar, ChevronDown, Search, X } from 'lucide-react'
+import * as XLSX from 'xlsx'
+import {
+  Table,
+  TableBody,
+  TableCaption,
+  TableCell,
+  TableHead,
+  TableHeader,
+  TableRow,
+} from "@/components/ui/table"
+import { Button } from "@/components/ui/button"
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from "@/components/ui/select"
+import { Input } from "@/components/ui/input"
+import { Label } from "@/components/ui/label"
+
+interface PaxData {
+  activity_title: string
+  booking_date: string
+  start_time: string
+  booking_id: number
+  activity_booking_id: number
+  total_participants: number
+  passengers: {
+    booked_title: string
+    first_name: string | null
+    last_name: string | null
+    date_of_birth: string | null
+  }[]
+}
 
 export default function PaxNamesPage() {
+  const [data, setData] = useState<PaxData[]>([])
+  const [loading, setLoading] = useState(false)
+  const [activities, setActivities] = useState<any[]>([])
+  const [selectedActivities, setSelectedActivities] = useState<string[]>([])
+  const [isDropdownOpen, setIsDropdownOpen] = useState(false)
+  const [searchTerm, setSearchTerm] = useState('')
+  const searchInputRef = useRef<HTMLInputElement>(null)
+  const [dateRange, setDateRange] = useState({
+    start: new Date().toISOString().split('T')[0],
+    end: new Date(Date.now() + 30 * 24 * 60 * 60 * 1000).toISOString().split('T')[0]
+  })
+
+  useEffect(() => {
+    loadActivities()
+  }, [])
+
+  // Focus search input when dropdown opens
+  useEffect(() => {
+    if (isDropdownOpen && searchInputRef.current) {
+      setTimeout(() => {
+        searchInputRef.current?.focus()
+      }, 100)
+    }
+  }, [isDropdownOpen])
+
+  // Chiudi il dropdown quando si clicca fuori
+  useEffect(() => {
+    const handleClickOutside = (event: MouseEvent) => {
+      const target = event.target as HTMLElement
+      if (!target.closest('.dropdown-container')) {
+        setIsDropdownOpen(false)
+        setSearchTerm('') // Reset search when closing
+      }
+    }
+
+    if (isDropdownOpen) {
+      document.addEventListener('mousedown', handleClickOutside)
+    }
+
+    return () => {
+      document.removeEventListener('mousedown', handleClickOutside)
+    }
+  }, [isDropdownOpen])
+
+  const loadActivities = async () => {
+    const { data: allActivities, error } = await supabase
+      .from('activities')
+      .select('activity_id, title')
+      .order('title')
+
+    if (!error && allActivities) {
+      setActivities(allActivities)
+    }
+  }
+
+  const fetchData = async () => {
+    setLoading(true)
+    
+    try {
+      // Prima ottieni tutte le attività per creare una mappa
+      const { data: activitiesData } = await supabase
+        .from('activities')
+        .select('activity_id, title')
+      
+      const activitiesMap = new Map()
+      activitiesData?.forEach(activity => {
+        activitiesMap.set(activity.activity_id, activity.title)
+      })
+
+      // Query principale per ottenere i dati con i nomi dei passeggeri
+      let query = supabase
+        .from('activity_bookings')
+        .select(`
+          activity_booking_id,
+          booking_id,
+          start_date_time,
+          start_time,
+          status,
+          activity_id,
+          bookings!inner (
+            booking_id,
+            status
+          ),
+          pricing_category_bookings (
+            booked_title,
+            passenger_first_name,
+            passenger_last_name,
+            passenger_date_of_birth,
+            quantity
+          )
+        `)
+        .eq('status', 'CONFIRMED')
+        .neq('bookings.status', 'CANCELLED')
+        .gte('start_date_time', `${dateRange.start}T00:00:00`)
+        .lte('start_date_time', `${dateRange.end}T23:59:59`)
+
+      // Applica filtro attività se selezionate
+      if (selectedActivities.length > 0) {
+        query = query.in('activity_id', selectedActivities)
+      }
+
+      const { data: bookings, error } = await query
+
+      if (error) {
+        console.error('Errore nel caricamento dati:', error)
+        return
+      }
+
+      // Trasforma i dati nel formato richiesto
+      const transformedData: PaxData[] = []
+      
+      bookings?.forEach((booking: any) => {
+        const bookingDate = new Date(booking.start_date_time)
+        const dateStr = bookingDate.toISOString().split('T')[0]
+        
+        // Calcola il totale partecipanti
+        let totalParticipants = 0
+        const passengers: any[] = []
+        
+        booking.pricing_category_bookings?.forEach((pax: any) => {
+          totalParticipants += pax.quantity || 1
+          
+          // Aggiungi una riga per ogni passeggero
+          for (let i = 0; i < (pax.quantity || 1); i++) {
+            passengers.push({
+              booked_title: pax.booked_title,
+              first_name: pax.passenger_first_name,
+              last_name: pax.passenger_last_name,
+              date_of_birth: pax.passenger_date_of_birth
+            })
+          }
+        })
+
+        // Ottieni il titolo dell'attività dalla mappa
+        const activityTitle = activitiesMap.get(booking.activity_id) || 'N/A'
+
+        transformedData.push({
+          activity_title: activityTitle,
+          booking_date: dateStr,
+          start_time: booking.start_time || '',
+          booking_id: booking.booking_id,
+          activity_booking_id: booking.activity_booking_id,
+          total_participants: totalParticipants,
+          passengers: passengers
+        })
+      })
+
+      // Ordina i dati come richiesto
+      transformedData.sort((a, b) => {
+        // Prima per data
+        if (a.booking_date !== b.booking_date) {
+          return a.booking_date.localeCompare(b.booking_date)
+        }
+        // Poi per ora
+        if (a.start_time !== b.start_time) {
+          return a.start_time.localeCompare(b.start_time)
+        }
+        // Infine per titolo attività
+        return a.activity_title.localeCompare(b.activity_title)
+      })
+
+      setData(transformedData)
+    } catch (error) {
+      console.error('Errore:', error)
+    } finally {
+      setLoading(false)
+    }
+  }
+
+  const handleActivityChange = (activityId: string, checked: boolean) => {
+    if (checked) {
+      setSelectedActivities([...selectedActivities, activityId])
+    } else {
+      setSelectedActivities(selectedActivities.filter(id => id !== activityId))
+    }
+  }
+
+  const exportToExcel = () => {
+    const exportData: any[] = []
+    
+    data.forEach(booking => {
+      booking.passengers.forEach(pax => {
+        exportData.push({
+          'Tour': booking.activity_title,
+          'Data': new Date(booking.booking_date).toLocaleDateString('it-IT'),
+          'Ora': booking.start_time,
+          'Booking ID': booking.booking_id,
+          'Activity Booking ID': booking.activity_booking_id,
+          'Totale Partecipanti': booking.total_participants,
+          'Categoria': pax.booked_title,
+          'Nome': pax.first_name || '',
+          'Cognome': pax.last_name || '',
+          'Data di Nascita': pax.date_of_birth ? new Date(pax.date_of_birth).toLocaleDateString('it-IT') : ''
+        })
+      })
+    })
+
+    // Crea workbook e worksheet
+    const wb = XLSX.utils.book_new()
+    const ws = XLSX.utils.json_to_sheet(exportData)
+
+    // Imposta larghezza colonne
+    const colWidths = [
+      { wch: 30 }, // Tour
+      { wch: 12 }, // Data
+      { wch: 8 },  // Ora
+      { wch: 12 }, // Booking ID
+      { wch: 18 }, // Activity Booking ID
+      { wch: 18 }, // Totale Partecipanti
+      { wch: 20 }, // Categoria
+      { wch: 15 }, // Nome
+      { wch: 15 }, // Cognome
+      { wch: 15 }, // Data di Nascita
+    ]
+    ws['!cols'] = colWidths
+
+    XLSX.utils.book_append_sheet(wb, ws, 'Nominativi Passeggeri')
+    
+    const fileName = `pax_names_${new Date().toISOString().split('T')[0]}.xlsx`
+    XLSX.writeFile(wb, fileName)
+  }
+
   return (
-    <div className="flex flex-col items-center justify-center h-full">
-      <Users className="w-16 h-16 text-gray-400 mb-4" />
-      <h1 className="text-2xl font-bold text-gray-900 mb-2">Pax Names</h1>
-      <p className="text-gray-500 text-center max-w-md">
-        This page will display passenger information and allow you to manage passenger data.
-      </p>
-      <div className="mt-8 p-8 bg-gray-100 rounded-lg">
-        <p className="text-sm text-gray-600">Coming soon...</p>
+    <div className="p-4">
+      {/* Sezione Filtri */}
+      <div className="mb-6 p-4 border rounded-lg bg-gray-50">
+        <h3 className="text-lg font-semibold mb-4">Filtri</h3>
+        
+        <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+          {/* Selezione Tour - Dropdown */}
+          <div className="dropdown-container">
+            <Label>Seleziona Tour</Label>
+            <div className="mt-2 relative">
+              <button
+                type="button"
+                onClick={() => {
+                  setIsDropdownOpen(!isDropdownOpen)
+                  if (!isDropdownOpen) {
+                    setSearchTerm('') // Reset search when opening
+                  }
+                }}
+                className="w-full flex items-center justify-between px-3 py-2 text-sm border rounded-md bg-white hover:bg-gray-50 focus:outline-none focus:ring-2 focus:ring-blue-500"
+              >
+                <span className="truncate flex-1 text-left">
+                  {selectedActivities.length === 0 
+                    ? 'Seleziona tour...' 
+                    : selectedActivities.length === 1
+                    ? activities.find(a => a.activity_id === selectedActivities[0])?.title || '1 tour selezionato'
+                    : selectedActivities.length <= 2
+                    ? selectedActivities.map(id => 
+                        activities.find(a => a.activity_id === id)?.title
+                      ).filter(Boolean).join(', ')
+                    : `${selectedActivities.length} tour selezionati`
+                  }
+                </span>
+                {selectedActivities.length > 0 && (
+                  <span className="ml-2 px-2 py-0.5 text-xs bg-blue-100 text-blue-700 rounded-full">
+                    {selectedActivities.length}
+                  </span>
+                )}
+                <ChevronDown className={`ml-2 h-4 w-4 transition-transform ${isDropdownOpen ? 'rotate-180' : ''}`} />
+              </button>
+              
+              {/* Dropdown Menu */}
+              {isDropdownOpen && (
+                <div className="absolute z-10 mt-1 w-full bg-white border rounded-md shadow-lg max-h-60 overflow-hidden">
+                  <div className="p-2 border-b">
+                    {/* Search input */}
+                    <div className="relative">
+                      <Search className="absolute left-2 top-2.5 h-4 w-4 text-gray-400" />
+                      <input
+                        ref={searchInputRef}
+                        type="text"
+                        placeholder="Cerca tour..."
+                        value={searchTerm}
+                        onChange={(e) => setSearchTerm(e.target.value)}
+                        className="w-full pl-8 pr-8 py-2 text-sm border rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500"
+                        onClick={(e) => e.stopPropagation()}
+                      />
+                      {searchTerm && (
+                        <button
+                          onClick={(e) => {
+                            e.stopPropagation()
+                            setSearchTerm('')
+                            searchInputRef.current?.focus()
+                          }}
+                          className="absolute right-2 top-2.5 h-4 w-4 text-gray-400 hover:text-gray-600"
+                        >
+                          <X className="h-4 w-4" />
+                        </button>
+                      )}
+                    </div>
+                  </div>
+                  
+                  <div className="overflow-y-auto max-h-48">
+                    {searchTerm && (
+                      <div className="px-3 py-1 text-xs text-gray-500 bg-gray-50">
+                        {activities.filter(a => a.title.toLowerCase().includes(searchTerm.toLowerCase())).length} risultati
+                      </div>
+                    )}
+                    <div className="p-2">
+                      <button
+                        onClick={() => {
+                          const filteredActivities = activities.filter(a => 
+                            a.title.toLowerCase().includes(searchTerm.toLowerCase())
+                          )
+                          const filteredIds = filteredActivities.map(a => a.activity_id)
+                          const allFilteredSelected = filteredIds.every(id => selectedActivities.includes(id))
+                          
+                          if (allFilteredSelected) {
+                            setSelectedActivities(selectedActivities.filter(id => !filteredIds.includes(id)))
+                          } else {
+                            setSelectedActivities([...new Set([...selectedActivities, ...filteredIds])])
+                          }
+                        }}
+                        className="w-full text-left px-2 py-1 text-sm hover:bg-gray-100 rounded"
+                      >
+                        {(() => {
+                          const filteredActivities = activities.filter(a => 
+                            a.title.toLowerCase().includes(searchTerm.toLowerCase())
+                          )
+                          const filteredIds = filteredActivities.map(a => a.activity_id)
+                          const allFilteredSelected = filteredIds.every(id => selectedActivities.includes(id))
+                          return allFilteredSelected ? 'Deseleziona tutti (filtrati)' : 'Seleziona tutti (filtrati)'
+                        })()}
+                      </button>
+                    </div>
+                    <div className="border-t">
+                      {activities
+                        .filter(activity => 
+                          activity.title.toLowerCase().includes(searchTerm.toLowerCase())
+                        )
+                        .map(activity => (
+                          <div 
+                            key={activity.activity_id} 
+                            className="flex items-center px-3 py-2 hover:bg-gray-50 cursor-pointer"
+                            onClick={() => handleActivityChange(activity.activity_id, !selectedActivities.includes(activity.activity_id))}
+                          >
+                            <input
+                              type="checkbox"
+                              id={activity.activity_id}
+                              checked={selectedActivities.includes(activity.activity_id)}
+                              onChange={(e) => {
+                                e.stopPropagation()
+                                handleActivityChange(activity.activity_id, e.target.checked)
+                              }}
+                              className="w-4 h-4 mr-2"
+                            />
+                            <label 
+                              htmlFor={activity.activity_id}
+                              className="text-sm cursor-pointer flex-1"
+                            >
+                              {searchTerm ? (
+                                (() => {
+                                  const parts = activity.title.split(new RegExp(`(${searchTerm})`, 'gi'))
+                                  return parts.map((part, index) => 
+                                    part.toLowerCase() === searchTerm.toLowerCase() ? (
+                                      <span key={index} className="bg-yellow-200">{part}</span>
+                                    ) : (
+                                      <span key={index}>{part}</span>
+                                    )
+                                  )
+                                })()
+                              ) : (
+                                activity.title
+                              )}
+                            </label>
+                          </div>
+                        ))}
+                      {activities.filter(activity => 
+                        activity.title.toLowerCase().includes(searchTerm.toLowerCase())
+                      ).length === 0 && (
+                        <div className="px-3 py-4 text-sm text-gray-500 text-center">
+                          Nessun tour trovato
+                        </div>
+                      )}
+                    </div>
+                  </div>
+                </div>
+              )}
+            </div>
+          </div>
+
+          {/* Selezione Date */}
+          <div>
+            <Label>Data Inizio</Label>
+            <Input
+              type="date"
+              value={dateRange.start}
+              onChange={(e) => setDateRange({...dateRange, start: e.target.value})}
+              className="mt-2"
+            />
+          </div>
+
+          <div>
+            <Label>Data Fine</Label>
+            <Input
+              type="date"
+              value={dateRange.end}
+              onChange={(e) => setDateRange({...dateRange, end: e.target.value})}
+              className="mt-2"
+            />
+          </div>
+        </div>
+
+        {/* Pulsanti Azione */}
+        <div className="mt-4 flex gap-2">
+          <Button 
+            onClick={fetchData}
+            disabled={loading}
+          >
+            <RefreshCw className={`mr-2 h-4 w-4 ${loading ? 'animate-spin' : ''}`} />
+            Aggiorna
+          </Button>
+          
+          <Button 
+            onClick={exportToExcel}
+            variant="outline"
+            disabled={data.length === 0}
+          >
+            <Download className="mr-2 h-4 w-4" />
+            Export Excel
+          </Button>
+        </div>
+      </div>
+
+      {/* Tabella */}
+      <div className="rounded-md border">
+        <Table>
+          <TableCaption>
+            {data.length > 0 
+              ? `Trovati ${data.length} booking con ${data.reduce((acc, b) => acc + b.passengers.length, 0)} passeggeri`
+              : 'Nessun dato trovato per i filtri selezionati'
+            }
+          </TableCaption>
+          <TableHeader>
+            <TableRow>
+              <TableHead>Tour</TableHead>
+              <TableHead>Data</TableHead>
+              <TableHead>Ora</TableHead>
+              <TableHead>Booking ID</TableHead>
+              <TableHead>Activity Booking ID</TableHead>
+              <TableHead>Totale Partecipanti</TableHead>
+              <TableHead>Categoria</TableHead>
+              <TableHead>Nome</TableHead>
+              <TableHead>Cognome</TableHead>
+              <TableHead>Data di Nascita</TableHead>
+            </TableRow>
+          </TableHeader>
+          <TableBody>
+            {data.map((booking) => (
+              booking.passengers.map((pax, paxIndex) => (
+                <TableRow key={`${booking.activity_booking_id}-${paxIndex}`}>
+                  {paxIndex === 0 ? (
+                    <>
+                      <TableCell rowSpan={booking.passengers.length} className="font-medium">
+                        {booking.activity_title}
+                      </TableCell>
+                      <TableCell rowSpan={booking.passengers.length}>
+                        {new Date(booking.booking_date).toLocaleDateString('it-IT')}
+                      </TableCell>
+                      <TableCell rowSpan={booking.passengers.length}>
+                        {booking.start_time}
+                      </TableCell>
+                      <TableCell rowSpan={booking.passengers.length}>
+                        {booking.booking_id}
+                      </TableCell>
+                      <TableCell rowSpan={booking.passengers.length}>
+                        {booking.activity_booking_id}
+                      </TableCell>
+                      <TableCell rowSpan={booking.passengers.length} className="text-center">
+                        {booking.total_participants}
+                      </TableCell>
+                    </>
+                  ) : null}
+                  <TableCell>{pax.booked_title}</TableCell>
+                  <TableCell>{pax.first_name || '-'}</TableCell>
+                  <TableCell>{pax.last_name || '-'}</TableCell>
+                  <TableCell>
+                    {pax.date_of_birth 
+                      ? new Date(pax.date_of_birth).toLocaleDateString('it-IT')
+                      : '-'
+                    }
+                  </TableCell>
+                </TableRow>
+              ))
+            ))}
+          </TableBody>
+        </Table>
       </div>
     </div>
   )
