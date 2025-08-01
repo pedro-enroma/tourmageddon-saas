@@ -454,7 +454,7 @@ export default function PivotTable() {
                               {searchTerm ? (
                                 (() => {
                                   const parts = product.title.split(new RegExp(`(${searchTerm})`, 'gi'))
-                                  return parts.map((part, index) => 
+                                  return parts.map((part: string, index: number) => 
                                     part.toLowerCase() === searchTerm.toLowerCase() ? (
                                       <span key={index} className="bg-yellow-200">{part}</span>
                                     ) : (

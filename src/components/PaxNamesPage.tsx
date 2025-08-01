@@ -388,7 +388,7 @@ export default function PaxNamesPage() {
                               {searchTerm ? (
                                 (() => {
                                   const parts = activity.title.split(new RegExp(`(${searchTerm})`, 'gi'))
-                                  return parts.map((part, index) => 
+                                  return parts.map((part: string, index: number) => 
                                     part.toLowerCase() === searchTerm.toLowerCase() ? (
                                       <span key={index} className="bg-yellow-200">{part}</span>
                                     ) : (
