@@ -2,63 +2,31 @@
 /* eslint-disable @typescript-eslint/no-unused-vars */
 /* eslint-disable react-hooks/exhaustive-deps */
 'use client'
-import { useState, useEffect, useRef } from 'react'
+import { useState, useEffect } from 'react'
 import { supabase } from '@/lib/supabase'
-import { RefreshCw, Download, ChevronDown, Search, X, Check } from 'lucide-react'
+import { RefreshCw, Download } from 'lucide-react'
 import * as XLSX from 'xlsx'
-import { Button } from "@/components/ui/button"
-import { Input } from "@/components/ui/input"
-import { Label } from "@/components/ui/label"
 
 export default function PivotTable() {
   const [data, setData] = useState<any[]>([])
   const [loading, setLoading] = useState(true)
   const [products, setProducts] = useState<any[]>([])
-  const [selectedProduct, setSelectedProduct] = useState<string>('')
-  const [isDropdownOpen, setIsDropdownOpen] = useState(false)
-  const [searchTerm, setSearchTerm] = useState('')
-  const searchInputRef = useRef<HTMLInputElement>(null)
+  const [selectedProduct, setSelectedProduct] = useState('all')
   const [dateRange, setDateRange] = useState({
     start: new Date().toISOString().split('T')[0],
     end: new Date(Date.now() + 30 * 24 * 60 * 60 * 1000).toISOString().split('T')[0]
   })
   const [participantCategories, setParticipantCategories] = useState<string[]>([])
+  const [allPricingCategories, setAllPricingCategories] = useState<any[]>([])
 
   useEffect(() => {
     loadAllProducts()
+    loadPricingCategories()
   }, [])
 
   useEffect(() => {
     fetchData()
   }, [selectedProduct, dateRange])
-
-  // Focus search input when dropdown opens
-  useEffect(() => {
-    if (isDropdownOpen && searchInputRef.current) {
-      setTimeout(() => {
-        searchInputRef.current?.focus()
-      }, 100)
-    }
-  }, [isDropdownOpen])
-
-  // Chiudi il dropdown quando si clicca fuori
-  useEffect(() => {
-    const handleClickOutside = (event: MouseEvent) => {
-      const target = event.target as HTMLElement
-      if (!target.closest('.dropdown-container')) {
-        setIsDropdownOpen(false)
-        setSearchTerm('') // Reset search when closing
-      }
-    }
-
-    if (isDropdownOpen) {
-      document.addEventListener('mousedown', handleClickOutside)
-    }
-
-    return () => {
-      document.removeEventListener('mousedown', handleClickOutside)
-    }
-  }, [isDropdownOpen])
 
   const loadAllProducts = async () => {
     const { data: allActivities, error } = await supabase
@@ -71,16 +39,21 @@ export default function PivotTable() {
     }
   }
 
-  const handleProductSelect = (productId: string) => {
-    setSelectedProduct(productId)
-    setIsDropdownOpen(false)
-    setSearchTerm('')
+  const loadPricingCategories = async () => {
+    const { data: categories, error } = await supabase
+      .from('pricing_categories')
+      .select('pricing_category_id, activity_id, title')
+      .order('title')
+
+    if (!error && categories) {
+      setAllPricingCategories(categories)
+    }
   }
 
   const fetchData = async () => {
     setLoading(true)
     
-    // Prendi le prenotazioni - FILTRO SOLO su activity_bookings.status
+    // Prendi le prenotazioni - FILTRO AGGIORNATO per escludere ANCHE activity_bookings.status = CANCELLED
     let bookingsQuery = supabase
       .from('activity_bookings')
       .select(`
@@ -105,19 +78,20 @@ export default function PivotTable() {
           passenger_last_name
         )
       `)
-      .neq('status', 'CANCELLED')  // SOLO activity_bookings.status
+      .neq('bookings.status', 'CANCELLED')
+      .neq('status', 'CANCELLED')  // AGGIUNGI QUESTO: filtra anche activity_bookings.status
       .gte('start_date_time', `${dateRange.start}T00:00:00`)
       .lte('start_date_time', `${dateRange.end}T23:59:59`)
 
-    if (selectedProduct && selectedProduct !== '') {
+    if (selectedProduct !== 'all') {
       bookingsQuery = bookingsQuery.eq('activity_id', selectedProduct)
     }
 
     const { data: bookings, error: bookingsError } = await bookingsQuery
     
-    // Prendi le disponibilità
+    // Prendi le disponibilità da activity_availability_rome
     let availabilityQuery = supabase
-      .from('activity_availability')
+      .from('activity_availability_rome')
       .select(`
         *,
         activities!inner (
@@ -129,7 +103,7 @@ export default function PivotTable() {
       .lte('local_date', dateRange.end)
       .order('local_date_time', { ascending: true })
 
-    if (selectedProduct && selectedProduct !== '') {
+    if (selectedProduct !== 'all') {
       availabilityQuery = availabilityQuery.eq('activity_id', selectedProduct)
     }
 
@@ -157,8 +131,8 @@ export default function PivotTable() {
 
     // Prima aggiungi tutti gli slot dalle disponibilità
     availabilities?.forEach(avail => {
-      // Normalizza l'ora per essere sicuri del formato
-      const time = avail.local_time.substring(0, 5)
+      // Usa local_time_rome invece di local_time
+      const time = avail.local_time_rome.substring(0, 5)
       const key = `${avail.activity_id}_${avail.local_date}_${time}`
       
       allSlots.set(key, {
@@ -172,8 +146,8 @@ export default function PivotTable() {
         status: avail.status,
         bookings: [],
         total_amount: 0,
+        total_participants: 0,
         participants: {},
-        totalParticipants: 0,  // AGGIUNTO
         last_reservation: null,
         first_reservation: null
       })
@@ -205,8 +179,8 @@ export default function PivotTable() {
           status: 'SOLD_OUT',
           bookings: [],
           total_amount: 0,
+          total_participants: 0,
           participants: {},
-          totalParticipants: 0,  // AGGIUNTO
           last_reservation: null,
           first_reservation: null
         }
@@ -227,9 +201,9 @@ export default function PivotTable() {
         slot.participants[category] += pax.quantity || 1
         totalParticipants += pax.quantity || 1
       })
-
+      
       // Aggiungi al totale partecipanti dello slot
-      slot.totalParticipants = (slot.totalParticipants || 0) + totalParticipants
+      slot.total_participants += totalParticipants
 
       // Traccia prima e ultima prenotazione
       const bookingCreationDate = new Date(booking.bookings.creation_date)
@@ -261,37 +235,29 @@ export default function PivotTable() {
         return a.product_title.localeCompare(b.product_title)
       })
 
-    // Estrai categorie partecipanti
-    const allCategories = new Set<string>()
-    finalData.forEach(row => {
-      Object.keys(row.participants).forEach(cat => allCategories.add(cat))
-    })
+    // Estrai categorie partecipanti in base al prodotto selezionato
+    let relevantCategories: string[] = []
+    
+    if (selectedProduct === 'all') {
+      // Se "tutti i tour", mostra tutte le categorie uniche
+      const uniqueCategories = new Set<string>()
+      allPricingCategories.forEach(cat => {
+        uniqueCategories.add(cat.title)
+      })
+      relevantCategories = Array.from(uniqueCategories)
+    } else {
+      // Se prodotto specifico, mostra solo le sue categorie
+      relevantCategories = allPricingCategories
+        .filter(cat => cat.activity_id === selectedProduct)
+        .map(cat => cat.title)
+    }
 
-    // ORDINAMENTO MIGLIORATO PER ETÀ
-    const sortedCategories = Array.from(allCategories).sort((a, b) => {
+    // Ordina le categorie (adulti prima)
+    const sortedCategories = relevantCategories.sort((a, b) => {
       const aLower = a.toLowerCase()
       const bLower = b.toLowerCase()
-      
-      // Prima gli adulti
       if (aLower.includes('adult')) return -1
       if (bLower.includes('adult')) return 1
-      
-      // Poi ordina per età (assumendo che l'età sia nel nome, es: "Child (6-12)")
-      // Estrai i numeri dalle categorie
-      const extractAge = (category: string) => {
-        const match = category.match(/\d+/)
-        return match ? parseInt(match[0]) : 0
-      }
-      
-      const ageA = extractAge(a)
-      const ageB = extractAge(b)
-      
-      // Ordina dal più vecchio al più giovane
-      if (ageA !== ageB) {
-        return ageB - ageA
-      }
-      
-      // Se non ci sono età, ordina alfabeticamente
       return a.localeCompare(b)
     })
 
@@ -346,7 +312,7 @@ export default function PivotTable() {
         'Start Time': row.time,
         'Total Amount': row.total_amount > 0 ? row.total_amount : 0,
         'Booking Count': row.bookings.length,
-        'Total Participants': row.totalParticipants || 0  // AGGIUNTO
+        'Total Participants': row.total_participants || 0
       }
 
       // Aggiungi colonne dinamiche partecipanti
@@ -388,166 +354,58 @@ export default function PivotTable() {
 
   return (
     <div className="p-4">
-      {/* Sezione Filtri */}
-      <div className="mb-6 p-4 border rounded-lg bg-gray-50">
-        <h3 className="text-lg font-semibold mb-4">Filtri</h3>
-        
-        <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
-          {/* Selezione Tour - Dropdown Single Select */}
-          <div className="dropdown-container">
-            <Label>Seleziona Tour</Label>
-            <div className="mt-2 relative">
-              <button
-                type="button"
-                onClick={() => {
-                  setIsDropdownOpen(!isDropdownOpen)
-                  if (!isDropdownOpen) {
-                    setSearchTerm('') // Reset search when opening
-                  }
-                }}
-                className="w-full flex items-center justify-between px-3 py-2 text-sm border rounded-md bg-white hover:bg-gray-50 focus:outline-none focus:ring-2 focus:ring-blue-500"
-              >
-                <span className="truncate flex-1 text-left">
-                  {!selectedProduct || selectedProduct === ''
-                    ? 'Tutti i tour' 
-                    : products.find(p => p.activity_id === selectedProduct)?.title || 'Tour selezionato'
-                  }
-                </span>
-                <ChevronDown className={`ml-2 h-4 w-4 transition-transform ${isDropdownOpen ? 'rotate-180' : ''}`} />
-              </button>
-              
-              {/* Dropdown Menu */}
-              {isDropdownOpen && (
-                <div className="absolute z-10 mt-1 w-full bg-white border rounded-md shadow-lg max-h-60 overflow-hidden">
-                  <div className="p-2 border-b">
-                    {/* Search input */}
-                    <div className="relative">
-                      <Search className="absolute left-2 top-2.5 h-4 w-4 text-gray-400" />
-                      <input
-                        ref={searchInputRef}
-                        type="text"
-                        placeholder="Cerca tour..."
-                        value={searchTerm}
-                        onChange={(e) => setSearchTerm(e.target.value)}
-                        className="w-full pl-8 pr-8 py-2 text-sm border rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500"
-                        onClick={(e) => e.stopPropagation()}
-                      />
-                      {searchTerm && (
-                        <button
-                          onClick={(e) => {
-                            e.stopPropagation()
-                            setSearchTerm('')
-                            searchInputRef.current?.focus()
-                          }}
-                          className="absolute right-2 top-2.5 h-4 w-4 text-gray-400 hover:text-gray-600"
-                        >
-                          <X className="h-4 w-4" />
-                        </button>
-                      )}
-                    </div>
-                  </div>
-                  
-                  <div className="overflow-y-auto max-h-48">
-                    {searchTerm && (
-                      <div className="px-3 py-1 text-xs text-gray-500 bg-gray-50">
-                        {products.filter(p => p.title.toLowerCase().includes(searchTerm.toLowerCase())).length} risultati
-                      </div>
-                    )}
-                    <div>
-                      {/* Opzione per vedere tutti i tour */}
-                      {(!searchTerm || 'tutti i tour'.includes(searchTerm.toLowerCase())) && (
-                        <div 
-                          className={`flex items-center justify-between px-3 py-2 hover:bg-gray-50 cursor-pointer border-b ${!selectedProduct ? 'bg-blue-50' : ''}`}
-                          onClick={() => handleProductSelect('')}
-                        >
-                          <span className="text-sm font-medium">Tutti i tour</span>
-                          {!selectedProduct && <Check className="h-4 w-4 text-blue-600" />}
-                        </div>
-                      )}
-                      {/* Lista tour filtrati */}
-                      {products
-                        .filter(product => 
-                          product.title.toLowerCase().includes(searchTerm.toLowerCase())
-                        )
-                        .map(product => (
-                          <div 
-                            key={product.activity_id} 
-                            className={`flex items-center justify-between px-3 py-2 hover:bg-gray-50 cursor-pointer ${selectedProduct === product.activity_id ? 'bg-blue-50' : ''}`}
-                            onClick={() => handleProductSelect(product.activity_id)}
-                          >
-                            <label className="text-sm cursor-pointer flex-1">
-                              {searchTerm ? (
-                                (() => {
-                                  const parts = product.title.split(new RegExp(`(${searchTerm})`, 'gi'))
-                                  return parts.map((part: string, index: number) => 
-                                    part.toLowerCase() === searchTerm.toLowerCase() ? (
-                                      <span key={index} className="bg-yellow-200">{part}</span>
-                                    ) : (
-                                      <span key={index}>{part}</span>
-                                    )
-                                  )
-                                })()
-                              ) : (
-                                product.title
-                              )}
-                            </label>
-                            {selectedProduct === product.activity_id && <Check className="h-4 w-4 text-blue-600" />}
-                          </div>
-                        ))}
-                      {products.filter(product => 
-                        product.title.toLowerCase().includes(searchTerm.toLowerCase())
-                      ).length === 0 && searchTerm && !('tutti i tour'.includes(searchTerm.toLowerCase())) && (
-                        <div className="px-3 py-4 text-sm text-gray-500 text-center">
-                          Nessun tour trovato
-                        </div>
-                      )}
-                    </div>
-                  </div>
-                </div>
-              )}
-            </div>
-          </div>
-
-          {/* Selezione Date */}
-          <div>
-            <Label>Data Inizio</Label>
-            <Input
-              type="date"
-              value={dateRange.start}
-              onChange={(e) => setDateRange({...dateRange, start: e.target.value})}
-              className="mt-2"
-            />
-          </div>
-
-          <div>
-            <Label>Data Fine</Label>
-            <Input
-              type="date"
-              value={dateRange.end}
-              onChange={(e) => setDateRange({...dateRange, end: e.target.value})}
-              className="mt-2"
-            />
-          </div>
+      {/* Filtri e Azioni */}
+      <div className="mb-4 flex justify-between items-center">
+        <div className="flex gap-4 items-center">
+          <label>Tour:</label>
+          <select 
+            value={selectedProduct}
+            onChange={(e) => setSelectedProduct(e.target.value)}
+            className="border rounded px-3 py-1 max-w-md"
+          >
+            <option value="all">Tutti i tour ({products.length})</option>
+            {products.map(product => (
+              <option key={product.activity_id} value={product.activity_id}>
+                {product.title}
+              </option>
+            ))}
+          </select>
+          
+          <label className="ml-4">Da:</label>
+          <input
+            type="date"
+            value={dateRange.start}
+            onChange={(e) => setDateRange({...dateRange, start: e.target.value})}
+            className="border rounded px-3 py-1"
+          />
+          
+          <label>A:</label>
+          <input
+            type="date"
+            value={dateRange.end}
+            onChange={(e) => setDateRange({...dateRange, end: e.target.value})}
+            className="border rounded px-3 py-1"
+          />
         </div>
 
-        {/* Pulsanti Azione */}
-        <div className="mt-4 flex gap-2">
-          <Button 
+        {/* Pulsanti azioni */}
+        <div className="flex gap-2">
+          <button
             onClick={handleRefresh}
             disabled={loading}
+            className="flex items-center gap-2 px-4 py-2 bg-blue-500 text-white rounded hover:bg-blue-600 disabled:bg-gray-400"
           >
-            <RefreshCw className={`mr-2 h-4 w-4 ${loading ? 'animate-spin' : ''}`} />
+            <RefreshCw className={`w-4 h-4 ${loading ? 'animate-spin' : ''}`} />
             Aggiorna
-          </Button>
+          </button>
           
-          <Button 
+          <button
             onClick={exportToExcel}
-            variant="outline"
-            disabled={data.length === 0}
+            className="flex items-center gap-2 px-4 py-2 bg-green-500 text-white rounded hover:bg-green-600"
           >
-            <Download className="mr-2 h-4 w-4" />
+            <Download className="w-4 h-4" />
             Export Excel
-          </Button>
+          </button>
         </div>
       </div>
 
@@ -566,7 +424,7 @@ export default function PivotTable() {
               <th className="px-4 py-2 border text-left">Start Time</th>
               <th className="px-4 py-2 border text-right">Total Amount</th>
               <th className="px-4 py-2 border text-center">Booking Count</th>
-              <th className="px-4 py-2 border text-center bg-yellow-50">Total Participants</th>
+              <th className="px-4 py-2 border text-center">Total Participants</th>
               {/* Colonne dinamiche partecipanti */}
               {participantCategories.map(category => (
                 <th key={category} className="px-4 py-2 border text-center bg-blue-50">
@@ -591,8 +449,10 @@ export default function PivotTable() {
                 <td className="px-4 py-2 border text-center font-bold">
                   {row.bookings.length || 0}
                 </td>
-                <td className="px-4 py-2 border text-center font-bold bg-yellow-50">
-                  {row.totalParticipants || 0}
+                <td className="px-4 py-2 border text-center font-bold">
+                  {participantCategories.reduce((sum, category) => {
+                    return sum + (row.participants[category] || 0)
+                  }, 0)}
                 </td>
                 {/* Valori partecipanti */}
                 {participantCategories.map(category => (
