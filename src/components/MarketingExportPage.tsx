@@ -521,7 +521,7 @@ export default function MarketingExport() {
         <div className="bg-white rounded-lg shadow-sm border border-gray-200 p-12">
           <div className="text-center text-gray-500">
             <p className="text-lg">Nessun dato trovato per i filtri selezionati</p>
-            <p className="text-sm mt-2">Seleziona i filtri e clicca 'Aggiorna' per visualizzare i dati</p>
+            <p className="text-sm mt-2">Seleziona i filtri e clicca &quot;Aggiorna&quot; per visualizzare i dati</p>
           </div>
         </div>
       ) : loading ? (
