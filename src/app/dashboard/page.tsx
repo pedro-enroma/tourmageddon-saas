@@ -5,13 +5,14 @@ import { Menu, ChevronRight, TableProperties, Users, FileBarChart, X, Search, Us
 import ConsumedPage from '@/components/ConsumedPage'
 import PaxNamesPage from '@/components/PaxNamesPage'
 import ReportsPage from '@/components/ReportsPage'
+import MarketingExportPage from '@/components/MarketingExportPage'
 
 // Componente Sidebar inline per evitare problemi di import
 function AppSidebar({ isOpen, onClose, currentPage, setCurrentPage }: {
   isOpen: boolean
   onClose: () => void
-  currentPage: 'consumed' | 'pax-names' | 'reports'
-  setCurrentPage: (page: 'consumed' | 'pax-names' | 'reports') => void
+  currentPage: 'consumed' | 'pax-names' | 'reports' | 'marketing-export'
+  setCurrentPage: (page: 'consumed' | 'pax-names' | 'reports' | 'marketing-export') => void
 }) {
   const menuItems = [
     { 
@@ -27,6 +28,11 @@ function AppSidebar({ isOpen, onClose, currentPage, setCurrentPage }: {
     { 
       id: 'reports' as const, 
       label: 'Reports', 
+      icon: FileBarChart
+    },
+    { 
+      id: 'marketing-export' as const, 
+      label: 'Marketing Export', 
       icon: FileBarChart
     }
   ]
@@ -113,7 +119,7 @@ function AppSidebar({ isOpen, onClose, currentPage, setCurrentPage }: {
 
 export default function DashboardLayout() {
   const [sidebarOpen, setSidebarOpen] = useState(true)
-  const [currentPage, setCurrentPage] = useState<'consumed' | 'pax-names' | 'reports'>('consumed')
+  const [currentPage, setCurrentPage] = useState<'consumed' | 'pax-names' | 'reports' | 'marketing-export'>('consumed')
 
   return (
     <div className="flex h-screen bg-gray-50">
@@ -153,6 +159,7 @@ export default function DashboardLayout() {
                 {currentPage === 'consumed' && 'Consumed'}
                 {currentPage === 'pax-names' && 'Pax Names'}
                 {currentPage === 'reports' && 'Reports'}
+                {currentPage === 'marketing-export' && 'Marketing Export'}
               </span>
             </nav>
           </div>
@@ -163,6 +170,7 @@ export default function DashboardLayout() {
           {currentPage === 'consumed' && <ConsumedPage />}
           {currentPage === 'pax-names' && <PaxNamesPage />}
           {currentPage === 'reports' && <ReportsPage />}
+          {currentPage === 'marketing-export' && <MarketingExportPage />}
         </main>
       </div>
     </div>
