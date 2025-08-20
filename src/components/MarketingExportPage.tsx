@@ -1,6 +1,4 @@
-/* eslint-disable @typescript-eslint/no-explicit-any */
-/* eslint-disable @typescript-eslint/no-unused-vars */
-/* eslint-disable react-hooks/exhaustive-deps */
+// src/components/MarketingExportPage.tsx
 'use client'
 import { useState, useEffect, useRef } from 'react'
 import { supabase } from '@/lib/supabase'
@@ -146,8 +144,35 @@ const CustomDropdown = ({
   )
 }
 
+interface ActivityData {
+  activity_booking_id: string
+  booking_id: string
+  product_title: string
+  start_date_time: string
+  total_price?: number
+  activity_seller?: string
+  status: string
+  pricing_category_bookings?: Array<{
+    booked_title?: string
+    quantity?: number
+    passenger_first_name?: string
+    passenger_last_name?: string
+    passenger_date_of_birth?: string
+  }>
+  total_participants?: number
+}
+
+interface BookingRecord {
+  booking_id: string
+  first_name: string | null
+  last_name: string | null
+  email: string | null
+  phone_number: string | null
+  activities: ActivityData[]
+}
+
 export default function MarketingExport() {
-  const [data, setData] = useState<any[]>([])
+  const [data, setData] = useState<BookingRecord[]>([])
   const [loading, setLoading] = useState(false)
   const [hasSearched, setHasSearched] = useState(false)
   
@@ -281,17 +306,17 @@ export default function MarketingExport() {
       }
 
       // Filtra per tipi partecipanti se necessario
-      let filteredActivities = activities
+      let filteredActivities = activities as ActivityData[]
       
       if (selectedParticipantTypes.length > 0) {
         filteredActivities = filteredActivities.filter(activity => {
-          const activityParticipantTypes = activity.pricing_category_bookings?.map((p: any) => p.booked_title) || []
-          return activityParticipantTypes.some((type: string) => selectedParticipantTypes.includes(type))
+          const activityParticipantTypes = activity.pricing_category_bookings?.map(p => p.booked_title) || []
+          return activityParticipantTypes.some(type => selectedParticipantTypes.includes(type || ''))
         })
       }
 
       // Raggruppa per booking_id
-      const bookingMap = new Map()
+      const bookingMap = new Map<string, BookingRecord>()
 
       filteredActivities.forEach(activity => {
         const bookingId = activity.booking_id
@@ -315,7 +340,7 @@ export default function MarketingExport() {
           })
         }
         
-        const bookingData = bookingMap.get(bookingKey)
+        const bookingData = bookingMap.get(bookingKey)!
         
         // Se non abbiamo ancora un nome, prova con i partecipanti
         if (!bookingData.first_name && activity.pricing_category_bookings && activity.pricing_category_bookings.length > 0) {
@@ -335,7 +360,7 @@ export default function MarketingExport() {
         }
 
         // Calcola totale partecipanti
-        const totalParticipants = activity.pricing_category_bookings?.reduce((sum: number, p: any) => 
+        const totalParticipants = activity.pricing_category_bookings?.reduce((sum, p) => 
           sum + (p.quantity || 1), 0
         ) || 0
 
@@ -349,7 +374,7 @@ export default function MarketingExport() {
       const formattedData = Array.from(bookingMap.values())
         .map(booking => ({
           ...booking,
-          activities: booking.activities.sort((a: any, b: any) => 
+          activities: booking.activities.sort((a, b) => 
             new Date(a.start_date_time).getTime() - new Date(b.start_date_time).getTime()
           )
         }))
@@ -381,10 +406,10 @@ export default function MarketingExport() {
   }
 
   const exportToExcel = () => {
-    const exportData: any[] = []
+    const exportData: Record<string, string | number>[] = []
     
     data.forEach(record => {
-      record.activities.forEach((activity: any) => {
+      record.activities.forEach(activity => {
         // Riga principale per l'attività
         const baseRow = {
           'Nome Cliente': record.first_name || '',
@@ -393,7 +418,7 @@ export default function MarketingExport() {
           'Telefono': record.phone_number || '',
           'Tour': activity.product_title,
           'Data e Ora': formatDate(activity.start_date_time),
-          'Totale Partecipanti': activity.total_participants,
+          'Totale Partecipanti': activity.total_participants || 0,
           'Seller': activity.activity_seller || '',
           'Booking ID': activity.booking_id,
           'Activity Booking ID': activity.activity_booking_id
@@ -401,11 +426,11 @@ export default function MarketingExport() {
 
         // Se ci sono dettagli partecipanti, crea una riga per ognuno
         if (activity.pricing_category_bookings && activity.pricing_category_bookings.length > 0) {
-          activity.pricing_category_bookings.forEach((pax: any) => {
+          activity.pricing_category_bookings.forEach(pax => {
             exportData.push({
               ...baseRow,
-              'Tipo Partecipante': pax.booked_title,
-              'Quantità': pax.quantity,
+              'Tipo Partecipante': pax.booked_title || '',
+              'Quantità': pax.quantity || 0,
               'Nome Passeggero': pax.passenger_first_name || '',
               'Cognome Passeggero': pax.passenger_last_name || '',
               'Data Nascita': pax.passenger_date_of_birth || ''
@@ -582,7 +607,7 @@ export default function MarketingExport() {
                 </thead>
                 <tbody className="bg-white divide-y divide-gray-200">
                   {data.map((record, recordIdx) => (
-                    record.activities.map((activity: any, actIdx: number) => (
+                    record.activities.map((activity, actIdx) => (
                       <tr key={`${recordIdx}-${actIdx}`} className="hover:bg-gray-50">
                         {actIdx === 0 && (
                           <>

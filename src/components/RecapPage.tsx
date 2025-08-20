@@ -1,28 +1,118 @@
 // src/components/RecapPage.tsx
 'use client'
-import React, { useState, useEffect } from 'react'
+import React, { useState, useEffect, useCallback } from 'react'
 import { ChevronDown, ChevronRight, Plus, X, Save, RefreshCw, Download, Edit2, Trash2 } from 'lucide-react'
 import { supabase } from '@/lib/supabase'
 import * as XLSX from 'xlsx'
 
+// Definizione dei tipi
+interface Tour {
+  activity_id: string
+  title: string
+}
+
+interface TourGroup {
+  id: string
+  name: string
+  tourIds: string[]
+}
+
+interface Participant {
+  booked_title?: string
+  quantity?: number
+  age?: number
+  passenger_first_name?: string
+  passenger_last_name?: string
+}
+
+interface Booking {
+  activity_booking_id: string
+  activity_id: string
+  start_date_time: string
+  created_at: string
+  total_price?: number
+  product_title?: string
+  status?: string
+  activities?: {
+    activity_id: string
+    title: string
+  }
+  bookings?: {
+    booking_id: string
+    status: string
+    total_price: number
+    currency: string
+    confirmation_code: string
+    creation_date: string
+  }
+  pricing_category_bookings?: Participant[]
+}
+
+interface Availability {
+  activity_id: string
+  local_date: string
+  local_time: string
+  local_date_time: string
+  vacancy_available?: number
+  vacancy_opening?: number
+  vacancy?: number
+  status: string
+  activities: {
+    activity_id: string
+    title: string
+  }
+}
+
+interface SlotData {
+  id: string
+  tourId: string
+  tourTitle: string
+  date: string
+  time: string
+  totalAmount: number
+  bookingCount: number
+  participants: Record<string, number>
+  totalParticipants: number
+  availabilityLeft: number
+  status: string
+  bookings: Booking[]
+  lastReservation: {
+    date: string
+    name: string
+  } | null
+  firstReservation: {
+    date: string
+    name: string
+  } | null
+  // Per raggruppamenti
+  isGroup?: boolean
+  isDateGroup?: boolean
+  isWeekGroup?: boolean
+  slots?: SlotData[]
+  tours?: SlotData[]
+  days?: Record<string, SlotData[]>
+  weekStart?: string
+  weekEnd?: string
+}
+
 export default function RecapPage() {
   // Stati principali
-  const [tours, setTours] = useState<any[]>([])
-  const [tourGroups, setTourGroups] = useState<any[]>([])
+  const [tours, setTours] = useState<Tour[]>([])
+  const [tourGroups, setTourGroups] = useState<TourGroup[]>([])
   const [selectedFilter, setSelectedFilter] = useState('all')
   const [viewMode, setViewMode] = useState('orario')
   const [dateRange, setDateRange] = useState({
     start: new Date().toISOString().split('T')[0],
     end: new Date(Date.now() + 30 * 24 * 60 * 60 * 1000).toISOString().split('T')[0]
   })
-  const [data, setData] = useState<any[]>([])
+  const [data, setData] = useState<SlotData[]>([])
   const [loading, setLoading] = useState(false)
-  const [expandedRows, setExpandedRows] = useState(new Set())
+  const [expandedRows, setExpandedRows] = useState(new Set<string>())
   const [participantCategories, setParticipantCategories] = useState<string[]>([])
   
   // Stati per il popup
   const [showGroupModal, setShowGroupModal] = useState(false)
-  const [editingGroup, setEditingGroup] = useState<any>(null)
+  const [editingGroup, setEditingGroup] = useState<TourGroup | null>(null)
   const [newGroupName, setNewGroupName] = useState('')
   const [selectedTours, setSelectedTours] = useState<string[]>([])
   const [searchTerm, setSearchTerm] = useState('')
@@ -31,6 +121,129 @@ export default function RecapPage() {
   const filteredTours = tours.filter(tour => 
     tour.title.toLowerCase().includes(searchTerm.toLowerCase())
   )
+
+  // Definisci loadData con useCallback per evitare warning di dipendenze
+  const loadData = useCallback(async () => {
+    setLoading(true)
+    
+    let tourIds: string[] = []
+    
+    if (selectedFilter === 'all') {
+      tourIds = tours.map(t => t.activity_id)
+    } else if (selectedFilter.startsWith('group-')) {
+      const groupId = selectedFilter.replace('group-', '')
+      const group = tourGroups.find(g => g.id === groupId)
+      if (group) {
+        tourIds = group.tourIds
+      }
+    } else {
+      tourIds = [selectedFilter]
+    }
+    
+    // Query per le prenotazioni - CORREZIONE: solo activity_bookings.status
+    let bookingsQuery = supabase
+      .from('activity_bookings')
+      .select(`
+        *,
+        activities!inner (
+          activity_id,
+          title
+        ),
+        bookings!inner (
+          booking_id,
+          status,
+          total_price,
+          currency,
+          confirmation_code,
+          creation_date
+        ),
+        pricing_category_bookings (
+          booked_title,
+          quantity,
+          age,
+          passenger_first_name,
+          passenger_last_name
+        )
+      `)
+      .neq('status', 'CANCELLED')  // SOLO activity_bookings.status
+      .gte('start_date_time', `${dateRange.start}T00:00:00`)
+      .lte('start_date_time', `${dateRange.end}T23:59:59`)
+
+    if (tourIds.length > 0 && selectedFilter !== 'all') {
+      bookingsQuery = bookingsQuery.in('activity_id', tourIds)
+    }
+
+    const { data: bookings } = await bookingsQuery
+    
+    // Query per le disponibilità
+    let availabilityQuery = supabase
+      .from('activity_availability')
+      .select(`
+        *,
+        activities!inner (
+          activity_id,
+          title
+        )
+      `)
+      .gte('local_date', dateRange.start)
+      .lte('local_date', dateRange.end)
+      .order('local_date_time', { ascending: true })
+
+    if (tourIds.length > 0 && selectedFilter !== 'all') {
+      availabilityQuery = availabilityQuery.in('activity_id', tourIds)
+    }
+
+    const { data: availabilities } = await availabilityQuery
+    
+    // Query opzionale per categorie storiche se è selezionato un prodotto specifico
+    let historicalCategories: string[] = []
+    
+    if (tourIds.length === 1 && selectedFilter !== 'all') {
+      const { data: historicalBookings } = await supabase
+        .from('activity_bookings')
+        .select(`
+          pricing_category_bookings (
+            booked_title
+          )
+        `)
+        .eq('activity_id', tourIds[0])
+        .not('pricing_category_bookings.booked_title', 'is', null)
+      
+      const historicalCategoriesSet = new Set<string>()
+      historicalBookings?.forEach(booking => {
+        if ('pricing_category_bookings' in booking && Array.isArray(booking.pricing_category_bookings)) {
+          booking.pricing_category_bookings.forEach((pcb: { booked_title?: string }) => {
+            if (pcb.booked_title) {
+              historicalCategoriesSet.add(pcb.booked_title)
+            }
+          })
+        }
+      })
+      
+      historicalCategories = Array.from(historicalCategoriesSet)
+    }
+    
+    // Processa i dati
+    const processedData = processDataForDisplay(
+      (bookings as Booking[]) || [], 
+      (availabilities as Availability[]) || [], 
+      historicalCategories
+    )
+    
+    // Applica il raggruppamento in base al viewMode
+    let finalData = processedData
+    
+    if (viewMode === 'data') {
+      finalData = groupDataByDate(processedData)
+    } else if (viewMode === 'settimana') {
+      finalData = groupDataByWeek(processedData)
+    } else if (selectedFilter.startsWith('group-')) {
+      finalData = groupDataByTimeSlot(processedData)
+    }
+    
+    setData(finalData)
+    setLoading(false)
+  }, [selectedFilter, dateRange, tours, viewMode, tourGroups])
 
   // Carica i tour e i gruppi salvati al mount
   useEffect(() => {
@@ -87,7 +300,7 @@ export default function RecapPage() {
     if (tours.length > 0) {
       loadData()
     }
-  }, [selectedFilter, dateRange, tours, viewMode])
+  }, [selectedFilter, dateRange, tours, viewMode, loadData])
 
   const loadTours = async () => {
     try {
@@ -97,130 +310,14 @@ export default function RecapPage() {
         .order('title')
       
       if (activities && !error) {
-        setTours(activities)
+        setTours(activities as Tour[])
       }
     } catch (error) {
       console.error('Error loading tours:', error)
     }
   }
 
-  const loadData = async () => {
-    setLoading(true)
-    
-    let tourIds: string[] = []
-    
-    if (selectedFilter === 'all') {
-      tourIds = tours.map(t => t.activity_id)
-    } else if (selectedFilter.startsWith('group-')) {
-      const groupId = selectedFilter.replace('group-', '')
-      const group = tourGroups.find(g => g.id === groupId)
-      if (group) {
-        tourIds = group.tourIds
-      }
-    } else {
-      tourIds = [selectedFilter]
-    }
-    
-    // Query per le prenotazioni - CORREZIONE: solo activity_bookings.status
-    let bookingsQuery = supabase
-      .from('activity_bookings')
-      .select(`
-        *,
-        activities!inner (
-          activity_id,
-          title
-        ),
-        bookings!inner (
-          booking_id,
-          status,
-          total_price,
-          currency,
-          confirmation_code,
-          creation_date
-        ),
-        pricing_category_bookings (
-          booked_title,
-          quantity,
-          age,
-          passenger_first_name,
-          passenger_last_name
-        )
-      `)
-      .neq('status', 'CANCELLED')  // SOLO activity_bookings.status
-      .gte('start_date_time', `${dateRange.start}T00:00:00`)
-      .lte('start_date_time', `${dateRange.end}T23:59:59`)
-
-    if (tourIds.length > 0 && selectedFilter !== 'all') {
-      bookingsQuery = bookingsQuery.in('activity_id', tourIds)
-    }
-
-    const { data: bookings, error: bookingsError } = await bookingsQuery
-    
-    // Query per le disponibilità
-    let availabilityQuery = supabase
-      .from('activity_availability')
-      .select(`
-        *,
-        activities!inner (
-          activity_id,
-          title
-        )
-      `)
-      .gte('local_date', dateRange.start)
-      .lte('local_date', dateRange.end)
-      .order('local_date_time', { ascending: true })
-
-    if (tourIds.length > 0 && selectedFilter !== 'all') {
-      availabilityQuery = availabilityQuery.in('activity_id', tourIds)
-    }
-
-    const { data: availabilities, error: availError } = await availabilityQuery
-    
-    // Query opzionale per categorie storiche se è selezionato un prodotto specifico
-    let historicalCategories: string[] = []
-    
-    if (tourIds.length === 1 && selectedFilter !== 'all') {
-      const { data: historicalBookings } = await supabase
-        .from('activity_bookings')
-        .select(`
-          pricing_category_bookings (
-            booked_title
-          )
-        `)
-        .eq('activity_id', tourIds[0])
-        .not('pricing_category_bookings.booked_title', 'is', null)
-      
-      const historicalCategoriesSet = new Set<string>()
-      historicalBookings?.forEach(booking => {
-        booking.pricing_category_bookings?.forEach((pcb: any) => {
-          if (pcb.booked_title) {
-            historicalCategoriesSet.add(pcb.booked_title)
-          }
-        })
-      })
-      
-      historicalCategories = Array.from(historicalCategoriesSet)
-    }
-    
-    // Processa i dati
-    const processedData = processDataForDisplay(bookings || [], availabilities || [], historicalCategories)
-    
-    // Applica il raggruppamento in base al viewMode
-    let finalData = processedData
-    
-    if (viewMode === 'data') {
-      finalData = groupDataByDate(processedData)
-    } else if (viewMode === 'settimana') {
-      finalData = groupDataByWeek(processedData)
-    } else if (selectedFilter.startsWith('group-')) {
-      finalData = groupDataByTimeSlot(processedData)
-    }
-    
-    setData(finalData)
-    setLoading(false)
-  }
-
-  const processDataForDisplay = (bookings: any[], availabilities: any[], historicalCategories: string[] = []) => {
+  const processDataForDisplay = (bookings: Booking[], availabilities: Availability[], historicalCategories: string[] = []): SlotData[] => {
     // Funzione helper per normalizzare l'orario in formato HH:MM
     const normalizeTime = (timeStr: string) => {
       if (!timeStr) return '00:00'
@@ -228,7 +325,7 @@ export default function RecapPage() {
     }
     
     // Deduplica le prenotazioni (come in PivotTable)
-    const bookingsByActivityId = new Map()
+    const bookingsByActivityId = new Map<string, Booking>()
     
     bookings.forEach(booking => {
       const activityBookingId = booking.activity_booking_id
@@ -242,7 +339,7 @@ export default function RecapPage() {
     const filteredBookings = Array.from(bookingsByActivityId.values())
     
     // Crea mappa delle disponibilità
-    const allSlots = new Map()
+    const allSlots = new Map<string, SlotData>()
     
     // Aggiungi tutti gli slot dalle disponibilità (come in PivotTable)
     availabilities?.forEach(avail => {
@@ -294,14 +391,14 @@ export default function RecapPage() {
         })
       }
       
-      const slot = allSlots.get(key)
+      const slot = allSlots.get(key)!
       slot.bookings.push(booking)
       slot.bookingCount++
       slot.totalAmount += booking.bookings?.total_price || booking.total_price || 0
       
       // Conta i partecipanti per categoria E calcola il totale
       let bookingParticipants = 0
-      booking.pricing_category_bookings?.forEach((pcb: any) => {
+      booking.pricing_category_bookings?.forEach((pcb: Participant) => {
         const category = pcb.booked_title || 'Unknown'
         const quantity = pcb.quantity || 1
         
@@ -398,8 +495,8 @@ export default function RecapPage() {
     })
   }
 
-  const groupDataByDate = (rawData: any[]) => {
-    const grouped: any = {}
+  const groupDataByDate = (rawData: SlotData[]): SlotData[] => {
+    const grouped: Record<string, SlotData> = {}
     
     rawData.forEach(row => {
       const key = row.date
@@ -413,11 +510,18 @@ export default function RecapPage() {
           bookingCount: 0,
           participants: {},
           totalParticipants: 0,  // AGGIUNTO
-          availabilityLeft: 0
+          availabilityLeft: 0,
+          tourId: '',
+          tourTitle: '',
+          time: '',
+          status: '',
+          bookings: [],
+          lastReservation: null,
+          firstReservation: null
         }
       }
       
-      grouped[key].slots.push(row)
+      grouped[key].slots!.push(row)
       grouped[key].totalAmount += row.totalAmount
       grouped[key].bookingCount += row.bookingCount
       grouped[key].totalParticipants += row.totalParticipants || 0  // AGGIUNTO
@@ -432,13 +536,13 @@ export default function RecapPage() {
       })
     })
     
-    return Object.values(grouped).sort((a: any, b: any) => 
+    return Object.values(grouped).sort((a, b) => 
       new Date(a.date).getTime() - new Date(b.date).getTime()
     )
   }
 
-  const groupDataByWeek = (rawData: any[]) => {
-    const grouped: any = {}
+  const groupDataByWeek = (rawData: SlotData[]): SlotData[] => {
+    const grouped: Record<string, SlotData> = {}
     
     rawData.forEach(row => {
       const date = new Date(row.date)
@@ -459,15 +563,23 @@ export default function RecapPage() {
           bookingCount: 0,
           participants: {},
           totalParticipants: 0,  // AGGIUNTO
-          availabilityLeft: 0
+          availabilityLeft: 0,
+          tourId: '',
+          tourTitle: '',
+          date: weekKey,
+          time: '',
+          status: '',
+          bookings: [],
+          lastReservation: null,
+          firstReservation: null
         }
       }
       
-      if (!grouped[weekKey].days[row.date]) {
-        grouped[weekKey].days[row.date] = []
+      if (!grouped[weekKey].days![row.date]) {
+        grouped[weekKey].days![row.date] = []
       }
       
-      grouped[weekKey].days[row.date].push(row)
+      grouped[weekKey].days![row.date].push(row)
       grouped[weekKey].totalAmount += row.totalAmount
       grouped[weekKey].bookingCount += row.bookingCount
       grouped[weekKey].totalParticipants += row.totalParticipants || 0  // AGGIUNTO
@@ -482,13 +594,13 @@ export default function RecapPage() {
       })
     })
     
-    return Object.values(grouped).sort((a: any, b: any) => 
-      new Date(a.weekStart).getTime() - new Date(b.weekStart).getTime()
+    return Object.values(grouped).sort((a, b) => 
+      new Date(a.weekStart!).getTime() - new Date(b.weekStart!).getTime()
     )
   }
 
-  const groupDataByTimeSlot = (rawData: any[]) => {
-    const grouped: any = {}
+  const groupDataByTimeSlot = (rawData: SlotData[]): SlotData[] => {
+    const grouped: Record<string, SlotData> = {}
     
     rawData.forEach(row => {
       const key = `${row.date}-${row.time}`
@@ -503,11 +615,17 @@ export default function RecapPage() {
           bookingCount: 0,
           participants: {},
           totalParticipants: 0,  // AGGIUNTO
-          availabilityLeft: 0
+          availabilityLeft: 0,
+          tourId: '',
+          tourTitle: '',
+          status: '',
+          bookings: [],
+          lastReservation: null,
+          firstReservation: null
         }
       }
       
-      grouped[key].tours.push(row)
+      grouped[key].tours!.push(row)
       grouped[key].totalAmount += row.totalAmount
       grouped[key].bookingCount += row.bookingCount
       grouped[key].totalParticipants += row.totalParticipants || 0  // AGGIUNTO
@@ -535,7 +653,7 @@ export default function RecapPage() {
     setExpandedRows(newExpanded)
   }
 
-  const openGroupModal = (group: any = null) => {
+  const openGroupModal = (group: TourGroup | null = null) => {
     if (group) {
       setEditingGroup(group)
       setNewGroupName(group.name)
@@ -598,13 +716,8 @@ export default function RecapPage() {
     return `${days[date.getDay()]} ${date.toLocaleDateString('it-IT')}`
   }
 
-  const formatTime = (timeStr: string) => {
-    if (!timeStr) return ''
-    return timeStr.substring(0, 5)
-  }
-
   const getStatusBadge = (status: string) => {
-    const colors: any = {
+    const colors: Record<string, string> = {
       'AVAILABLE': 'bg-green-100 text-green-800',
       'LIMITED': 'bg-orange-100 text-orange-800',
       'SOLD_OUT': 'bg-red-100 text-red-800',
@@ -619,7 +732,7 @@ export default function RecapPage() {
       const date = new Date(row.date)
       const days = ['domenica', 'lunedì', 'martedì', 'mercoledì', 'giovedì', 'venerdì', 'sabato']
       
-      const rowData: any = {
+      const rowData: Record<string, string | number> = {
         'Product Title': row.tourTitle || 'Gruppo',
         'Week Day': days[date.getDay()],
         'Date': date.toLocaleDateString('it-IT', { day: '2-digit', month: '2-digit', year: 'numeric' }),
@@ -895,7 +1008,7 @@ export default function RecapPage() {
                         )}
                         <span className={row.isGroup || row.isDateGroup || row.isWeekGroup ? 'font-bold' : ''}>
                           {row.isWeekGroup ? 
-                            `Settimana ${formatDate(row.weekStart).split(' ')[1]} - ${formatDate(row.weekEnd).split(' ')[1]}` :
+                            `Settimana ${formatDate(row.weekStart!).split(' ')[1]} - ${formatDate(row.weekEnd!).split(' ')[1]}` :
                            row.isDateGroup ?
                             `${formatDate(row.date)}` :
                            row.isGroup ? 
@@ -955,7 +1068,7 @@ export default function RecapPage() {
                   </tr>
                   
                   {/* Righe espanse per i gruppi */}
-                  {row.isGroup && expandedRows.has(row.id) && row.tours?.map((tour: any, idx: number) => (
+                  {row.isGroup && expandedRows.has(row.id) && row.tours?.map((tour, idx) => (
                     <tr key={`${row.id}-${idx}`} className="bg-gray-50 border-t">
                       <td className="px-4 py-2 pl-12">
                         <span className="text-sm">{tour.tourTitle}</span>
@@ -982,7 +1095,7 @@ export default function RecapPage() {
                   ))}
                   
                   {/* Righe espanse per le date */}
-                  {row.isDateGroup && expandedRows.has(row.id) && row.slots?.map((slot: any, idx: number) => (
+                  {row.isDateGroup && expandedRows.has(row.id) && row.slots?.map((slot, idx) => (
                     <tr key={`${row.id}-${idx}`} className="bg-gray-50 border-t">
                       <td className="px-4 py-2 pl-12">
                         <span className="text-sm">{slot.tourTitle}</span>
@@ -1009,14 +1122,14 @@ export default function RecapPage() {
                   
                   {/* Righe espanse per le settimane */}
                   {row.isWeekGroup && expandedRows.has(row.id) && row.days &&
-                    Object.entries(row.days).sort(([a], [b]) => new Date(a).getTime() - new Date(b).getTime()).map(([date, slots]: [string, any]) => (
+                    Object.entries(row.days).sort(([a], [b]) => new Date(a).getTime() - new Date(b).getTime()).map(([date, slots]) => (
                       <React.Fragment key={date}>
                         <tr className="bg-blue-50 border-t">
                           <td colSpan={10} className="px-4 py-2 pl-12 font-medium">
                             {formatDate(date)}
                           </td>
                         </tr>
-                        {slots.map((slot: any, idx: number) => (
+                        {slots.map((slot, idx) => (
                           <tr key={`${date}-${idx}`} className="bg-gray-50">
                             <td className="px-4 py-2 pl-16 text-sm">{slot.tourTitle}</td>
                             <td className="px-4 py-2 text-sm">{slot.time}</td>
@@ -1097,7 +1210,7 @@ export default function RecapPage() {
               <div className="border rounded p-3 max-h-60 overflow-y-auto">
                 {filteredTours.length === 0 ? (
                   <p className="text-gray-500 text-center py-4">
-                    Nessun tour trovato con "{searchTerm}"
+                    Nessun tour trovato con &quot;{searchTerm}&quot;
                   </p>
                 ) : (
                   filteredTours.map(tour => (
