@@ -14,7 +14,9 @@ interface Tour {
 interface TourGroup {
   id: string
   name: string
-  tourIds: string[]
+  tour_ids: string[]
+  created_at?: string
+  updated_at?: string
 }
 
 interface Participant {
@@ -134,7 +136,7 @@ export default function RecapPage() {
       const groupId = selectedFilter.replace('group-', '')
       const group = tourGroups.find(g => g.id === groupId)
       if (group) {
-        tourIds = group.tourIds
+        tourIds = group.tour_ids || []
       }
     } else {
       tourIds = [selectedFilter]
@@ -248,15 +250,7 @@ export default function RecapPage() {
   // Carica i tour e i gruppi salvati al mount
   useEffect(() => {
     loadTours()
-    
-    const savedGroups = localStorage.getItem('tourGroups')
-    if (savedGroups) {
-      try {
-        setTourGroups(JSON.parse(savedGroups))
-      } catch (e) {
-        console.error('Error parsing saved groups:', e)
-      }
-    }
+    loadTourGroups() // Carica da DB invece che da localStorage
     
     const savedFilter = localStorage.getItem('selectedFilter')
     if (savedFilter) {
@@ -278,11 +272,7 @@ export default function RecapPage() {
     }
   }, [])
 
-  // Salva le preferenze quando cambiano
-  useEffect(() => {
-    localStorage.setItem('tourGroups', JSON.stringify(tourGroups))
-  }, [tourGroups])
-  
+  // Salva le preferenze quando cambiano (NO tourGroups - ora sono nel DB)
   useEffect(() => {
     localStorage.setItem('selectedFilter', selectedFilter)
   }, [selectedFilter])
@@ -314,6 +304,60 @@ export default function RecapPage() {
       }
     } catch (error) {
       console.error('Error loading tours:', error)
+    }
+  }
+
+  // Nuova funzione per caricare gruppi dal database
+  const loadTourGroups = async () => {
+    try {
+      const { data: groups, error } = await supabase
+        .from('tour_groups')
+        .select('*')
+        .order('name')
+      
+      if (error) {
+        console.error('Error loading tour groups:', error)
+        // Fallback: prova a caricare da localStorage se DB fallisce
+        const savedGroups = localStorage.getItem('tourGroups')
+        if (savedGroups) {
+          try {
+            const localGroups = JSON.parse(savedGroups)
+            setTourGroups(localGroups)
+            // Migra i gruppi locali al database
+            migrateLocalGroupsToDb(localGroups)
+          } catch (e) {
+            console.error('Error parsing saved groups:', e)
+          }
+        }
+      } else if (groups) {
+        setTourGroups(groups)
+        // Rimuovi da localStorage dopo migrazione riuscita
+        localStorage.removeItem('tourGroups')
+      }
+    } catch (error) {
+      console.error('Error loading tour groups:', error)
+    }
+  }
+
+  // Funzione per migrare gruppi esistenti da localStorage a DB
+  const migrateLocalGroupsToDb = async (localGroups: TourGroup[]) => {
+    try {
+      for (const group of localGroups) {
+        const { error } = await supabase
+          .from('tour_groups')
+          .upsert({
+            id: group.id,
+            name: group.name,
+            tour_ids: group.tour_ids || []
+          })
+        
+        if (error) {
+          console.error('Error migrating group to DB:', error)
+        }
+      }
+      console.log('Groups migrated to database successfully')
+    } catch (error) {
+      console.error('Error during migration:', error)
     }
   }
 
@@ -657,7 +701,7 @@ export default function RecapPage() {
     if (group) {
       setEditingGroup(group)
       setNewGroupName(group.name)
-      setSelectedTours(group.tourIds || [])
+      setSelectedTours(group.tour_ids || [])
     } else {
       setEditingGroup(null)
       setNewGroupName('')
@@ -667,36 +711,79 @@ export default function RecapPage() {
     setShowGroupModal(true)
   }
 
-  const saveGroup = () => {
+  // Funzione aggiornata per salvare gruppi nel database
+  const saveGroup = async () => {
     if (!newGroupName.trim() || selectedTours.length === 0) {
       alert('Inserisci un nome e seleziona almeno un tour')
       return
     }
     
-    const newGroup = {
-      id: editingGroup?.id || Date.now().toString(),
-      name: newGroupName,
-      tourIds: selectedTours
+    try {
+      if (editingGroup) {
+        // Aggiorna gruppo esistente
+        const { data, error } = await supabase
+          .from('tour_groups')
+          .update({
+            name: newGroupName,
+            tour_ids: selectedTours,
+            updated_at: new Date().toISOString()
+          })
+          .eq('id', editingGroup.id)
+          .select()
+          .single()
+        
+        if (error) throw error
+        
+        if (data) {
+          setTourGroups(tourGroups.map(g => g.id === editingGroup.id ? data : g))
+        }
+      } else {
+        // Crea nuovo gruppo
+        const { data, error } = await supabase
+          .from('tour_groups')
+          .insert({
+            name: newGroupName,
+            tour_ids: selectedTours
+          })
+          .select()
+          .single()
+        
+        if (error) throw error
+        
+        if (data) {
+          setTourGroups([...tourGroups, data])
+        }
+      }
+      
+      setShowGroupModal(false)
+      setNewGroupName('')
+      setSelectedTours([])
+      setEditingGroup(null)
+      setSearchTerm('')
+    } catch (error) {
+      console.error('Error saving group:', error)
+      alert('Errore nel salvare il gruppo. Riprova.')
     }
-    
-    if (editingGroup) {
-      setTourGroups(tourGroups.map(g => g.id === editingGroup.id ? newGroup : g))
-    } else {
-      setTourGroups([...tourGroups, newGroup])
-    }
-    
-    setShowGroupModal(false)
-    setNewGroupName('')
-    setSelectedTours([])
-    setEditingGroup(null)
-    setSearchTerm('')
   }
 
-  const deleteGroup = (groupId: string) => {
+  // Funzione aggiornata per eliminare gruppi dal database
+  const deleteGroup = async (groupId: string) => {
     if (confirm('Sei sicuro di voler eliminare questo gruppo?')) {
-      setTourGroups(tourGroups.filter(g => g.id !== groupId))
-      if (selectedFilter === `group-${groupId}`) {
-        setSelectedFilter('all')
+      try {
+        const { error } = await supabase
+          .from('tour_groups')
+          .delete()
+          .eq('id', groupId)
+        
+        if (error) throw error
+        
+        setTourGroups(tourGroups.filter(g => g.id !== groupId))
+        if (selectedFilter === `group-${groupId}`) {
+          setSelectedFilter('all')
+        }
+      } catch (error) {
+        console.error('Error deleting group:', error)
+        alert('Errore nell\'eliminare il gruppo. Riprova.')
       }
     }
   }
@@ -789,7 +876,7 @@ export default function RecapPage() {
                     <optgroup label="Gruppi Combinati">
                       {tourGroups.map(group => (
                         <option key={group.id} value={`group-${group.id}`}>
-                          📁 {group.name} ({group.tourIds?.length || 0} tour)
+                          📁 {group.name} ({group.tour_ids?.length || 0} tour)
                         </option>
                       ))}
                     </optgroup>
@@ -933,7 +1020,7 @@ export default function RecapPage() {
                 {tourGroups.map(group => (
                   <div key={group.id} className="inline-flex items-center gap-1 bg-purple-50 px-2 py-1 rounded text-sm">
                     <span>{group.name}</span>
-                    <span className="text-xs text-gray-500">({group.tourIds?.length || 0})</span>
+                    <span className="text-xs text-gray-500">({group.tour_ids?.length || 0})</span>
                     <button
                       onClick={() => openGroupModal(group)}
                       className="text-blue-600 hover:text-blue-800 p-0.5"
