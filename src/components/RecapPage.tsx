@@ -3,6 +3,7 @@
 import React, { useState, useEffect, useCallback } from 'react'
 import { ChevronDown, ChevronRight, Plus, X, Save, RefreshCw, Download, Edit2, Trash2 } from 'lucide-react'
 import { supabase } from '@/lib/supabase'
+import { Switch } from "@/components/ui/switch"
 import * as XLSX from 'xlsx'
 
 // Definizione dei tipi
@@ -111,6 +112,7 @@ export default function RecapPage() {
   const [loading, setLoading] = useState(false)
   const [expandedRows, setExpandedRows] = useState(new Set<string>())
   const [participantCategories, setParticipantCategories] = useState<string[]>([])
+  const [showOnlyWithBookings, setShowOnlyWithBookings] = useState(false)
   
   // Stati per il popup
   const [showGroupModal, setShowGroupModal] = useState(false)
@@ -232,20 +234,25 @@ export default function RecapPage() {
       historicalCategories
     )
     
+    // Filtra per prenotazioni se toggle attivo
+    let filteredData = showOnlyWithBookings 
+      ? processedData.filter(slot => slot.bookingCount > 0)
+      : processedData
+    
     // Applica il raggruppamento in base al viewMode
-    let finalData = processedData
+    let finalData = filteredData
     
     if (viewMode === 'data') {
-      finalData = groupDataByDate(processedData)
+      finalData = groupDataByDate(filteredData)
     } else if (viewMode === 'settimana') {
-      finalData = groupDataByWeek(processedData)
+      finalData = groupDataByWeek(filteredData)
     } else if (selectedFilter.startsWith('group-')) {
-      finalData = groupDataByTimeSlot(processedData)
+      finalData = groupDataByTimeSlot(filteredData)
     }
     
     setData(finalData)
     setLoading(false)
-  }, [selectedFilter, dateRange, tours, viewMode, tourGroups])
+  }, [selectedFilter, dateRange, tours, viewMode, tourGroups, showOnlyWithBookings])
 
   // Carica i tour e i gruppi salvati al mount
   useEffect(() => {
@@ -270,6 +277,11 @@ export default function RecapPage() {
     if (savedViewMode) {
       setViewMode(savedViewMode)
     }
+    
+    const savedShowOnlyWithBookings = localStorage.getItem('showOnlyWithBookings')
+    if (savedShowOnlyWithBookings) {
+      setShowOnlyWithBookings(savedShowOnlyWithBookings === 'true')
+    }
   }, [])
 
   // Salva le preferenze quando cambiano (NO tourGroups - ora sono nel DB)
@@ -284,6 +296,10 @@ export default function RecapPage() {
   useEffect(() => {
     localStorage.setItem('viewMode', viewMode)
   }, [viewMode])
+  
+  useEffect(() => {
+    localStorage.setItem('showOnlyWithBookings', showOnlyWithBookings.toString())
+  }, [showOnlyWithBookings])
 
   // Carica i dati quando cambiano i filtri
   useEffect(() => {
@@ -948,7 +964,7 @@ export default function RecapPage() {
             </div>
           </div>
           
-          {/* Terza riga: 20% Aggiorna - 20% Export - 60% Visualizza */}
+          {/* Terza riga: 20% Aggiorna - 20% Export - 35% Toggle - 25% Visualizza */}
           <div className="grid grid-cols-10 gap-4 items-center">
             {/* Pulsante Aggiorna - 20% */}
             <div className="col-span-2">
@@ -973,10 +989,23 @@ export default function RecapPage() {
               </button>
             </div>
             
-            {/* Radio Group Visualizza - 60% */}
-            <div className="col-span-6 flex items-center gap-4">
+            {/* Toggle Switch - 35% */}
+            <div className="col-span-3 flex items-center gap-3 justify-center">
+              <label htmlFor="bookings-toggle" className="text-sm font-medium text-gray-700">
+                Solo con prenotazioni
+              </label>
+              <Switch
+                id="bookings-toggle"
+                checked={showOnlyWithBookings}
+                onCheckedChange={setShowOnlyWithBookings}
+                className="data-[state=checked]:bg-purple-600"
+              />
+            </div>
+            
+            {/* Radio Group Visualizza - 25% */}
+            <div className="col-span-3 flex items-center gap-3">
               <span className="text-sm font-medium text-gray-700">Visualizza:</span>
-              <label className="flex items-center gap-2 cursor-pointer">
+              <label className="flex items-center gap-1 cursor-pointer">
                 <input
                   type="radio"
                   name="viewMode"
@@ -985,9 +1014,9 @@ export default function RecapPage() {
                   onChange={(e) => setViewMode(e.target.value)}
                   className="w-4 h-4 text-blue-600"
                 />
-                <span className="text-sm">Per orario</span>
+                <span className="text-xs">Orario</span>
               </label>
-              <label className="flex items-center gap-2 cursor-pointer">
+              <label className="flex items-center gap-1 cursor-pointer">
                 <input
                   type="radio"
                   name="viewMode"
@@ -996,9 +1025,9 @@ export default function RecapPage() {
                   onChange={(e) => setViewMode(e.target.value)}
                   className="w-4 h-4 text-blue-600"
                 />
-                <span className="text-sm">Per data</span>
+                <span className="text-xs">Data</span>
               </label>
-              <label className="flex items-center gap-2 cursor-pointer">
+              <label className="flex items-center gap-1 cursor-pointer">
                 <input
                   type="radio"
                   name="viewMode"
@@ -1007,7 +1036,7 @@ export default function RecapPage() {
                   onChange={(e) => setViewMode(e.target.value)}
                   className="w-4 h-4 text-blue-600"
                 />
-                <span className="text-sm">Per settimana</span>
+                <span className="text-xs">Settimana</span>
               </label>
             </div>
           </div>
