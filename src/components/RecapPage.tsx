@@ -235,7 +235,7 @@ export default function RecapPage() {
     )
     
     // Filtra per prenotazioni se toggle attivo
-    let filteredData = showOnlyWithBookings 
+    const filteredData = showOnlyWithBookings 
       ? processedData.filter(slot => slot.bookingCount > 0)
       : processedData
     
@@ -282,6 +282,7 @@ export default function RecapPage() {
     if (savedShowOnlyWithBookings) {
       setShowOnlyWithBookings(savedShowOnlyWithBookings === 'true')
     }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [])
 
   // Salva le preferenze quando cambiano (NO tourGroups - ora sono nel DB)
@@ -302,6 +303,7 @@ export default function RecapPage() {
   }, [showOnlyWithBookings])
 
   // Carica i dati quando cambiano i filtri
+  // eslint-disable-next-line react-hooks/exhaustive-deps
   useEffect(() => {
     if (tours.length > 0) {
       loadData()
