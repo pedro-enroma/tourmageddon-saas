@@ -249,7 +249,7 @@ export default function MarketingExport() {
     setHasSearched(true)
     
     try {
-      // Query semplice senza cercare campi che non esistono
+      // 1. Recupera tutte le attività
       let query = supabase
         .from('activity_bookings')
         .select(`
@@ -272,125 +272,116 @@ export default function MarketingExport() {
         .gte('start_date_time', `${dateRange.start}T00:00:00`)
         .lte('start_date_time', `${dateRange.end}T23:59:59`)
 
-      // Applica filtro tour inclusi
       if (selectedTours.length > 0) {
         query = query.in('product_title', selectedTours)
       }
-
-      // Applica filtro tour esclusi
       if (excludedTours.length > 0) {
         query = query.not('product_title', 'in', `(${excludedTours.join(',')})`)
       }
-
-      // Applica filtro sellers
       if (selectedSellers.length > 0) {
         query = query.in('activity_seller', selectedSellers)
       }
 
-      const { data: activities, error } = await query
-
-      if (error) {
-        console.error('Error fetching data:', error)
+      const { data: activities, error: activitiesError } = await query
+      if (activitiesError) {
+        console.error('Error fetching activities:', activitiesError)
         setData([])
         setLoading(false)
         return
       }
-
-      console.log('Sample activity data:', activities?.[0])
-      console.log('Sample pricing_category_bookings:', activities?.[0]?.pricing_category_bookings)
-
       if (!activities || activities.length === 0) {
         setData([])
         setLoading(false)
         return
       }
 
-      // Filtra per tipi partecipanti se necessario
-      let filteredActivities = activities as ActivityData[]
-      
-      if (selectedParticipantTypes.length > 0) {
-        filteredActivities = filteredActivities.filter(activity => {
-          const activityParticipantTypes = activity.pricing_category_bookings?.map(p => p.booked_title) || []
-          return activityParticipantTypes.some(type => selectedParticipantTypes.includes(type || ''))
-        })
+      // 2. Recupera tutte le relazioni booking_customers
+      const { data: bookingCustomers, error: bcError } = await supabase
+        .from('booking_customers')
+        .select('booking_id, customer_id')
+      if (bcError) {
+        console.error('Error fetching booking_customers:', bcError)
+        setData([])
+        setLoading(false)
+        return
       }
 
-      // Raggruppa per booking_id
-      const bookingMap = new Map<string, BookingRecord>()
+      // 3. Recupera tutti i customers
+      const { data: customers, error: customersError } = await supabase
+        .from('customers')
+        .select('customer_id, email, first_name, last_name, phone_number')
+      if (customersError) {
+        console.error('Error fetching customers:', customersError)
+        setData([])
+        setLoading(false)
+        return
+      }
 
+      // 4. Crea mappe per lookup veloce
+      const bookingToCustomer = new Map();
+      bookingCustomers.forEach(bc => {
+        bookingToCustomer.set(String(bc.booking_id), bc.customer_id);
+      });
+      const customerMap = new Map();
+      customers.forEach(c => {
+        customerMap.set(String(c.customer_id), c);
+      });
+
+      // 5. Filtra per tipi partecipanti se necessario
+      let filteredActivities = activities as ActivityData[];
+      if (selectedParticipantTypes.length > 0) {
+        filteredActivities = filteredActivities.filter(activity => {
+          const activityParticipantTypes = activity.pricing_category_bookings?.map(p => p.booked_title) || [];
+          return activityParticipantTypes.some(type => selectedParticipantTypes.includes(type || ''));
+        });
+      }
+
+      // 6. Raggruppa per booking_id e collega i dati del cliente
+      const bookingMap = new Map<string, BookingRecord>();
       filteredActivities.forEach(activity => {
-        const bookingId = activity.booking_id
-        
-        if (!bookingId) {
-          console.log('No booking_id for activity:', activity)
-          return
-        }
-        
-        const bookingKey = `booking_${bookingId}`
-        
+        const bookingId = String(activity.booking_id);
+        if (!bookingId) return;
+        const bookingKey = `booking_${bookingId}`;
         if (!bookingMap.has(bookingKey)) {
-          // Inizializza con dati di default
+          // Trova il customer_id tramite la tabella di relazione
+          const customerId = bookingToCustomer.get(bookingId);
+          // Trova i dati del cliente
+          const customer = customerMap.get(String(customerId));
           bookingMap.set(bookingKey, {
             booking_id: bookingId,
-            first_name: null,
-            last_name: null,
-            email: null,
-            phone_number: null,
+            first_name: customer?.first_name || null,
+            last_name: customer?.last_name || null,
+            email: customer?.email || null,
+            phone_number: customer?.phone_number || null,
             activities: []
-          })
+          });
         }
-        
-        const bookingData = bookingMap.get(bookingKey)!
-        
-        // Se non abbiamo ancora un nome, prova con i partecipanti
-        if (!bookingData.first_name && activity.pricing_category_bookings && activity.pricing_category_bookings.length > 0) {
-          for (const passenger of activity.pricing_category_bookings) {
-            if (passenger.passenger_first_name && passenger.passenger_first_name.trim() !== '') {
-              bookingData.first_name = bookingData.first_name || passenger.passenger_first_name
-              bookingData.last_name = bookingData.last_name || passenger.passenger_last_name || ''
-              break
-            }
-          }
-        }
-        
-        // Se ancora non abbiamo nomi, usa il booking ID
-        if (!bookingData.first_name) {
-          bookingData.first_name = `Booking`
-          bookingData.last_name = `#${bookingId}`
-        }
-
+        const bookingData = bookingMap.get(bookingKey)!;
         // Calcola totale partecipanti
-        const totalParticipants = activity.pricing_category_bookings?.reduce((sum, p) => 
-          sum + (p.quantity || 1), 0
-        ) || 0
-
+        const totalParticipants = activity.pricing_category_bookings?.reduce((sum, p) => sum + (p.quantity || 1), 0) || 0;
         bookingData.activities.push({
           ...activity,
           total_participants: totalParticipants
-        })
-      })
+        });
+      });
 
-      // Converti in array e ordina
+      // 7. Converti in array e ordina
       const formattedData = Array.from(bookingMap.values())
         .map(booking => ({
           ...booking,
-          activities: booking.activities.sort((a, b) => 
-            new Date(a.start_date_time).getTime() - new Date(b.start_date_time).getTime()
-          )
+          activities: booking.activities.sort((a, b) => new Date(a.start_date_time).getTime() - new Date(b.start_date_time).getTime())
         }))
         .sort((a, b) => {
-          const nameA = `${a.last_name} ${a.first_name}`.toLowerCase()
-          const nameB = `${b.last_name} ${b.first_name}`.toLowerCase()
-          return nameA.localeCompare(nameB)
-        })
-
-      console.log('Final bookings with customers:', formattedData.length)
-      setData(formattedData)
+          const nameA = `${a.last_name} ${a.first_name}`.toLowerCase();
+          const nameB = `${b.last_name} ${b.first_name}`.toLowerCase();
+          return nameA.localeCompare(nameB);
+        });
+      setData(formattedData);
     } catch (error) {
-      console.error('Unexpected error:', error)
-      setData([])
+      console.error('Unexpected error:', error);
+      setData([]);
     } finally {
-      setLoading(false)
+      setLoading(false);
     }
   }
 
