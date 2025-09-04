@@ -25,6 +25,7 @@ interface PaxData {
   booking_id: number
   activity_booking_id: number
   total_participants: number
+  participants_detail: string
   passengers: {
     booked_title: string
     first_name: string | null
@@ -201,15 +202,24 @@ export default function PaxNamesPage() {
         const bookingDate = new Date(booking.start_date_time)
         const dateStr = bookingDate.toISOString().split('T')[0]
         
-        // Calcola il totale partecipanti
+        // Calcola il totale partecipanti e dettagli
         let totalParticipants = 0
         const passengers: any[] = []
+        const participantTypes: { [key: string]: number } = {}
         
         booking.pricing_category_bookings?.forEach((pax: any) => {
-          totalParticipants += pax.quantity || 1
+          const quantity = pax.quantity || 1
+          totalParticipants += quantity
+          
+          // Conta per tipo di partecipante
+          if (participantTypes[pax.booked_title]) {
+            participantTypes[pax.booked_title] += quantity
+          } else {
+            participantTypes[pax.booked_title] = quantity
+          }
           
           // Aggiungi una riga per ogni passeggero
-          for (let i = 0; i < (pax.quantity || 1); i++) {
+          for (let i = 0; i < quantity; i++) {
             passengers.push({
               booked_title: pax.booked_title,
               first_name: pax.passenger_first_name,
@@ -218,6 +228,21 @@ export default function PaxNamesPage() {
             })
           }
         })
+
+        // Costruisci la stringa dei dettagli partecipanti
+        let participantsDetail = `${totalParticipants}`
+        if (Object.keys(participantTypes).length > 0) {
+          const details = Object.entries(participantTypes)
+            .map(([type, count]) => {
+              if (count > 1) {
+                return `(${count} ${type})`
+              } else {
+                return `(${type})`
+              }
+            })
+            .join(', ')
+          participantsDetail += ` - ${details}`
+        }
 
         // Ottieni il titolo dell'attività dalla mappa
         const activityTitle = activitiesMap.get(booking.activity_id) || 'N/A'
@@ -232,6 +257,7 @@ export default function PaxNamesPage() {
           booking_id: booking.booking_id,
           activity_booking_id: booking.activity_booking_id,
           total_participants: totalParticipants,
+          participants_detail: participantsDetail,
           passengers: passengers,
           customer: customerData ? {
             first_name: customerData.first_name,
@@ -283,7 +309,7 @@ export default function PaxNamesPage() {
           'Ora': booking.start_time,
           'Booking ID': booking.booking_id,
           'Activity Booking ID': booking.activity_booking_id,
-          'Totale Partecipanti': booking.total_participants,
+          'Totale Partecipanti': booking.participants_detail,
           'Nome': booking.customer?.first_name || '',
           'Cognome': booking.customer?.last_name || '',
           'Telefono': booking.customer?.phone_number || ''
@@ -299,7 +325,7 @@ export default function PaxNamesPage() {
             'Ora': booking.start_time,
             'Booking ID': booking.booking_id,
             'Activity Booking ID': booking.activity_booking_id,
-            'Totale Partecipanti': booking.total_participants,
+            'Totale Partecipanti': booking.participants_detail,
             'Categoria': pax.booked_title,
             'Nome': pax.first_name || '',
             'Cognome': pax.last_name || '',
@@ -618,8 +644,8 @@ export default function PaxNamesPage() {
                   <TableCell>
                     {booking.activity_booking_id}
                   </TableCell>
-                  <TableCell className="text-center">
-                    {booking.total_participants}
+                  <TableCell>
+                    {booking.participants_detail}
                   </TableCell>
                   <TableCell>{booking.customer?.first_name || '-'}</TableCell>
                   <TableCell>{booking.customer?.last_name || '-'}</TableCell>
@@ -648,8 +674,8 @@ export default function PaxNamesPage() {
                         <TableCell rowSpan={booking.passengers.length}>
                           {booking.activity_booking_id}
                         </TableCell>
-                        <TableCell rowSpan={booking.passengers.length} className="text-center">
-                          {booking.total_participants}
+                        <TableCell rowSpan={booking.passengers.length}>
+                          {booking.participants_detail}
                         </TableCell>
                       </>
                     ) : null}
