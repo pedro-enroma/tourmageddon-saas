@@ -234,11 +234,7 @@ export default function PaxNamesPage() {
         if (Object.keys(participantTypes).length > 0) {
           const details = Object.entries(participantTypes)
             .map(([type, count]) => {
-              if (count > 1) {
-                return `(${count} ${type})`
-              } else {
-                return `(${type})`
-              }
+              return `(${count} ${type})`
             })
             .join(', ')
           participantsDetail += ` - ${details}`
