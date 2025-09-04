@@ -151,7 +151,7 @@ export default function PaxNamesPage() {
       }
 
       // Recupera separatamente i dati dei clienti
-      let customerDataMap = new Map()
+      const customerDataMap = new Map()
       if (bookings && bookings.length > 0) {
         // Ensure booking IDs are numbers for the query
         const bookingIds = bookings.map(b => Number(b.booking_id))

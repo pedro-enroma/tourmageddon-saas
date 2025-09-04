@@ -303,7 +303,6 @@ export default function RecapPage() {
   }, [showOnlyWithBookings])
 
   // Carica i dati quando cambiano i filtri
-  // eslint-disable-next-line react-hooks/exhaustive-deps
   useEffect(() => {
     if (tours.length > 0) {
       loadData()
