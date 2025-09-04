@@ -16,6 +16,7 @@ import {
 import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
 import { Label } from "@/components/ui/label"
+import { Switch } from "@/components/ui/switch"
 
 interface PaxData {
   activity_title: string
@@ -30,6 +31,11 @@ interface PaxData {
     last_name: string | null
     date_of_birth: string | null
   }[]
+  customer?: {
+    first_name: string | null
+    last_name: string | null
+    phone_number: string | null
+  }
 }
 
 export default function PaxNamesPage() {
@@ -40,6 +46,7 @@ export default function PaxNamesPage() {
   const [isDropdownOpen, setIsDropdownOpen] = useState(false)
   const [searchTerm, setSearchTerm] = useState('')
   const searchInputRef = useRef<HTMLInputElement>(null)
+  const [showMainContactOnly, setShowMainContactOnly] = useState(false)
   const [dateRange, setDateRange] = useState({
     start: new Date().toISOString().split('T')[0],
     end: new Date(Date.now() + 30 * 24 * 60 * 60 * 1000).toISOString().split('T')[0]
@@ -128,6 +135,7 @@ export default function PaxNamesPage() {
         .neq('bookings.status', 'CANCELLED')
         .gte('start_date_time', `${dateRange.start}T00:00:00`)
         .lte('start_date_time', `${dateRange.end}T23:59:59`)
+        .limit(10000) // Increase limit to handle more bookings
 
       // Applica filtro attività se selezionate
       if (selectedActivities.length > 0) {
@@ -138,7 +146,52 @@ export default function PaxNamesPage() {
 
       if (error) {
         console.error('Errore nel caricamento dati:', error)
+        console.error('Error details:', error.message, error.details, error.hint)
         return
+      }
+
+      // Recupera separatamente i dati dei clienti
+      let customerDataMap = new Map()
+      if (bookings && bookings.length > 0) {
+        // Ensure booking IDs are numbers for the query
+        const bookingIds = bookings.map(b => Number(b.booking_id))
+        
+        // Recupera le relazioni booking_customers
+        const { data: bookingCustomers, error: bcError } = await supabase
+          .from('booking_customers')
+          .select('booking_id, customer_id')
+          .in('booking_id', bookingIds)
+        
+        if (bcError) {
+          console.error('Error fetching booking_customers:', bcError)
+        } else if (bookingCustomers && bookingCustomers.length > 0) {
+          // Ensure customer_ids are strings
+          const customerIds = bookingCustomers.map(bc => String(bc.customer_id))
+          
+          // Recupera i dati dei clienti usando customer_id come stringa
+          const { data: customers, error: custError } = await supabase
+            .from('customers')
+            .select('customer_id, first_name, last_name, phone_number, email')
+            .in('customer_id', customerIds)
+          
+          if (custError) {
+            console.error('Error fetching customers:', custError)
+          } else if (customers) {
+            // Crea una mappa per lookup veloce - customer_id è sempre stringa
+            const customerMap = new Map()
+            customers.forEach(c => {
+              customerMap.set(String(c.customer_id), c)
+            })
+            
+            // Collega booking_id -> customer data
+            bookingCustomers.forEach(bc => {
+              const customer = customerMap.get(String(bc.customer_id))
+              if (customer) {
+                customerDataMap.set(String(bc.booking_id), customer)
+              }
+            })
+          }
+        }
       }
 
       // Trasforma i dati nel formato richiesto
@@ -169,6 +222,9 @@ export default function PaxNamesPage() {
         // Ottieni il titolo dell'attività dalla mappa
         const activityTitle = activitiesMap.get(booking.activity_id) || 'N/A'
 
+        // Ottieni i dati del cliente dalla mappa - booking_id come stringa
+        const customerData = customerDataMap.get(String(booking.booking_id))
+
         transformedData.push({
           activity_title: activityTitle,
           booking_date: dateStr,
@@ -176,7 +232,12 @@ export default function PaxNamesPage() {
           booking_id: booking.booking_id,
           activity_booking_id: booking.activity_booking_id,
           total_participants: totalParticipants,
-          passengers: passengers
+          passengers: passengers,
+          customer: customerData ? {
+            first_name: customerData.first_name,
+            last_name: customerData.last_name,
+            phone_number: customerData.phone_number
+          } : undefined
         })
       })
 
@@ -213,8 +274,9 @@ export default function PaxNamesPage() {
   const exportToExcel = () => {
     const exportData: any[] = []
     
-    data.forEach(booking => {
-      booking.passengers.forEach(pax => {
+    if (showMainContactOnly) {
+      // Export solo contatti principali
+      data.forEach(booking => {
         exportData.push({
           'Tour': booking.activity_title,
           'Data': new Date(booking.booking_date).toLocaleDateString('it-IT'),
@@ -222,20 +284,47 @@ export default function PaxNamesPage() {
           'Booking ID': booking.booking_id,
           'Activity Booking ID': booking.activity_booking_id,
           'Totale Partecipanti': booking.total_participants,
-          'Categoria': pax.booked_title,
-          'Nome': pax.first_name || '',
-          'Cognome': pax.last_name || '',
-          'Data di Nascita': pax.date_of_birth ? new Date(pax.date_of_birth).toLocaleDateString('it-IT') : ''
+          'Nome': booking.customer?.first_name || '',
+          'Cognome': booking.customer?.last_name || '',
+          'Telefono': booking.customer?.phone_number || ''
         })
       })
-    })
+    } else {
+      // Export tutti i partecipanti
+      data.forEach(booking => {
+        booking.passengers.forEach(pax => {
+          exportData.push({
+            'Tour': booking.activity_title,
+            'Data': new Date(booking.booking_date).toLocaleDateString('it-IT'),
+            'Ora': booking.start_time,
+            'Booking ID': booking.booking_id,
+            'Activity Booking ID': booking.activity_booking_id,
+            'Totale Partecipanti': booking.total_participants,
+            'Categoria': pax.booked_title,
+            'Nome': pax.first_name || '',
+            'Cognome': pax.last_name || '',
+            'Data di Nascita': pax.date_of_birth ? new Date(pax.date_of_birth).toLocaleDateString('it-IT') : ''
+          })
+        })
+      })
+    }
 
     // Crea workbook e worksheet
     const wb = XLSX.utils.book_new()
     const ws = XLSX.utils.json_to_sheet(exportData)
 
-    // Imposta larghezza colonne
-    const colWidths = [
+    // Imposta larghezza colonne basata sul tipo di vista
+    const colWidths = showMainContactOnly ? [
+      { wch: 30 }, // Tour
+      { wch: 12 }, // Data
+      { wch: 8 },  // Ora
+      { wch: 12 }, // Booking ID
+      { wch: 18 }, // Activity Booking ID
+      { wch: 18 }, // Totale Partecipanti
+      { wch: 15 }, // Nome
+      { wch: 15 }, // Cognome
+      { wch: 20 }, // Telefono
+    ] : [
       { wch: 30 }, // Tour
       { wch: 12 }, // Data
       { wch: 8 },  // Ora
@@ -249,9 +338,12 @@ export default function PaxNamesPage() {
     ]
     ws['!cols'] = colWidths
 
-    XLSX.utils.book_append_sheet(wb, ws, 'Nominativi Passeggeri')
+    const sheetName = showMainContactOnly ? 'Contatti Principali' : 'Nominativi Passeggeri'
+    XLSX.utils.book_append_sheet(wb, ws, sheetName)
     
-    const fileName = `pax_names_${new Date().toISOString().split('T')[0]}.xlsx`
+    const fileName = showMainContactOnly 
+      ? `main_contacts_${new Date().toISOString().split('T')[0]}.xlsx`
+      : `pax_names_${new Date().toISOString().split('T')[0]}.xlsx`
     XLSX.writeFile(wb, fileName)
   }
 
@@ -438,6 +530,18 @@ export default function PaxNamesPage() {
           </div>
         </div>
 
+        {/* Switch per mostrare solo contatti principali */}
+        <div className="mt-4 flex items-center space-x-2">
+          <Switch
+            id="main-contact-mode"
+            checked={showMainContactOnly}
+            onCheckedChange={setShowMainContactOnly}
+          />
+          <Label htmlFor="main-contact-mode" className="cursor-pointer">
+            Mostra solo contatto principale
+          </Label>
+        </div>
+
         {/* Pulsanti Azione */}
         <div className="mt-4 flex gap-2">
           <Button 
@@ -464,7 +568,9 @@ export default function PaxNamesPage() {
         <Table>
           <TableCaption>
             {data.length > 0 
-              ? `Trovati ${data.length} booking con ${data.reduce((acc, b) => acc + b.passengers.length, 0)} passeggeri`
+              ? showMainContactOnly 
+                ? `Trovati ${data.length} booking`
+                : `Trovati ${data.length} booking con ${data.reduce((acc, b) => acc + b.passengers.length, 0)} passeggeri`
               : 'Nessun dato trovato per i filtri selezionati'
             }
           </TableCaption>
@@ -476,50 +582,90 @@ export default function PaxNamesPage() {
               <TableHead>Booking ID</TableHead>
               <TableHead>Activity Booking ID</TableHead>
               <TableHead>Totale Partecipanti</TableHead>
-              <TableHead>Categoria</TableHead>
-              <TableHead>Nome</TableHead>
-              <TableHead>Cognome</TableHead>
-              <TableHead>Data di Nascita</TableHead>
+              {showMainContactOnly ? (
+                <>
+                  <TableHead>Nome</TableHead>
+                  <TableHead>Cognome</TableHead>
+                  <TableHead>Telefono</TableHead>
+                </>
+              ) : (
+                <>
+                  <TableHead>Categoria</TableHead>
+                  <TableHead>Nome</TableHead>
+                  <TableHead>Cognome</TableHead>
+                  <TableHead>Data di Nascita</TableHead>
+                </>
+              )}
             </TableRow>
           </TableHeader>
           <TableBody>
-            {data.map((booking) => (
-              booking.passengers.map((pax, paxIndex) => (
-                <TableRow key={`${booking.activity_booking_id}-${paxIndex}`}>
-                  {paxIndex === 0 ? (
-                    <>
-                      <TableCell rowSpan={booking.passengers.length} className="font-medium">
-                        {booking.activity_title}
-                      </TableCell>
-                      <TableCell rowSpan={booking.passengers.length}>
-                        {new Date(booking.booking_date).toLocaleDateString('it-IT')}
-                      </TableCell>
-                      <TableCell rowSpan={booking.passengers.length}>
-                        {booking.start_time}
-                      </TableCell>
-                      <TableCell rowSpan={booking.passengers.length}>
-                        {booking.booking_id}
-                      </TableCell>
-                      <TableCell rowSpan={booking.passengers.length}>
-                        {booking.activity_booking_id}
-                      </TableCell>
-                      <TableCell rowSpan={booking.passengers.length} className="text-center">
-                        {booking.total_participants}
-                      </TableCell>
-                    </>
-                  ) : null}
-                  <TableCell>{pax.booked_title}</TableCell>
-                  <TableCell>{pax.first_name || '-'}</TableCell>
-                  <TableCell>{pax.last_name || '-'}</TableCell>
-                  <TableCell>
-                    {pax.date_of_birth 
-                      ? new Date(pax.date_of_birth).toLocaleDateString('it-IT')
-                      : '-'
-                    }
+            {showMainContactOnly ? (
+              // Vista solo contatti principali
+              data.map((booking) => (
+                <TableRow key={`${booking.activity_booking_id}-main`}>
+                  <TableCell className="font-medium">
+                    {booking.activity_title}
                   </TableCell>
+                  <TableCell>
+                    {new Date(booking.booking_date).toLocaleDateString('it-IT')}
+                  </TableCell>
+                  <TableCell>
+                    {booking.start_time}
+                  </TableCell>
+                  <TableCell>
+                    {booking.booking_id}
+                  </TableCell>
+                  <TableCell>
+                    {booking.activity_booking_id}
+                  </TableCell>
+                  <TableCell className="text-center">
+                    {booking.total_participants}
+                  </TableCell>
+                  <TableCell>{booking.customer?.first_name || '-'}</TableCell>
+                  <TableCell>{booking.customer?.last_name || '-'}</TableCell>
+                  <TableCell>{booking.customer?.phone_number || '-'}</TableCell>
                 </TableRow>
               ))
-            ))}
+            ) : (
+              // Vista tutti i partecipanti
+              data.map((booking) => (
+                booking.passengers.map((pax, paxIndex) => (
+                  <TableRow key={`${booking.activity_booking_id}-${paxIndex}`}>
+                    {paxIndex === 0 ? (
+                      <>
+                        <TableCell rowSpan={booking.passengers.length} className="font-medium">
+                          {booking.activity_title}
+                        </TableCell>
+                        <TableCell rowSpan={booking.passengers.length}>
+                          {new Date(booking.booking_date).toLocaleDateString('it-IT')}
+                        </TableCell>
+                        <TableCell rowSpan={booking.passengers.length}>
+                          {booking.start_time}
+                        </TableCell>
+                        <TableCell rowSpan={booking.passengers.length}>
+                          {booking.booking_id}
+                        </TableCell>
+                        <TableCell rowSpan={booking.passengers.length}>
+                          {booking.activity_booking_id}
+                        </TableCell>
+                        <TableCell rowSpan={booking.passengers.length} className="text-center">
+                          {booking.total_participants}
+                        </TableCell>
+                      </>
+                    ) : null}
+                    <TableCell>{pax.booked_title}</TableCell>
+                    <TableCell>{pax.first_name || '-'}</TableCell>
+                    <TableCell>{pax.last_name || '-'}</TableCell>
+                    <TableCell>
+                      {pax.date_of_birth 
+                        ? new Date(pax.date_of_birth).toLocaleDateString('it-IT')
+                        : '-'
+                      }
+                    </TableCell>
+                  </TableRow>
+                ))
+              ))
+            )}
           </TableBody>
         </Table>
       </div>
