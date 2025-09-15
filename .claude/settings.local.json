@@ -1,0 +1,17 @@
+{
+  "permissions": {
+    "allow": [
+      "Bash(npx supabase:*)",
+      "Bash(npm run dev:*)",
+      "Bash(git add:*)",
+      "Bash(git commit:*)",
+      "Bash(git push:*)",
+      "Read(//Users/pedromartinezsaro/Desktop/booking-webhook-system/**)",
+      "Bash(npm start)",
+      "Bash(curl:*)",
+      "Bash(npx:*)"
+    ],
+    "deny": [],
+    "ask": []
+  }
+}

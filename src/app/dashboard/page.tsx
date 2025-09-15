@@ -2,13 +2,15 @@
 'use client'
 
 import React, { useState } from 'react'
-import { Menu, ChevronRight, Users, FileBarChart, LayoutDashboard, FileText, FileSpreadsheet, BarChart3 } from 'lucide-react'
+import { Menu, ChevronRight, Users, FileBarChart, LayoutDashboard, FileText, FileSpreadsheet, BarChart3, DollarSign, TrendingUp, RefreshCw } from 'lucide-react'
 import { SidebarProvider, SidebarTrigger } from "@/components/ui/sidebar"
 import { Sidebar, SidebarContent, SidebarGroup, SidebarHeader, SidebarMenu, SidebarMenuButton, SidebarMenuItem, SidebarMenuSub, SidebarMenuSubButton, SidebarMenuSubItem } from "@/components/ui/sidebar"
 import RecapPage from '@/components/RecapPage'
 import ConsumedPage from '@/components/ConsumedPage'
 import PaxNamesPage from '@/components/PaxNamesPage'
 import MarketingExportPage from '@/components/MarketingExportPage'
+import FinanceOverviewPageV2 from '@/components/FinanceOverviewPageV2'
+import AvailabilitySyncPage from '@/components/AvailabilitySyncPage'
 
 // Custom Sidebar Component
 function AppSidebar({ currentView, onNavigate }: {
@@ -17,6 +19,7 @@ function AppSidebar({ currentView, onNavigate }: {
 }) {
   const [operationsOpen, setOperationsOpen] = useState(true)
   const [reportsOpen, setReportsOpen] = useState(true)
+  const [financeOpen, setFinanceOpen] = useState(true)
 
   const menuItems = [
     {
@@ -40,6 +43,11 @@ function AppSidebar({ currentView, onNavigate }: {
           icon: Users,
           view: "pax-names",
         },
+        {
+          title: "Sync Now",
+          icon: RefreshCw,
+          view: "availability-sync",
+        },
       ],
     },
     {
@@ -52,6 +60,19 @@ function AppSidebar({ currentView, onNavigate }: {
           title: "Marketing Export",
           icon: FileBarChart,
           view: "marketing-export",
+        },
+      ],
+    },
+    {
+      title: "Finance",
+      icon: DollarSign,
+      isOpen: financeOpen,
+      setOpen: setFinanceOpen,
+      items: [
+        {
+          title: "Overview",
+          icon: TrendingUp,
+          view: "finance-overview",
         },
       ],
     },
@@ -116,6 +137,10 @@ export default function DashboardLayout() {
         return <PaxNamesPage />
       case 'marketing-export':
         return <MarketingExportPage />
+      case 'finance-overview':
+        return <FinanceOverviewPageV2 />
+      case 'availability-sync':
+        return <AvailabilitySyncPage />
       default:
         return <RecapPage />
     }
@@ -131,17 +156,24 @@ export default function DashboardLayout() {
         return 'Pax Names'
       case 'marketing-export':
         return 'Marketing Export'
+      case 'finance-overview':
+        return 'Finance Overview'
+      case 'availability-sync':
+        return 'Sync Now'
       default:
         return 'Dashboard'
     }
   }
 
   const getBreadcrumbSection = () => {
-    if (['recap', 'consumed', 'pax-names'].includes(currentView)) {
+    if (['recap', 'consumed', 'pax-names', 'availability-sync'].includes(currentView)) {
       return 'Operations'
     }
     if (currentView === 'marketing-export') {
       return 'Reports'
+    }
+    if (currentView === 'finance-overview') {
+      return 'Finance'
     }
     return 'Dashboard'
   }

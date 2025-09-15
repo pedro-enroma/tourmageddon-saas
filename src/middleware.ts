@@ -4,6 +4,11 @@ import type { NextRequest } from 'next/server'
 export async function middleware(req: NextRequest) {
   const res = NextResponse.next()
   
+  // DEVELOPMENT ONLY: Skip auth check
+  if (process.env.NODE_ENV === 'development') {
+    return res
+  }
+  
   // Prendi il token dai cookie
   const token = req.cookies.get('sb-access-token')
 

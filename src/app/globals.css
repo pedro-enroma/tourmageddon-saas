@@ -120,3 +120,20 @@
     @apply bg-background text-foreground;
   }
 }
+
+/* Calendar styles for react-day-picker v9 */
+.rdp {
+  --rdp-accent-color: theme('colors.gray.900');
+  --rdp-background-color: theme('colors.gray.100');
+  margin: 0;
+}
+
+.rdp-day_selected:not(.rdp-day_outside) {
+  background-color: var(--rdp-accent-color);
+  color: white;
+}
+
+.rdp-day_selected:hover:not(.rdp-day_outside) {
+  background-color: var(--rdp-accent-color);
+  color: white;
+}
