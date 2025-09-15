@@ -7,11 +7,10 @@ import { Label } from '@/components/ui/label'
 import { Popover, PopoverContent, PopoverTrigger } from '@/components/ui/popover'
 import { Button } from '@/components/ui/button'
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select'
-import { Check, ChevronDown, Search, TrendingUp, TrendingDown, ArrowRight } from 'lucide-react'
+import { ChevronDown, Search, TrendingUp, TrendingDown, ArrowRight } from 'lucide-react'
 import { Checkbox } from '@/components/ui/checkbox'
-import { BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer, Legend } from 'recharts'
-import { format, subDays, subMonths, subYears, startOfYear, startOfWeek, endOfWeek, startOfMonth, endOfMonth } from 'date-fns'
-import { cn } from '@/lib/utils'
+import { BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer } from 'recharts'
+import { format, subDays, subMonths, startOfYear, startOfWeek, endOfWeek, startOfMonth, endOfMonth } from 'date-fns'
 
 const supabase = createClient(
   process.env.NEXT_PUBLIC_SUPABASE_URL!,
@@ -227,7 +226,7 @@ export default function FinanceOverviewPage() {
 
   const fetchPreviousPeriodData = async () => {
     try {
-      let query = supabase
+      const query = supabase
         .from('finance_report_data')
         .select('*')
 

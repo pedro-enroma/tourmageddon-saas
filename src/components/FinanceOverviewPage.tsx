@@ -6,12 +6,11 @@ import { Switch } from '@/components/ui/switch'
 import { Label } from '@/components/ui/label'
 import { Popover, PopoverContent, PopoverTrigger } from '@/components/ui/popover'
 import { Button } from '@/components/ui/button'
-import { Check, ChevronDown, Search, TrendingUp, TrendingDown, ArrowRight, Calendar } from 'lucide-react'
+import { ChevronDown, Search, TrendingUp, TrendingDown, ArrowRight, Calendar } from 'lucide-react'
 import { Checkbox } from '@/components/ui/checkbox'
 import { RadioGroup, RadioGroupItem } from '@/components/ui/radio-group'
-import { BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer, Legend } from 'recharts'
-import { format, subDays, subMonths, subYears, startOfWeek, endOfWeek } from 'date-fns'
-import { cn } from '@/lib/utils'
+import { BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer } from 'recharts'
+import { format, subDays, subMonths, subYears } from 'date-fns'
 
 const supabase = createClient(
   process.env.NEXT_PUBLIC_SUPABASE_URL!,
