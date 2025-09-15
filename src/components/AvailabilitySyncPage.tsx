@@ -76,7 +76,7 @@ export default function AvailabilitySyncPage() {
         })
       }, 100)
 
-      const response = await fetch('http://localhost:3000/api/sync/availability', {
+      const response = await fetch('https://booking-webhook-system-production.up.railway.app/api/sync/availability', {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',

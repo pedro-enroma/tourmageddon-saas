@@ -12,7 +12,9 @@
       "Bash(npx:*)",
       "Bash(railway up:*)",
       "Bash(railway link:*)",
-      "Bash(railway login:*)"
+      "Bash(railway login:*)",
+      "Bash(npm run build:*)",
+      "Bash(cat:*)"
     ],
     "deny": [],
     "ask": []
