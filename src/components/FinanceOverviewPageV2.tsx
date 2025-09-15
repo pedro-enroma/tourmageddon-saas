@@ -43,7 +43,7 @@ export default function FinanceOverviewPage() {
   const [metricType, setMetricType] = useState<MetricType>('revenue')
   
   // Transaction Date
-  const [transactionDateRange, setTransactionDateRange] = useState<DateRangeType>('last30days')
+  const [transactionDateRange, setTransactionDateRange] = useState<DateRangeType | undefined>('last30days')
   const [customTransactionStart, setCustomTransactionStart] = useState<Date | undefined>()
   const [customTransactionEnd, setCustomTransactionEnd] = useState<Date | undefined>()
   const [transactionComparison, setTransactionComparison] = useState<ComparisonType>('lastMonth')
