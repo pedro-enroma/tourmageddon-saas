@@ -9,7 +9,7 @@ import { Button } from '@/components/ui/button'
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select'
 import { ChevronDown, Search, TrendingUp, TrendingDown, ArrowRight } from 'lucide-react'
 import { Checkbox } from '@/components/ui/checkbox'
-import { BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer } from 'recharts'
+import { BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer, Legend } from 'recharts'
 import { format, subDays, subMonths, startOfYear, startOfWeek, endOfWeek, startOfMonth, endOfMonth } from 'date-fns'
 
 const supabase = createClient(

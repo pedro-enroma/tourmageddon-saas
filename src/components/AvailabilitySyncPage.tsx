@@ -1,6 +1,6 @@
 'use client'
 
-import React, { useState, useEffect, useRef } from 'react'
+import React, { useState, useEffect } from 'react'
 import { supabase } from '@/lib/supabase'
 import { RefreshCw, ChevronDown, Search, X, AlertCircle, CheckCircle } from 'lucide-react'
 import { Button } from "@/components/ui/button"
@@ -8,8 +8,13 @@ import { Label } from "@/components/ui/label"
 import { Input } from "@/components/ui/input"
 import { Progress } from "@/components/ui/progress"
 
+interface Product {
+  activity_id: string
+  title: string
+}
+
 export default function AvailabilitySyncPage() {
-  const [products, setProducts] = useState<any[]>([])
+  const [products, setProducts] = useState<Product[]>([])
   const [selectedProduct, setSelectedProduct] = useState<string>('')
   const [isDropdownOpen, setIsDropdownOpen] = useState(false)
   const [searchTerm, setSearchTerm] = useState('')
@@ -17,7 +22,6 @@ export default function AvailabilitySyncPage() {
   const [syncing, setSyncing] = useState(false)
   const [syncProgress, setSyncProgress] = useState(0)
   const [syncStatus, setSyncStatus] = useState<{ type: 'success' | 'error' | null, message: string }>({ type: null, message: '' })
-  const eventSourceRef = useRef<EventSource | null>(null)
 
   useEffect(() => {
     loadAllProducts()
@@ -98,10 +102,10 @@ export default function AvailabilitySyncPage() {
           message: data.details || data.error || 'Sincronizzazione fallita'
         })
       }
-    } catch (error: any) {
+    } catch (error) {
       setSyncStatus({
         type: 'error',
-        message: error.message || 'Impossibile connettersi al servizio di sincronizzazione'
+        message: error instanceof Error ? error.message : 'Impossibile connettersi al servizio di sincronizzazione'
       })
     } finally {
       setSyncing(false)
@@ -280,7 +284,7 @@ export default function AvailabilitySyncPage() {
         <ul className="text-sm text-blue-800 space-y-1">
           <li>• Seleziona un tour</li>
           <li>• Scegli quanti giorni sincronizzare a partire da oggi</li>
-          <li>• Clicca "Sincronizza Disponibilità" per recuperare i dati più recenti da Bokun</li>
+          <li>• Clicca &quot;Sincronizza Disponibilità&quot; per recuperare i dati più recenti da Bokun</li>
           <li>• Il processo di sincronizzazione aggiornerà il consumed</li>
         </ul>
       </div>

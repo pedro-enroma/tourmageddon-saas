@@ -6,10 +6,10 @@ import { Switch } from '@/components/ui/switch'
 import { Label } from '@/components/ui/label'
 import { Popover, PopoverContent, PopoverTrigger } from '@/components/ui/popover'
 import { Button } from '@/components/ui/button'
-import { ChevronDown, Search, TrendingUp, TrendingDown, ArrowRight, Calendar } from 'lucide-react'
+import { ChevronDown, Search, TrendingUp, TrendingDown, ArrowRight } from 'lucide-react'
 import { Checkbox } from '@/components/ui/checkbox'
 import { RadioGroup, RadioGroupItem } from '@/components/ui/radio-group'
-import { BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer } from 'recharts'
+import { BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer, Legend } from 'recharts'
 import { format, subDays, subMonths, subYears } from 'date-fns'
 
 const supabase = createClient(
@@ -21,11 +21,6 @@ type MetricType = 'revenue' | 'reservations'
 type DateType = 'transaction' | 'tour'
 type ComparisonType = 'lastWeek' | 'lastMonth' | 'lastYear' | 'custom'
 
-interface ChartData {
-  date: string
-  'EnRoma.com': number
-  'Resellers': number
-}
 
 interface FinanceData {
   activity_date: string
