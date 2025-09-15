@@ -243,7 +243,7 @@ export default function FinanceOverviewPage() {
   const processDataForBarChart = () => {
     // Process current period data
     const currentTotal = rawData.reduce((acc, row) => {
-      const value = metricType === 'revenue' ? parseFloat(row.total_revenue || 0) : (row.reservation_count || 0)
+      const value = metricType === 'revenue' ? (row.total_revenue || 0) : (row.reservation_count || 0)
       if (row.seller_group === 'EnRoma.com') {
         acc.enromaCurrent += value
       } else {
@@ -254,7 +254,7 @@ export default function FinanceOverviewPage() {
 
     // Process previous period data
     const previousTotal = previousPeriodData.reduce((acc, row) => {
-      const value = metricType === 'revenue' ? parseFloat(row.total_revenue || 0) : (row.reservation_count || 0)
+      const value = metricType === 'revenue' ? (row.total_revenue || 0) : (row.reservation_count || 0)
       if (row.seller_group === 'EnRoma.com') {
         acc.enromaPrevious += value
       } else {
@@ -287,12 +287,12 @@ export default function FinanceOverviewPage() {
 
   const getTotalMetrics = () => {
     // Calculate current period metrics from raw data (already filtered by query)
-    const totalRevenue = rawData.reduce((sum, row) => sum + parseFloat(row.total_revenue?.toString() || '0'), 0)
+    const totalRevenue = rawData.reduce((sum, row) => sum + (row.total_revenue || 0), 0)
     const totalBookings = rawData.reduce((sum, row) => sum + (row.unique_bookings || 0), 0)
     const totalParticipants = rawData.reduce((sum, row) => sum + (row.reservation_count || 0), 0)
     
     // Calculate previous period metrics for growth rate
-    const prevTotalRevenue = previousPeriodData.reduce((sum, row) => sum + parseFloat(row.total_revenue.toString() || '0'), 0)
+    const prevTotalRevenue = previousPeriodData.reduce((sum, row) => sum + (row.total_revenue || 0), 0)
     
     // Calculate growth rate
     let growthRate = 0
