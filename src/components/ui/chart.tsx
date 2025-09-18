@@ -313,5 +313,4 @@ export {
   ChartTooltip,
   ChartTooltipContent,
   ChartStyle,
-  type ChartConfig,
 }
