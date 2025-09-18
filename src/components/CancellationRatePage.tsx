@@ -1,8 +1,7 @@
 "use client"
 
 import * as React from "react"
-import { Label, Pie, PieChart, Sector } from "recharts"
-import { PieSectorDataItem } from "recharts/types/polar/Pie"
+import { Label, Pie, PieChart } from "recharts"
 import { supabase } from '@/lib/supabase'
 import { Calendar, ChevronDown, Download, FileSpreadsheet, FileText } from "lucide-react"
 import { DatePicker } from "@/components/ui/date-picker"
@@ -17,17 +16,9 @@ import {
 import {
   ChartConfig,
   ChartContainer,
-  ChartStyle,
   ChartTooltip,
   ChartTooltipContent,
 } from "@/components/ui/chart"
-import {
-  Select,
-  SelectContent,
-  SelectItem,
-  SelectTrigger,
-  SelectValue,
-} from "@/components/ui/select"
 
 type DateRangeType = 'last7days' | 'last30days' | 'lastMonth' | 'yearToDate' | 'custom'
 
@@ -39,11 +30,6 @@ interface MonthData {
   cancellationRate: number
   fill: string
 }
-
-const monthNames = [
-  'Gennaio', 'Febbraio', 'Marzo', 'Aprile', 'Maggio', 'Giugno',
-  'Luglio', 'Agosto', 'Settembre', 'Ottobre', 'Novembre', 'Dicembre'
-]
 
 const chartConfig = {
   cancelled: {
@@ -66,50 +52,7 @@ export default function CancellationRatePage() {
   const [isDateDropdownOpen, setIsDateDropdownOpen] = React.useState(false)
   const [isExportDropdownOpen, setIsExportDropdownOpen] = React.useState(false)
 
-  React.useEffect(() => {
-    if (dateRange !== 'custom' || (customStartDate && customEndDate)) {
-      loadCancellationData()
-    }
-  }, [dateRange, customStartDate, customEndDate])
-
-  const getDateRange = () => {
-    const now = new Date()
-    let startDate: Date
-    let endDate = new Date()
-
-    switch (dateRange) {
-      case 'last7days':
-        startDate = new Date(now)
-        startDate.setDate(startDate.getDate() - 6)
-        break
-      case 'last30days':
-        startDate = new Date(now)
-        startDate.setDate(startDate.getDate() - 29)
-        break
-      case 'lastMonth':
-        startDate = new Date(now.getFullYear(), now.getMonth() - 1, 1)
-        endDate = new Date(now.getFullYear(), now.getMonth(), 0)
-        break
-      case 'yearToDate':
-        startDate = new Date(now.getFullYear(), 0, 1)
-        break
-      case 'custom':
-        if (!customStartDate || !customEndDate) return null
-        startDate = customStartDate
-        endDate = customEndDate
-        break
-      default:
-        startDate = new Date(now)
-        startDate.setDate(startDate.getDate() - 29)
-    }
-
-    return {
-      startDate: `${startDate.toISOString().split('T')[0]}T00:00:00`,
-      endDate: `${endDate.toISOString().split('T')[0]}T23:59:59`
-    }
-  }
-
-  const loadCancellationData = async () => {
+  const loadCancellationData = React.useCallback(async () => {
     try {
       setLoading(true)
       const range = getDateRange()
@@ -178,7 +121,51 @@ export default function CancellationRatePage() {
     } finally {
       setLoading(false)
     }
+  }, [dateRange, customStartDate, customEndDate, getDateRange])
+
+  React.useEffect(() => {
+    if (dateRange !== 'custom' || (customStartDate && customEndDate)) {
+      loadCancellationData()
+    }
+  }, [dateRange, customStartDate, customEndDate, loadCancellationData])
+
+  const getDateRange = () => {
+    const now = new Date()
+    let startDate: Date
+    let endDate = new Date()
+
+    switch (dateRange) {
+      case 'last7days':
+        startDate = new Date(now)
+        startDate.setDate(startDate.getDate() - 6)
+        break
+      case 'last30days':
+        startDate = new Date(now)
+        startDate.setDate(startDate.getDate() - 29)
+        break
+      case 'lastMonth':
+        startDate = new Date(now.getFullYear(), now.getMonth() - 1, 1)
+        endDate = new Date(now.getFullYear(), now.getMonth(), 0)
+        break
+      case 'yearToDate':
+        startDate = new Date(now.getFullYear(), 0, 1)
+        break
+      case 'custom':
+        if (!customStartDate || !customEndDate) return null
+        startDate = customStartDate
+        endDate = customEndDate
+        break
+      default:
+        startDate = new Date(now)
+        startDate.setDate(startDate.getDate() - 29)
+    }
+
+    return {
+      startDate: `${startDate.toISOString().split('T')[0]}T00:00:00`,
+      endDate: `${endDate.toISOString().split('T')[0]}T23:59:59`
+    }
   }
+
 
   const activeIndex = React.useMemo(
     () => monthlyData.findIndex((item) => item.month === selectedMonth),
