@@ -132,7 +132,7 @@ export default function PaxNamesPage() {
             quantity
           )
         `)
-        .eq('status', 'CONFIRMED')
+        .not('status', 'in', '(CANCELLED)')  // Include IMPORTED and all other statuses
         .neq('bookings.status', 'CANCELLED')
         .gte('start_date_time', `${dateRange.start}T00:00:00`)
         .lte('start_date_time', `${dateRange.end}T23:59:59`)

@@ -105,7 +105,7 @@ export default function PivotTable() {
           passenger_last_name
         )
       `)
-      .neq('status', 'CANCELLED')  // SOLO activity_bookings.status
+      .not('status', 'in', '(CANCELLED)')  // Include IMPORTED and all other statuses
       .gte('start_date_time', `${dateRange.start}T00:00:00`)
       .lte('start_date_time', `${dateRange.end}T23:59:59`)
 

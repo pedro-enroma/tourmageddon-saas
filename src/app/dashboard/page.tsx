@@ -11,6 +11,7 @@ import PaxNamesPage from '@/components/PaxNamesPage'
 import MarketingExportPage from '@/components/MarketingExportPage'
 import FinanceOverviewPageV2 from '@/components/FinanceOverviewPageV2'
 import AvailabilitySyncPage from '@/components/AvailabilitySyncPage'
+import CancellationRatePage from '@/components/CancellationRatePage'
 
 // Custom Sidebar Component
 function AppSidebar({ currentView, onNavigate }: {
@@ -73,6 +74,11 @@ function AppSidebar({ currentView, onNavigate }: {
           title: "Overview",
           icon: TrendingUp,
           view: "finance-overview",
+        },
+        {
+          title: "Cancellation Rate",
+          icon: FileBarChart,
+          view: "cancellation-rate",
         },
       ],
     },
@@ -141,6 +147,8 @@ export default function DashboardLayout() {
         return <FinanceOverviewPageV2 />
       case 'availability-sync':
         return <AvailabilitySyncPage />
+      case 'cancellation-rate':
+        return <CancellationRatePage />
       default:
         return <RecapPage />
     }
@@ -160,6 +168,8 @@ export default function DashboardLayout() {
         return 'Finance Overview'
       case 'availability-sync':
         return 'Sync Now'
+      case 'cancellation-rate':
+        return 'Cancellation Rate'
       default:
         return 'Dashboard'
     }
@@ -172,7 +182,7 @@ export default function DashboardLayout() {
     if (currentView === 'marketing-export') {
       return 'Reports'
     }
-    if (currentView === 'finance-overview') {
+    if (currentView === 'finance-overview' || currentView === 'cancellation-rate') {
       return 'Finance'
     }
     return 'Dashboard'

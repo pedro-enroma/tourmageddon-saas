@@ -14,7 +14,12 @@
       "Bash(railway link:*)",
       "Bash(railway login:*)",
       "Bash(npm run build:*)",
-      "Bash(cat:*)"
+      "Bash(cat:*)",
+      "Bash(railway logs:*)",
+      "Bash(npm install:*)",
+      "Bash(psql:*)",
+      "Bash(python3:*)",
+      "Bash(pip3 install:*)"
     ],
     "deny": [],
     "ask": []
