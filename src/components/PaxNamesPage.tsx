@@ -295,10 +295,11 @@ export default function PaxNamesPage() {
 
   const exportToExcel = () => {
     const exportData: any[] = []
-    
+
     if (showMainContactOnly) {
       // Export solo contatti principali
       data.forEach(booking => {
+        const fullName = `${booking.customer?.first_name || ''} ${booking.customer?.last_name || ''}`.trim()
         exportData.push({
           'Tour': booking.activity_title,
           'Data': new Date(booking.booking_date).toLocaleDateString('it-IT'),
@@ -306,8 +307,7 @@ export default function PaxNamesPage() {
           'Booking ID': booking.booking_id,
           'Activity Booking ID': booking.activity_booking_id,
           'Totale Partecipanti': booking.participants_detail,
-          'Nome': booking.customer?.first_name || '',
-          'Cognome': booking.customer?.last_name || '',
+          'Nome e Cognome': fullName,
           'Telefono': booking.customer?.phone_number || ''
         })
       })
@@ -343,8 +343,7 @@ export default function PaxNamesPage() {
       { wch: 12 }, // Booking ID
       { wch: 18 }, // Activity Booking ID
       { wch: 18 }, // Totale Partecipanti
-      { wch: 15 }, // Nome
-      { wch: 15 }, // Cognome
+      { wch: 25 }, // Nome e Cognome
       { wch: 20 }, // Telefono
     ] : [
       { wch: 30 }, // Tour
