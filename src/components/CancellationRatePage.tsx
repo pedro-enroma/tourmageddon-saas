@@ -52,6 +52,43 @@ export default function CancellationRatePage() {
   const [isDateDropdownOpen, setIsDateDropdownOpen] = React.useState(false)
   const [isExportDropdownOpen, setIsExportDropdownOpen] = React.useState(false)
 
+  const getDateRange = () => {
+    const now = new Date()
+    let startDate: Date
+    let endDate = new Date()
+
+    switch (dateRange) {
+      case 'last7days':
+        startDate = new Date(now)
+        startDate.setDate(startDate.getDate() - 6)
+        break
+      case 'last30days':
+        startDate = new Date(now)
+        startDate.setDate(startDate.getDate() - 29)
+        break
+      case 'lastMonth':
+        startDate = new Date(now.getFullYear(), now.getMonth() - 1, 1)
+        endDate = new Date(now.getFullYear(), now.getMonth(), 0)
+        break
+      case 'yearToDate':
+        startDate = new Date(now.getFullYear(), 0, 1)
+        break
+      case 'custom':
+        if (!customStartDate || !customEndDate) return null
+        startDate = customStartDate
+        endDate = customEndDate
+        break
+      default:
+        startDate = new Date(now)
+        startDate.setDate(startDate.getDate() - 29)
+    }
+
+    return {
+      startDate: `${startDate.toISOString().split('T')[0]}T00:00:00`,
+      endDate: `${endDate.toISOString().split('T')[0]}T23:59:59`
+    }
+  }
+
   const loadCancellationData = React.useCallback(async () => {
     try {
       setLoading(true)
@@ -121,50 +158,14 @@ export default function CancellationRatePage() {
     } finally {
       setLoading(false)
     }
-  }, [dateRange, customStartDate, customEndDate, getDateRange])
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [])
 
   React.useEffect(() => {
     if (dateRange !== 'custom' || (customStartDate && customEndDate)) {
       loadCancellationData()
     }
   }, [dateRange, customStartDate, customEndDate, loadCancellationData])
-
-  const getDateRange = () => {
-    const now = new Date()
-    let startDate: Date
-    let endDate = new Date()
-
-    switch (dateRange) {
-      case 'last7days':
-        startDate = new Date(now)
-        startDate.setDate(startDate.getDate() - 6)
-        break
-      case 'last30days':
-        startDate = new Date(now)
-        startDate.setDate(startDate.getDate() - 29)
-        break
-      case 'lastMonth':
-        startDate = new Date(now.getFullYear(), now.getMonth() - 1, 1)
-        endDate = new Date(now.getFullYear(), now.getMonth(), 0)
-        break
-      case 'yearToDate':
-        startDate = new Date(now.getFullYear(), 0, 1)
-        break
-      case 'custom':
-        if (!customStartDate || !customEndDate) return null
-        startDate = customStartDate
-        endDate = customEndDate
-        break
-      default:
-        startDate = new Date(now)
-        startDate.setDate(startDate.getDate() - 29)
-    }
-
-    return {
-      startDate: `${startDate.toISOString().split('T')[0]}T00:00:00`,
-      endDate: `${endDate.toISOString().split('T')[0]}T23:59:59`
-    }
-  }
 
 
   const activeIndex = React.useMemo(
