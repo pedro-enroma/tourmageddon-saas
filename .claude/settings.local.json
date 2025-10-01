@@ -19,7 +19,15 @@
       "Bash(npm install:*)",
       "Bash(psql:*)",
       "Bash(python3:*)",
-      "Bash(pip3 install:*)"
+      "Bash(pip3 install:*)",
+      "Bash(tree:*)",
+      "Bash(lsof:*)",
+      "Bash(kill:*)",
+      "Bash(PORT=3002 npm run dev)",
+      "Bash(timeout:*)",
+      "Bash(xargs kill:*)",
+      "Bash(echo:*)",
+      "Bash(git log:*)"
     ],
     "deny": [],
     "ask": []

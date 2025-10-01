@@ -50,6 +50,7 @@ export default function AffiliatesPage() {
 
   useEffect(() => {
     loadData();
+  // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [dateRange]);
 
   const loadData = async () => {
@@ -87,7 +88,11 @@ export default function AffiliatesPage() {
 
       if (!directError && directStats) {
         // Aggregate stats manually
-        const aggregated = directStats.reduce((acc: any, row: any) => {
+        const aggregated = directStats.reduce((acc: Record<string, AffiliateStats>, row: {
+          affiliate_id: string;
+          total_price: string | number;
+          affiliate_commission: string | number;
+        }) => {
           if (!acc[row.affiliate_id]) {
             acc[row.affiliate_id] = {
               affiliate_id: row.affiliate_id,
@@ -97,17 +102,17 @@ export default function AffiliatesPage() {
             };
           }
           acc[row.affiliate_id].booking_count++;
-          acc[row.affiliate_id].total_revenue += parseFloat(row.total_price || 0);
-          acc[row.affiliate_id].total_commission += parseFloat(row.affiliate_commission || 0);
+          acc[row.affiliate_id].total_revenue += parseFloat(String(row.total_price || 0));
+          acc[row.affiliate_id].total_commission += parseFloat(String(row.affiliate_commission || 0));
           return acc;
         }, {});
 
         setStats(Object.values(aggregated));
       }
-    } catch (error: any) {
+    } catch (error) {
       toast({
         title: 'Error',
-        description: error.message,
+        description: error instanceof Error ? error.message : 'An error occurred',
         variant: 'destructive'
       });
     } finally {
@@ -185,10 +190,10 @@ export default function AffiliatesPage() {
 
       setDialogOpen(false);
       loadData();
-    } catch (error: any) {
+    } catch (error) {
       toast({
         title: 'Error',
-        description: error.message,
+        description: error instanceof Error ? error.message : 'An error occurred',
         variant: 'destructive'
       });
     }
@@ -211,10 +216,10 @@ export default function AffiliatesPage() {
       });
 
       loadData();
-    } catch (error: any) {
+    } catch (error) {
       toast({
         title: 'Error',
-        description: error.message,
+        description: error instanceof Error ? error.message : 'An error occurred',
         variant: 'destructive'
       });
     }
