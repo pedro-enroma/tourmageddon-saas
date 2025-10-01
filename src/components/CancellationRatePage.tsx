@@ -95,12 +95,13 @@ export default function CancellationRatePage() {
       const range = getDateRange()
       if (!range) return
 
-      // Get ALL bookings in the date range using start_date_time for filtering
+      // Get bookings in the date range, excluding IMPORTED status
       const { data, error } = await supabase
         .from('activity_bookings')
         .select('id, start_date_time, status')
         .gte('start_date_time', range.startDate)
         .lte('start_date_time', range.endDate)
+        .not('status', 'eq', 'IMPORTED')
 
       if (error) {
         console.error('Error loading data:', error)
@@ -119,8 +120,8 @@ export default function CancellationRatePage() {
             monthlyStats[monthKey] = { cancelledIds: new Set(), otherIds: new Set() }
           }
 
-          // Exclude both CANCELLED and IMPORTED statuses
-          if (booking.status === 'CANCELLED' || booking.status === 'IMPORTED') {
+          // Only CANCELLED goes to cancelled, all others (CONFIRMED, etc.) go to others
+          if (booking.status === 'CANCELLED') {
             monthlyStats[monthKey].cancelledIds.add(booking.id)
           } else {
             monthlyStats[monthKey].otherIds.add(booking.id)
@@ -158,8 +159,7 @@ export default function CancellationRatePage() {
     } finally {
       setLoading(false)
     }
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [])
+  }, [dateRange, customStartDate, customEndDate])
 
   React.useEffect(() => {
     if (dateRange !== 'custom' || (customStartDate && customEndDate)) {
@@ -305,7 +305,7 @@ export default function CancellationRatePage() {
       <div className="flex justify-between items-start">
         <div>
           <h1 className="text-2xl font-bold">Tasso di Cancellazione</h1>
-          <p className="text-gray-600">Analisi delle prenotazioni cancellate vs tutte le altre</p>
+          <p className="text-gray-600">Analisi delle prenotazioni cancellate vs tutte le altre (esclude IMPORTED)</p>
         </div>
 
         {/* Date Range Filter and Export */}
@@ -496,7 +496,7 @@ export default function CancellationRatePage() {
 
         <Card>
           <CardHeader className="pb-3">
-            <CardTitle className="text-base">Cancellate/Importate</CardTitle>
+            <CardTitle className="text-base">Cancellate</CardTitle>
           </CardHeader>
           <CardContent>
             <div className="text-2xl font-bold text-red-600">
