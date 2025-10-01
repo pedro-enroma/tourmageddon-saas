@@ -2,7 +2,7 @@
 'use client'
 
 import React, { useState } from 'react'
-import { Menu, ChevronRight, Users, FileBarChart, LayoutDashboard, FileText, FileSpreadsheet, BarChart3, DollarSign, TrendingUp, RefreshCw } from 'lucide-react'
+import { Menu, ChevronRight, Users, FileBarChart, LayoutDashboard, FileText, FileSpreadsheet, BarChart3, DollarSign, TrendingUp, RefreshCw, Percent } from 'lucide-react'
 import { SidebarProvider, SidebarTrigger } from "@/components/ui/sidebar"
 import { Sidebar, SidebarContent, SidebarGroup, SidebarHeader, SidebarMenu, SidebarMenuButton, SidebarMenuItem, SidebarMenuSub, SidebarMenuSubButton, SidebarMenuSubItem } from "@/components/ui/sidebar"
 import RecapPage from '@/components/RecapPage'
@@ -12,6 +12,7 @@ import MarketingExportPage from '@/components/MarketingExportPage'
 import FinanceOverviewPageV2 from '@/components/FinanceOverviewPageV2'
 import AvailabilitySyncPage from '@/components/AvailabilitySyncPage'
 import CancellationRatePage from '@/components/CancellationRatePage'
+import AffiliatesPage from './affiliates/page'
 
 // Custom Sidebar Component
 function AppSidebar({ currentView, onNavigate }: {
@@ -79,6 +80,11 @@ function AppSidebar({ currentView, onNavigate }: {
           title: "Cancellation Rate",
           icon: FileBarChart,
           view: "cancellation-rate",
+        },
+        {
+          title: "Affiliates",
+          icon: Percent,
+          view: "affiliates",
         },
       ],
     },
@@ -149,6 +155,8 @@ export default function DashboardLayout() {
         return <AvailabilitySyncPage />
       case 'cancellation-rate':
         return <CancellationRatePage />
+      case 'affiliates':
+        return <AffiliatesPage />
       default:
         return <RecapPage />
     }
@@ -170,6 +178,8 @@ export default function DashboardLayout() {
         return 'Sync Now'
       case 'cancellation-rate':
         return 'Cancellation Rate'
+      case 'affiliates':
+        return 'Affiliate Commissions'
       default:
         return 'Dashboard'
     }
@@ -182,7 +192,7 @@ export default function DashboardLayout() {
     if (currentView === 'marketing-export') {
       return 'Reports'
     }
-    if (currentView === 'finance-overview' || currentView === 'cancellation-rate') {
+    if (currentView === 'finance-overview' || currentView === 'cancellation-rate' || currentView === 'affiliates') {
       return 'Finance'
     }
     return 'Dashboard'
