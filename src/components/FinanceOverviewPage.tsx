@@ -70,6 +70,7 @@ export default function FinanceOverviewPage() {
   // Fetch data whenever filters change
   useEffect(() => {
     fetchFinanceData()
+  // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [metricType, chartDateType, bookingStartDate, bookingEndDate, activityStartDate, activityEndDate, selectedSellers, selectedAffiliates, comparisonType, customComparisonStart, customComparisonEnd])
 
   const fetchPreviousPeriodData = async () => {

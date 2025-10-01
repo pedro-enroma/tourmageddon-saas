@@ -112,7 +112,8 @@ export default function FinanceOverviewPage() {
   // Fetch data whenever filters change
   useEffect(() => {
     fetchFinanceData()
-  }, [metricType, transactionDateRange, customTransactionStart, customTransactionEnd, 
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [metricType, transactionDateRange, customTransactionStart, customTransactionEnd,
       tourDateRange, customTourStart, customTourEnd, selectedSellers, selectedAffiliates,
       transactionComparison, tourComparison])
 
