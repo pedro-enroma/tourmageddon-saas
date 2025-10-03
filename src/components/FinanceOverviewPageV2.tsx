@@ -1,21 +1,19 @@
 'use client'
 
-import { useState, useEffect } from 'react'
-import { createClient } from '@supabase/supabase-js'
+import { useState, useEffect, useMemo } from 'react'
+import { supabase } from '@/lib/supabase'
 import { Switch } from '@/components/ui/switch'
 import { Label } from '@/components/ui/label'
 import { Popover, PopoverContent, PopoverTrigger } from '@/components/ui/popover'
 import { Button } from '@/components/ui/button'
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select'
-import { ChevronDown, Search, TrendingUp, TrendingDown, ArrowRight } from 'lucide-react'
+import { ChevronDown, Search, TrendingUp, TrendingDown, ArrowRight, AlertCircle, X } from 'lucide-react'
 import { Checkbox } from '@/components/ui/checkbox'
 import { BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer, Legend } from 'recharts'
-import { format, subDays, subMonths, startOfYear, startOfWeek, endOfWeek, startOfMonth, endOfMonth } from 'date-fns'
+import { format, subDays, subMonths, subYears, startOfYear, startOfWeek, endOfWeek, startOfMonth, endOfMonth } from 'date-fns'
 
-const supabase = createClient(
-  process.env.NEXT_PUBLIC_SUPABASE_URL!,
-  process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!
-)
+// Constants
+const ENROMA_SELLER = 'EnRoma.com' as const
 
 type MetricType = 'revenue' | 'reservations'
 type DateRangeType = 'today' | 'yesterday' | 'last7days' | 'lastWeek' | 'last30days' | 'lastMonth' | 'yearToDate' | 'custom'
@@ -59,10 +57,11 @@ export default function FinanceOverviewPage() {
   const [customTourCompEnd, setCustomTourCompEnd] = useState<Date | undefined>()
   
   const [loading, setLoading] = useState(true)
+  const [error, setError] = useState<string | null>(null)
   const [rawData, setRawData] = useState<FinanceData[]>([])
   const [chartData, setChartData] = useState<ChartData[]>([])
   const [previousPeriodData, setPreviousPeriodData] = useState<FinanceData[]>([])
-  
+
   // Sellers and Affiliates
   const [availableSellers, setAvailableSellers] = useState<string[]>([])
   const [selectedSellers, setSelectedSellers] = useState<string[]>([])
@@ -73,33 +72,36 @@ export default function FinanceOverviewPage() {
   const [affiliateSearchQuery, setAffiliateSearchQuery] = useState('')
   const [isAffiliateDropdownOpen, setIsAffiliateDropdownOpen] = useState(false)
 
-  // Calculate date ranges based on selection
+  // Calculate date ranges based on selection (fixed to not mutate date)
   const getDateRange = (rangeType: DateRangeType): { start: Date; end: Date } => {
-    const today = new Date()
-    today.setHours(23, 59, 59, 999)
-    
+    const now = new Date()
+    const today = new Date(now.getFullYear(), now.getMonth(), now.getDate(), 23, 59, 59, 999)
+
     switch (rangeType) {
       case 'today':
-        return { start: new Date(today.setHours(0, 0, 0, 0)), end: new Date() }
+        const todayStart = new Date(now.getFullYear(), now.getMonth(), now.getDate(), 0, 0, 0, 0)
+        return { start: todayStart, end: now }
       case 'yesterday':
-        const yesterday = subDays(today, 1)
-        return { start: new Date(yesterday.setHours(0, 0, 0, 0)), end: new Date(yesterday.setHours(23, 59, 59, 999)) }
+        const yesterday = subDays(now, 1)
+        const yesterdayStart = new Date(yesterday.getFullYear(), yesterday.getMonth(), yesterday.getDate(), 0, 0, 0, 0)
+        const yesterdayEnd = new Date(yesterday.getFullYear(), yesterday.getMonth(), yesterday.getDate(), 23, 59, 59, 999)
+        return { start: yesterdayStart, end: yesterdayEnd }
       case 'last7days':
-        return { start: subDays(today, 7), end: today }
+        return { start: subDays(now, 7), end: now }
       case 'lastWeek':
-        const lastWeekStart = startOfWeek(subDays(today, 7))
-        const lastWeekEnd = endOfWeek(subDays(today, 7))
+        const lastWeekStart = startOfWeek(subDays(now, 7))
+        const lastWeekEnd = endOfWeek(subDays(now, 7))
         return { start: lastWeekStart, end: lastWeekEnd }
       case 'last30days':
-        return { start: subDays(today, 30), end: today }
+        return { start: subDays(now, 30), end: now }
       case 'lastMonth':
-        const lastMonthStart = startOfMonth(subMonths(today, 1))
-        const lastMonthEnd = endOfMonth(subMonths(today, 1))
+        const lastMonthStart = startOfMonth(subMonths(now, 1))
+        const lastMonthEnd = endOfMonth(subMonths(now, 1))
         return { start: lastMonthStart, end: lastMonthEnd }
       case 'yearToDate':
-        return { start: startOfYear(today), end: today }
+        return { start: startOfYear(now), end: now }
       default:
-        return { start: subDays(today, 30), end: today }
+        return { start: subDays(now, 30), end: now }
     }
   }
 
@@ -149,18 +151,20 @@ export default function FinanceOverviewPage() {
       const sellers = (data?.map(item => item.title) || [])
         .filter(seller => seller)
         .sort((a, b) => {
-          if (a === 'EnRoma.com') return -1
-          if (b === 'EnRoma.com') return 1
+          if (a === ENROMA_SELLER) return -1
+          if (b === ENROMA_SELLER) return 1
           return a.localeCompare(b)
         })
       setAvailableSellers(sellers)
     } catch (error) {
       console.error('Error fetching sellers:', error)
+      setError('Failed to load sellers')
     }
   }
 
   const fetchFinanceData = async () => {
     setLoading(true)
+    setError(null)
     try {
       let query = supabase
         .from('finance_report_data')
@@ -208,18 +212,20 @@ export default function FinanceOverviewPage() {
 
       if (error) {
         console.error('Error fetching finance data:', error)
+        setError('Failed to load finance data. Please try again.')
         throw error
       }
 
       setRawData(data || [])
-      
+
       // Process data for daily chart
       processChartData(data || [])
-      
+
       // Fetch comparison data
       await fetchPreviousPeriodData()
     } catch (error) {
       console.error('Error fetching finance data:', error)
+      setError('Failed to load finance data. Please try again.')
     } finally {
       setLoading(false)
     }
@@ -227,20 +233,93 @@ export default function FinanceOverviewPage() {
 
   const fetchPreviousPeriodData = async () => {
     try {
-      const query = supabase
+      let query = supabase
         .from('finance_report_data')
         .select('*')
 
-      // Similar logic for previous period based on comparison type
-      // Implementation details...
-      
+      let prevStartDate: Date | undefined
+      let prevEndDate: Date | undefined
+
+      // Determine which date range and comparison to use
+      const activeComparison = transactionDateRange ? transactionComparison : tourComparison
+      const activeDateField = transactionDateRange ? 'booking_date' : 'activity_date'
+
+      // Get current period dates
+      let currentStart: Date | undefined
+      let currentEnd: Date | undefined
+
+      if (transactionDateRange) {
+        if (transactionDateRange === 'custom' && customTransactionStart && customTransactionEnd) {
+          currentStart = customTransactionStart
+          currentEnd = customTransactionEnd
+        } else {
+          const range = getDateRange(transactionDateRange)
+          currentStart = range.start
+          currentEnd = range.end
+        }
+      } else if (tourDateRange) {
+        if (tourDateRange === 'custom' && customTourStart && customTourEnd) {
+          currentStart = customTourStart
+          currentEnd = customTourEnd
+        } else {
+          const range = getDateRange(tourDateRange)
+          currentStart = range.start
+          currentEnd = range.end
+        }
+      }
+
+      // Calculate previous period dates based on comparison type
+      if (currentStart && currentEnd) {
+        if (activeComparison === 'custom') {
+          // Use custom comparison dates
+          if (transactionDateRange && customTransactionCompStart && customTransactionCompEnd) {
+            prevStartDate = customTransactionCompStart
+            prevEndDate = customTransactionCompEnd
+          } else if (tourDateRange && customTourCompStart && customTourCompEnd) {
+            prevStartDate = customTourCompStart
+            prevEndDate = customTourCompEnd
+          }
+        } else if (activeComparison === 'lastWeek') {
+          prevStartDate = subDays(currentStart, 7)
+          prevEndDate = subDays(currentEnd, 7)
+        } else if (activeComparison === 'lastMonth') {
+          prevStartDate = subMonths(currentStart, 1)
+          prevEndDate = subMonths(currentEnd, 1)
+        } else if (activeComparison === 'lastYear') {
+          prevStartDate = subYears(currentStart, 1)
+          prevEndDate = subYears(currentEnd, 1)
+        }
+      }
+
+      // Apply date filter if we have previous period dates
+      if (prevStartDate && prevEndDate) {
+        query = query
+          .gte(activeDateField, format(prevStartDate, 'yyyy-MM-dd'))
+          .lte(activeDateField, format(prevEndDate, 'yyyy-MM-dd'))
+      } else {
+        // No comparison data if we can't determine dates
+        setPreviousPeriodData([])
+        return
+      }
+
+      // Apply seller filter
+      if (selectedSellers.length > 0) {
+        query = query.in('original_seller', selectedSellers)
+      }
+
+      // Apply affiliate filter
+      if (selectedAffiliates.length > 0) {
+        query = query.in('affiliate_id', selectedAffiliates)
+      }
+
       const { data, error } = await query
 
-      if (!error && data) {
-        setPreviousPeriodData(data)
-      }
+      if (error) throw error
+
+      setPreviousPeriodData(data || [])
     } catch (error) {
       console.error('Error fetching previous period data:', error)
+      setPreviousPeriodData([])
     }
   }
 
@@ -251,15 +330,15 @@ export default function FinanceOverviewPage() {
       if (!acc[date]) {
         acc[date] = { EnRoma: 0, Resellers: 0 }
       }
-      
+
       const value = metricType === 'revenue' ? (row.total_revenue || 0) : (row.reservation_count || 0)
-      
-      if (row.seller_group === 'EnRoma.com') {
+
+      if (row.seller_group === ENROMA_SELLER) {
         acc[date].EnRoma += value
       } else {
         acc[date].Resellers += value
       }
-      
+
       return acc
     }, {} as Record<string, { EnRoma: number; Resellers: number }>)
 
@@ -278,23 +357,23 @@ export default function FinanceOverviewPage() {
   const getTotalMetrics = () => {
     const totalRevenue = rawData.reduce((sum, row) => sum + (row.total_revenue || 0), 0)
     const totalBookings = rawData.reduce((sum, row) => sum + (row.unique_bookings || 0), 0)
-    const totalParticipants = rawData.reduce((sum, row) => sum + (row.total_participants || 0), 0)
-    
+    const totalParticipants = rawData.reduce((sum, row) => sum + (row.reservation_count || 0), 0)
+
     const prevTotalRevenue = previousPeriodData.reduce((sum, row) => sum + (row.total_revenue || 0), 0)
-    
+
     let growthRate = 0
     let growthTrend: 'up' | 'down' | 'steady' = 'steady'
     if (prevTotalRevenue > 0) {
       growthRate = ((totalRevenue - prevTotalRevenue) / prevTotalRevenue) * 100
       growthTrend = growthRate > 5 ? 'up' : growthRate < -5 ? 'down' : 'steady'
     }
-    
+
     const revenueChange = prevTotalRevenue > 0 ? ((totalRevenue - prevTotalRevenue) / prevTotalRevenue) * 100 : 0
     const prevTotalBookings = previousPeriodData.reduce((sum, row) => sum + (row.unique_bookings || 0), 0)
     const bookingsChange = prevTotalBookings > 0 ? ((totalBookings - prevTotalBookings) / prevTotalBookings) * 100 : 0
-    const prevTotalParticipants = previousPeriodData.reduce((sum, row) => sum + (row.total_participants || 0), 0)
+    const prevTotalParticipants = previousPeriodData.reduce((sum, row) => sum + (row.reservation_count || 0), 0)
     const participantsChange = prevTotalParticipants > 0 ? ((totalParticipants - prevTotalParticipants) / prevTotalParticipants) * 100 : 0
-    
+
     return {
       totalRevenue,
       totalBookings,
@@ -316,7 +395,7 @@ export default function FinanceOverviewPage() {
 
   const toggleSeller = (seller: string) => {
     if (seller === 'All Resellers') {
-      const resellers = availableSellers.filter(s => s !== 'EnRoma.com')
+      const resellers = availableSellers.filter(s => s !== ENROMA_SELLER)
       if (resellers.every(s => selectedSellers.includes(s))) {
         setSelectedSellers(selectedSellers.filter(s => !resellers.includes(s)))
       } else {
@@ -334,10 +413,10 @@ export default function FinanceOverviewPage() {
 
   const getFilteredSellers = () => {
     // EnRoma.com first, then All Resellers, then others
-    const allOptions = ['EnRoma.com', 'All Resellers', ...availableSellers.filter(s => s !== 'EnRoma.com')]
+    const allOptions = [ENROMA_SELLER, 'All Resellers', ...availableSellers.filter(s => s !== ENROMA_SELLER)]
     if (!sellerSearchQuery) return allOptions
-    
-    return allOptions.filter(seller => 
+
+    return allOptions.filter(seller =>
       seller.toLowerCase().includes(sellerSearchQuery.toLowerCase())
     )
   }
@@ -347,6 +426,23 @@ export default function FinanceOverviewPage() {
   return (
     <div className="space-y-6">
       <h1 className="text-2xl font-bold">Finance Overview</h1>
+
+      {/* Error Banner */}
+      {error && (
+        <div className="bg-red-50 border border-red-200 rounded-lg p-4 flex items-start gap-3">
+          <AlertCircle className="h-5 w-5 text-red-600 mt-0.5" />
+          <div className="flex-1">
+            <h3 className="text-sm font-medium text-red-800">Error Loading Data</h3>
+            <p className="text-sm text-red-700 mt-1">{error}</p>
+          </div>
+          <button
+            onClick={() => setError(null)}
+            className="text-red-600 hover:text-red-800"
+          >
+            <X className="h-4 w-4" />
+          </button>
+        </div>
+      )}
 
       {/* Filters Section */}
       <div className="bg-white rounded-lg shadow p-4">
@@ -522,8 +618,8 @@ export default function FinanceOverviewPage() {
                 </div>
                 <div className="max-h-[300px] overflow-y-auto">
                   {getFilteredSellers().map((seller) => {
-                    const isSelected = seller === 'All Resellers' 
-                      ? availableSellers.filter(s => s !== 'EnRoma.com').every(s => selectedSellers.includes(s))
+                    const isSelected = seller === 'All Resellers'
+                      ? availableSellers.filter(s => s !== ENROMA_SELLER).every(s => selectedSellers.includes(s))
                       : selectedSellers.includes(seller)
                     
                     return (
