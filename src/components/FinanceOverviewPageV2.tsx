@@ -22,8 +22,9 @@ type ComparisonType = 'lastWeek' | 'lastMonth' | 'lastYear' | 'custom'
 
 interface ChartData {
   date: string
-  EnRoma: number
-  Resellers: number
+  EnRoma?: number
+  Resellers?: number
+  value?: number
 }
 
 interface FinanceData {
@@ -387,7 +388,7 @@ export default function FinanceOverviewPage() {
           value: Math.round(value * 100) / 100,
         }))
 
-      setChartData(chartData as ChartData[])
+      setChartData(chartData)
     } else {
       // Group data by date
       const groupedData = data.reduce((acc, row) => {
