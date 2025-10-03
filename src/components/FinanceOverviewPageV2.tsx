@@ -421,7 +421,8 @@ export default function FinanceOverviewPage() {
     )
   }
 
-  const metrics = getTotalMetrics()
+  // Memoize metrics calculation to avoid recalculating on every render
+  const metrics = useMemo(() => getTotalMetrics(), [rawData, previousPeriodData])
 
   return (
     <div className="space-y-6">
@@ -707,7 +708,7 @@ export default function FinanceOverviewPage() {
       </div>
 
       {/* Summary Cards */}
-      <div className="grid grid-cols-4 gap-4">
+      <div className={`grid grid-cols-4 gap-4 transition-opacity ${loading ? 'opacity-50 pointer-events-none' : ''}`}>
         {/* Total Revenue Card */}
         <div className="bg-white rounded-2xl p-6 border border-gray-100 shadow-lg hover:shadow-xl transition-shadow">
           <div className="flex justify-between items-start mb-2">
