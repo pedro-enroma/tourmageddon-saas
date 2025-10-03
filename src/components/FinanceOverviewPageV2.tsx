@@ -7,7 +7,7 @@ import { Label } from '@/components/ui/label'
 import { Popover, PopoverContent, PopoverTrigger } from '@/components/ui/popover'
 import { Button } from '@/components/ui/button'
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select'
-import { ChevronDown, Search, TrendingUp, TrendingDown, ArrowRight, AlertCircle, X, Download, RotateCcw } from 'lucide-react'
+import { ChevronDown, Search, TrendingUp, TrendingDown, ArrowRight, AlertCircle, X, Download, RotateCcw, XCircle } from 'lucide-react'
 import { Checkbox } from '@/components/ui/checkbox'
 import { BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer, Legend } from 'recharts'
 import { format, subDays, subMonths, subYears, startOfYear, startOfWeek, endOfWeek, startOfMonth, endOfMonth } from 'date-fns'
@@ -578,7 +578,22 @@ export default function FinanceOverviewPage() {
         <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4">
           {/* Transaction Date - 25% */}
           <div>
-            <Label className="text-sm font-medium mb-1">Transaction Date</Label>
+            <div className="flex justify-between items-center mb-1">
+              <Label className="text-sm font-medium">Transaction Date</Label>
+              {transactionDateRange && (
+                <button
+                  onClick={() => {
+                    setTransactionDateRange(undefined)
+                    setCustomTransactionStart(undefined)
+                    setCustomTransactionEnd(undefined)
+                  }}
+                  className="text-xs text-gray-500 hover:text-red-600 flex items-center gap-1"
+                >
+                  <XCircle className="w-3 h-3" />
+                  Clear
+                </button>
+              )}
+            </div>
             <Select value={transactionDateRange} onValueChange={(value) => setTransactionDateRange(value as DateRangeType)}>
               <SelectTrigger className="w-full">
                 <SelectValue placeholder="Select range" />
@@ -646,7 +661,22 @@ export default function FinanceOverviewPage() {
 
           {/* Tour Date - 25% */}
           <div>
-            <Label className="text-sm font-medium mb-1">Tour Date</Label>
+            <div className="flex justify-between items-center mb-1">
+              <Label className="text-sm font-medium">Tour Date</Label>
+              {tourDateRange && (
+                <button
+                  onClick={() => {
+                    setTourDateRange(undefined)
+                    setCustomTourStart(undefined)
+                    setCustomTourEnd(undefined)
+                  }}
+                  className="text-xs text-gray-500 hover:text-red-600 flex items-center gap-1"
+                >
+                  <XCircle className="w-3 h-3" />
+                  Clear
+                </button>
+              )}
+            </div>
             <Select value={tourDateRange} onValueChange={(value) => setTourDateRange(value as DateRangeType)}>
               <SelectTrigger className="w-full">
                 <SelectValue placeholder="Select range" />
@@ -714,7 +744,18 @@ export default function FinanceOverviewPage() {
 
           {/* Seleziona Seller - 25% */}
           <div>
-            <Label className="text-sm font-medium mb-1">Seleziona Seller</Label>
+            <div className="flex justify-between items-center mb-1">
+              <Label className="text-sm font-medium">Seleziona Seller</Label>
+              {selectedSellers.length > 0 && (
+                <button
+                  onClick={() => setSelectedSellers([])}
+                  className="text-xs text-gray-500 hover:text-red-600 flex items-center gap-1"
+                >
+                  <XCircle className="w-3 h-3" />
+                  Clear
+                </button>
+              )}
+            </div>
             <Popover open={isSellerDropdownOpen} onOpenChange={setIsSellerDropdownOpen}>
               <PopoverTrigger asChild>
                 <Button
@@ -773,7 +814,18 @@ export default function FinanceOverviewPage() {
 
           {/* Seleziona Affiliate - 25% */}
           <div>
-            <Label className="text-sm font-medium mb-1">Seleziona Affiliate</Label>
+            <div className="flex justify-between items-center mb-1">
+              <Label className="text-sm font-medium">Seleziona Affiliate</Label>
+              {selectedAffiliates.length > 0 && (
+                <button
+                  onClick={() => setSelectedAffiliates([])}
+                  className="text-xs text-gray-500 hover:text-red-600 flex items-center gap-1"
+                >
+                  <XCircle className="w-3 h-3" />
+                  Clear
+                </button>
+              )}
+            </div>
             <Popover open={isAffiliateDropdownOpen} onOpenChange={setIsAffiliateDropdownOpen}>
               <PopoverTrigger asChild>
                 <Button
