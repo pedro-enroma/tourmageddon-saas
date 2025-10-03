@@ -112,18 +112,13 @@ export default function GuidesCalendarPage() {
         return acc
       }, {})
 
-      interface RawAvailability {
-        activity_id: string
-        [key: string]: unknown
-      }
-
-      const enrichedData = (avails || []).map((avail: RawAvailability) => ({
+      const enrichedData = (avails || []).map((avail) => ({
         ...avail,
         activity: activitiesMap[avail.activity_id] || {
           activity_id: avail.activity_id,
           title: 'Unknown Activity'
         }
-      }))
+      })) as ActivityAvailability[]
 
       setAvailabilities(enrichedData)
 
