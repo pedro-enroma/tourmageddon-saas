@@ -3,7 +3,7 @@
 import { useState, useEffect } from 'react'
 import { supabase } from '@/lib/supabase'
 import { Calendar as CalendarIcon, ChevronLeft, ChevronRight, Clock, Users, MapPin, X } from 'lucide-react'
-import { format, addMonths, addWeeks, startOfMonth, endOfMonth, startOfWeek, endOfWeek, eachDayOfInterval, isSameMonth, isSameDay, addDays } from 'date-fns'
+import { format, addMonths, addWeeks, startOfMonth, endOfMonth, startOfWeek, endOfWeek, eachDayOfInterval, isSameMonth, isSameDay } from 'date-fns'
 import { Button } from '@/components/ui/button'
 import { Checkbox } from '@/components/ui/checkbox'
 
@@ -56,6 +56,7 @@ export default function GuidesCalendarPage() {
 
   useEffect(() => {
     fetchData()
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [currentDate, viewMode])
 
   const fetchData = async () => {
@@ -106,12 +107,17 @@ export default function GuidesCalendarPage() {
       if (actError) throw actError
 
       // Map activities to availabilities
-      const activitiesMap = (activities || []).reduce((acc: any, activity: any) => {
+      const activitiesMap = (activities || []).reduce((acc: Record<string, { activity_id: string; title: string }>, activity: { activity_id: string; title: string }) => {
         acc[activity.activity_id] = activity
         return acc
       }, {})
 
-      const enrichedData = (avails || []).map((avail: any) => ({
+      interface RawAvailability {
+        activity_id: string
+        [key: string]: unknown
+      }
+
+      const enrichedData = (avails || []).map((avail: RawAvailability) => ({
         ...avail,
         activity: activitiesMap[avail.activity_id] || {
           activity_id: avail.activity_id,

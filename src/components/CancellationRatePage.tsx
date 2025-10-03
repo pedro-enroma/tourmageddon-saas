@@ -159,7 +159,7 @@ export default function CancellationRatePage() {
     } finally {
       setLoading(false)
     }
-  }, [dateRange, customStartDate, customEndDate])
+  }, [dateRange, customStartDate, customEndDate, getDateRange])
 
   React.useEffect(() => {
     if (dateRange !== 'custom' || (customStartDate && customEndDate)) {

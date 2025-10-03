@@ -43,6 +43,7 @@ export default function UpcomingServicesPage() {
 
   useEffect(() => {
     fetchAssignments()
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [selectedDate])
 
   const fetchAssignments = async () => {
@@ -81,7 +82,14 @@ export default function UpcomingServicesPage() {
       if (error) throw error
 
       // Fetch activity details separately
-      const activityIds = [...new Set(data?.map((a: any) => a.activity_availability.activity_id) || [])]
+      interface RawAssignment {
+        activity_availability: {
+          activity_id: string
+          [key: string]: unknown
+        }
+        [key: string]: unknown
+      }
+      const activityIds = [...new Set(data?.map((a: RawAssignment) => a.activity_availability.activity_id) || [])]
 
       const { data: activities, error: actError } = await supabase
         .from('activities')
@@ -91,12 +99,12 @@ export default function UpcomingServicesPage() {
       if (actError) throw actError
 
       // Map activities to assignments
-      const activitiesMap = (activities || []).reduce((acc: any, activity: any) => {
+      const activitiesMap = (activities || []).reduce((acc: Record<string, { activity_id: string; title: string }>, activity: { activity_id: string; title: string }) => {
         acc[activity.activity_id] = activity
         return acc
       }, {})
 
-      const enrichedData = (data || []).map((assignment: any) => ({
+      const enrichedData = (data || []).map((assignment: RawAssignment) => ({
         ...assignment,
         activity_availability: {
           ...assignment.activity_availability,
