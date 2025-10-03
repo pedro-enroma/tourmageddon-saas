@@ -5,22 +5,53 @@ import { supabase } from '@/lib/supabase'
 import { RefreshCw, Download, ChevronDown, ChevronUp, Search } from 'lucide-react'
 import * as XLSX from 'xlsx'
 
+// Funzione per rilevare la lingua dal titolo
+const detectLanguage = (title: string): string => {
+  const lowerTitle = title.toLowerCase()
+
+  // Pattern comuni per diverse lingue
+  const portuguesePatterns = ['passeio', 'cidade', 'dia', 'noite', 'praia', 'tour em', 'de dia', 'à noite']
+  const spanishPatterns = ['paseo', 'ciudad', 'día', 'noche', 'playa', 'tour en', 'de día', 'por la noche']
+  const englishPatterns = ['tour', 'city', 'day', 'night', 'beach', 'walking', 'guided', 'visit']
+
+  // Controlla portoghese
+  if (portuguesePatterns.some(pattern => lowerTitle.includes(pattern))) {
+    return 'Portoghese'
+  }
+
+  // Controlla spagnolo
+  if (spanishPatterns.some(pattern => lowerTitle.includes(pattern))) {
+    return 'Spagnolo'
+  }
+
+  // Controlla inglese
+  if (englishPatterns.some(pattern => lowerTitle.includes(pattern))) {
+    return 'Inglese'
+  }
+
+  // Default a inglese se non rilevato
+  return 'Inglese'
+}
+
 // Componente Dropdown Custom
-const CustomDropdown = ({ 
-  label, 
-  options, 
-  selected, 
+const CustomDropdown = ({
+  label,
+  options,
+  selected,
   onChange,
-  placeholder = "Seleziona..."
+  placeholder = "Seleziona...",
+  groupByLanguage = false
 }: {
   label: string
   options: string[]
   selected: string[]
   onChange: (value: string[]) => void
   placeholder?: string
+  groupByLanguage?: boolean
 }) => {
   const [isOpen, setIsOpen] = useState(false)
   const [searchTerm, setSearchTerm] = useState('')
+  const [selectedLanguages, setSelectedLanguages] = useState<string[]>([])
   const dropdownRef = useRef<HTMLDivElement>(null)
 
   // Chiudi dropdown quando clicchi fuori
@@ -34,9 +65,25 @@ const CustomDropdown = ({
     return () => document.removeEventListener('mousedown', handleClickOutside)
   }, [])
 
-  const filteredOptions = options.filter(option =>
-    option.toLowerCase().includes(searchTerm.toLowerCase())
-  )
+  // Raggruppa opzioni per lingua se necessario
+  const groupedOptions = groupByLanguage
+    ? options.reduce((acc, option) => {
+        const lang = detectLanguage(option)
+        if (!acc[lang]) acc[lang] = []
+        acc[lang].push(option)
+        return acc
+      }, {} as Record<string, string[]>)
+    : { 'Tutti': options }
+
+  const availableLanguages = Object.keys(groupedOptions).sort()
+
+  // Filtra opzioni per ricerca e lingua
+  const filteredOptions = options.filter(option => {
+    const matchesSearch = option.toLowerCase().includes(searchTerm.toLowerCase())
+    if (!groupByLanguage || selectedLanguages.length === 0) return matchesSearch
+    const lang = detectLanguage(option)
+    return matchesSearch && selectedLanguages.includes(lang)
+  })
 
   const handleToggle = (option: string) => {
     if (selected.includes(option)) {
@@ -54,6 +101,15 @@ const CustomDropdown = ({
   const clearAll = () => {
     onChange([])
     setSearchTerm('')
+    setSelectedLanguages([])
+  }
+
+  const toggleLanguageFilter = (lang: string) => {
+    if (selectedLanguages.includes(lang)) {
+      setSelectedLanguages(selectedLanguages.filter(l => l !== lang))
+    } else {
+      setSelectedLanguages([...selectedLanguages, lang])
+    }
   }
 
   const getDisplayText = () => {
@@ -91,6 +147,29 @@ const CustomDropdown = ({
               />
             </div>
           </div>
+
+          {/* Filtri per lingua */}
+          {groupByLanguage && availableLanguages.length > 1 && (
+            <div className="p-2 border-b bg-gray-50">
+              <div className="text-xs text-gray-600 mb-2">Filtra per lingua:</div>
+              <div className="flex gap-2 flex-wrap">
+                {availableLanguages.map(lang => (
+                  <button
+                    key={lang}
+                    type="button"
+                    onClick={() => toggleLanguageFilter(lang)}
+                    className={`px-3 py-1 text-xs rounded-full transition-colors ${
+                      selectedLanguages.includes(lang)
+                        ? 'bg-blue-600 text-white'
+                        : 'bg-gray-200 text-gray-700 hover:bg-gray-300'
+                    }`}
+                  >
+                    {lang} ({groupedOptions[lang]?.length || 0})
+                  </button>
+                ))}
+              </div>
+            </div>
+          )}
 
           {/* Pulsante Seleziona tutti */}
           <div className="p-2 border-b bg-gray-50">
@@ -499,6 +578,7 @@ export default function MarketingExport() {
             selected={selectedTours}
             onChange={handleSelectedToursChange}
             placeholder="Seleziona tour..."
+            groupByLanguage={true}
           />
 
           {/* Escludi Tour */}
@@ -508,6 +588,7 @@ export default function MarketingExport() {
             selected={excludedTours}
             onChange={handleExcludedToursChange}
             placeholder="Escludi tour..."
+            groupByLanguage={true}
           />
 
           {/* Tipo Partecipanti */}
