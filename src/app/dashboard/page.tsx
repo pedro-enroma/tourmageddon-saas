@@ -2,7 +2,7 @@
 'use client'
 
 import React, { useState } from 'react'
-import { Menu, ChevronRight, Users, FileBarChart, LayoutDashboard, FileText, FileSpreadsheet, BarChart3, DollarSign, TrendingUp, RefreshCw, Percent } from 'lucide-react'
+import { Menu, ChevronRight, Users, FileBarChart, LayoutDashboard, FileText, FileSpreadsheet, BarChart3, DollarSign, TrendingUp, RefreshCw, Percent, UserCog, Calendar, Clock } from 'lucide-react'
 import { SidebarProvider, SidebarTrigger } from "@/components/ui/sidebar"
 import { Sidebar, SidebarContent, SidebarGroup, SidebarHeader, SidebarMenu, SidebarMenuButton, SidebarMenuItem, SidebarMenuSub, SidebarMenuSubButton, SidebarMenuSubItem } from "@/components/ui/sidebar"
 import RecapPage from '@/components/RecapPage'
@@ -13,6 +13,7 @@ import FinanceOverviewPageV2 from '@/components/FinanceOverviewPageV2'
 import AvailabilitySyncPage from '@/components/AvailabilitySyncPage'
 import CancellationRatePage from '@/components/CancellationRatePage'
 import AffiliatesPage from './affiliates/page'
+import GuidesListPage from '@/components/GuidesListPage'
 
 // Custom Sidebar Component
 function AppSidebar({ currentView, onNavigate }: {
@@ -20,6 +21,7 @@ function AppSidebar({ currentView, onNavigate }: {
   onNavigate: (view: string) => void
 }) {
   const [operationsOpen, setOperationsOpen] = useState(true)
+  const [guidesOpen, setGuidesOpen] = useState(true)
   const [reportsOpen, setReportsOpen] = useState(true)
   const [financeOpen, setFinanceOpen] = useState(true)
 
@@ -49,6 +51,29 @@ function AppSidebar({ currentView, onNavigate }: {
           title: "Sync Now",
           icon: RefreshCw,
           view: "availability-sync",
+        },
+      ],
+    },
+    {
+      title: "Guides",
+      icon: UserCog,
+      isOpen: guidesOpen,
+      setOpen: setGuidesOpen,
+      items: [
+        {
+          title: "Guides List",
+          icon: Users,
+          view: "guides-list",
+        },
+        {
+          title: "Upcoming Services",
+          icon: Clock,
+          view: "upcoming-services",
+        },
+        {
+          title: "Calendar",
+          icon: Calendar,
+          view: "guides-calendar",
         },
       ],
     },
@@ -147,6 +172,12 @@ export default function DashboardLayout() {
         return <ConsumedPage />
       case 'pax-names':
         return <PaxNamesPage />
+      case 'guides-list':
+        return <GuidesListPage />
+      case 'upcoming-services':
+        return <div className="p-6"><h1 className="text-2xl font-bold">Upcoming Services - Coming Soon</h1></div>
+      case 'guides-calendar':
+        return <div className="p-6"><h1 className="text-2xl font-bold">Guides Calendar - Coming Soon</h1></div>
       case 'marketing-export':
         return <MarketingExportPage />
       case 'finance-overview':

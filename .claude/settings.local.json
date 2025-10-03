@@ -27,7 +27,8 @@
       "Bash(timeout:*)",
       "Bash(xargs kill:*)",
       "Bash(echo:*)",
-      "Bash(git log:*)"
+      "Bash(git log:*)",
+      "Bash(xargs -r kill -9)"
     ],
     "deny": [],
     "ask": []
