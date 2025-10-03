@@ -147,11 +147,14 @@ const CustomDropdown = ({
 interface ActivityData {
   activity_booking_id: string
   booking_id: string
-  product_title: string
+  activity_id: string
   start_date_time: string
   total_price?: number
   activity_seller?: string
   status: string
+  activities?: {
+    title: string
+  }
   pricing_category_bookings?: Array<{
     booked_title?: string
     quantity?: number
@@ -191,24 +194,41 @@ export default function MarketingExport() {
     end: new Date(Date.now() + 30 * 24 * 60 * 60 * 1000).toISOString().split('T')[0]
   })
 
+  // Handler per gestire il conflitto tra selectedTours e excludedTours
+  const handleSelectedToursChange = (tours: string[]) => {
+    setSelectedTours(tours)
+    // Rimuovi i tour selezionati dalla lista di esclusione
+    if (tours.length > 0) {
+      setExcludedTours(prev => prev.filter(t => !tours.includes(t)))
+    }
+  }
+
+  const handleExcludedToursChange = (tours: string[]) => {
+    setExcludedTours(tours)
+    // Rimuovi i tour esclusi dalla lista di selezione
+    if (tours.length > 0) {
+      setSelectedTours(prev => prev.filter(t => !tours.includes(t)))
+    }
+  }
+
   useEffect(() => {
     loadFilterOptions()
   }, [])
 
   const loadFilterOptions = async () => {
     console.log('Loading filter options...')
-    
-    // Carica tutti i tour unici da activity_bookings
-    const { data: bookingsData, error: toursError } = await supabase
-      .from('activity_bookings')
-      .select('product_title')
-      .not('product_title', 'is', null)
-      .order('product_title')
-    
+
+    // Carica tutti i tour unici da activities table
+    const { data: toursData, error: toursError } = await supabase
+      .from('activities')
+      .select('title')
+      .not('title', 'is', null)
+      .order('title')
+
     if (toursError) {
       console.error('Error loading tours:', toursError)
-    } else if (bookingsData) {
-      const uniqueTours = [...new Set(bookingsData.map(b => b.product_title))].filter(Boolean)
+    } else if (toursData) {
+      const uniqueTours = toursData.map((a: { title: string }) => a.title).filter(Boolean)
       setAllTours(uniqueTours)
       console.log('Loaded tours:', uniqueTours.length)
     }
@@ -218,13 +238,12 @@ export default function MarketingExport() {
       .from('activity_bookings')
       .select('activity_seller')
       .not('activity_seller', 'is', null)
-      .order('activity_seller')
-      
+
     if (sellersError) {
       console.error('Error loading sellers:', sellersError)
     } else if (sellersData) {
-      const uniqueSellers = [...new Set(sellersData.map(b => b.activity_seller))].filter(Boolean)
-      setAllSellers(uniqueSellers)
+      const uniqueSellers = [...new Set(sellersData.map((b: { activity_seller: string }) => b.activity_seller))].filter(Boolean)
+      setAllSellers(uniqueSellers.sort())
       console.log('Loaded sellers:', uniqueSellers.length)
     }
 
@@ -233,13 +252,12 @@ export default function MarketingExport() {
       .from('pricing_category_bookings')
       .select('booked_title')
       .not('booked_title', 'is', null)
-      .order('booked_title')
-    
+
     if (categoriesError) {
       console.error('Error loading categories:', categoriesError)
     } else if (categoriesData) {
-      const uniqueTypes = [...new Set(categoriesData.map(p => p.booked_title))].filter(Boolean)
-      setAllParticipantTypes(uniqueTypes)
+      const uniqueTypes = [...new Set(categoriesData.map((p: { booked_title: string }) => p.booked_title))].filter(Boolean)
+      setAllParticipantTypes(uniqueTypes.sort())
       console.log('Loaded participant types:', uniqueTypes.length)
     }
   }
@@ -247,19 +265,22 @@ export default function MarketingExport() {
   const fetchData = async () => {
     setLoading(true)
     setHasSearched(true)
-    
+
     try {
-      // 1. Recupera tutte le attività
+      // 1. Recupera tutte le attività con join sulla tabella activities
       let query = supabase
         .from('activity_bookings')
         .select(`
           activity_booking_id,
           booking_id,
-          product_title,
+          activity_id,
           start_date_time,
           total_price,
           activity_seller,
           status,
+          activities!inner (
+            title
+          ),
           pricing_category_bookings (
             booked_title,
             quantity,
@@ -273,10 +294,12 @@ export default function MarketingExport() {
         .lte('start_date_time', `${dateRange.end}T23:59:59`)
 
       if (selectedTours.length > 0) {
-        query = query.in('product_title', selectedTours)
+        query = query.in('activities.title', selectedTours)
       }
       if (excludedTours.length > 0) {
-        query = query.not('product_title', 'in', `(${excludedTours.join(',')})`)
+        excludedTours.forEach(tour => {
+          query = query.neq('activities.title', tour)
+        })
       }
       if (selectedSellers.length > 0) {
         query = query.in('activity_seller', selectedSellers)
@@ -295,10 +318,14 @@ export default function MarketingExport() {
         return
       }
 
-      // 2. Recupera tutte le relazioni booking_customers
+      // 2. Get unique booking IDs from activities
+      const bookingIds = [...new Set(activities.map(a => a.booking_id))]
+
+      // 3. Recupera solo le relazioni booking_customers necessarie
       const { data: bookingCustomers, error: bcError } = await supabase
         .from('booking_customers')
         .select('booking_id, customer_id')
+        .in('booking_id', bookingIds)
       if (bcError) {
         console.error('Error fetching booking_customers:', bcError)
         setData([])
@@ -306,10 +333,14 @@ export default function MarketingExport() {
         return
       }
 
-      // 3. Recupera tutti i customers
+      // 4. Get unique customer IDs
+      const customerIds = [...new Set(bookingCustomers.map(bc => bc.customer_id))]
+
+      // 5. Recupera solo i customers necessari
       const { data: customers, error: customersError } = await supabase
         .from('customers')
         .select('customer_id, email, first_name, last_name, phone_number')
+        .in('customer_id', customerIds)
       if (customersError) {
         console.error('Error fetching customers:', customersError)
         setData([])
@@ -317,7 +348,7 @@ export default function MarketingExport() {
         return
       }
 
-      // 4. Crea mappe per lookup veloce
+      // 6. Crea mappe per lookup veloce
       const bookingToCustomer = new Map();
       bookingCustomers.forEach(bc => {
         bookingToCustomer.set(String(bc.booking_id), bc.customer_id);
@@ -327,7 +358,7 @@ export default function MarketingExport() {
         customerMap.set(String(c.customer_id), c);
       });
 
-      // 5. Filtra per tipi partecipanti se necessario
+      // 7. Filtra per tipi partecipanti se necessario
       let filteredActivities = activities as ActivityData[];
       if (selectedParticipantTypes.length > 0) {
         filteredActivities = filteredActivities.filter(activity => {
@@ -336,7 +367,7 @@ export default function MarketingExport() {
         });
       }
 
-      // 6. Raggruppa per booking_id e collega i dati del cliente
+      // 8. Raggruppa per booking_id e collega i dati del cliente
       const bookingMap = new Map<string, BookingRecord>();
       filteredActivities.forEach(activity => {
         const bookingId = String(activity.booking_id);
@@ -365,7 +396,7 @@ export default function MarketingExport() {
         });
       });
 
-      // 7. Converti in array e ordina
+      // 9. Converti in array e ordina
       const formattedData = Array.from(bookingMap.values())
         .map(booking => ({
           ...booking,
@@ -398,7 +429,7 @@ export default function MarketingExport() {
 
   const exportToExcel = () => {
     const exportData: Record<string, string | number>[] = []
-    
+
     data.forEach(record => {
       record.activities.forEach(activity => {
         // Riga principale per l'attività
@@ -407,7 +438,7 @@ export default function MarketingExport() {
           'Cognome Cliente': record.last_name || '',
           'Email': record.email || '',
           'Telefono': record.phone_number || '',
-          'Tour': activity.product_title,
+          'Tour': activity.activities?.title || '',
           'Data e Ora': formatDate(activity.start_date_time),
           'Totale Partecipanti': activity.total_participants || 0,
           'Seller': activity.activity_seller || '',
@@ -456,7 +487,7 @@ export default function MarketingExport() {
             label="Seleziona Tour"
             options={allTours}
             selected={selectedTours}
-            onChange={setSelectedTours}
+            onChange={handleSelectedToursChange}
             placeholder="Seleziona tour..."
           />
 
@@ -465,7 +496,7 @@ export default function MarketingExport() {
             label="Escludi Tour"
             options={allTours}
             selected={excludedTours}
-            onChange={setExcludedTours}
+            onChange={handleExcludedToursChange}
             placeholder="Escludi tour..."
           />
 
@@ -536,7 +567,7 @@ export default function MarketingExport() {
       {!hasSearched ? (
         <div className="bg-white rounded-lg shadow-sm border border-gray-200 p-12">
           <div className="text-center text-gray-500">
-            <p className="text-lg">Nessun dato trovato per i filtri selezionati</p>
+            <p className="text-lg">Pronto per la ricerca</p>
             <p className="text-sm mt-2">Seleziona i filtri e clicca &quot;Aggiorna&quot; per visualizzare i dati</p>
           </div>
         </div>
@@ -612,7 +643,7 @@ export default function MarketingExport() {
                           </>
                         )}
                         <td className="px-6 py-4 text-sm text-gray-900">
-                          {activity.product_title}
+                          {activity.activities?.title || ''}
                         </td>
                         <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-500">
                           {formatDate(activity.start_date_time)}
