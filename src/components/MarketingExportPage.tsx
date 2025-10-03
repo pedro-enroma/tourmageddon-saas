@@ -11,10 +11,6 @@ interface TourCategory {
   tours: string[]
 }
 
-interface CategoryManagement {
-  categories: TourCategory[]
-}
-
 // Funzione per ottenere la categoria di un tour
 const getTourCategory = (tourTitle: string, categories: TourCategory[]): string | null => {
   for (const category of categories) {
@@ -240,7 +236,6 @@ const CategoryManagementModal = ({
   const [localCategories, setLocalCategories] = useState<TourCategory[]>([...categories])
   const [newCategoryName, setNewCategoryName] = useState('')
   const [editingCategory, setEditingCategory] = useState<string | null>(null)
-  const [selectedTours, setSelectedTours] = useState<string[]>([])
 
   const addCategory = () => {
     if (newCategoryName.trim() && !localCategories.find(c => c.name === newCategoryName.trim())) {
@@ -253,7 +248,6 @@ const CategoryManagementModal = ({
     setLocalCategories(localCategories.filter(c => c.name !== categoryName))
     if (editingCategory === categoryName) {
       setEditingCategory(null)
-      setSelectedTours([])
     }
   }
 
@@ -263,14 +257,11 @@ const CategoryManagementModal = ({
         if (cat.tours.includes(tourTitle)) {
           return { ...cat, tours: cat.tours.filter(t => t !== tourTitle) }
         } else {
-          // Rimuovi il tour da altre categorie
-          const updatedCategories = localCategories.map(c => ({
-            ...c,
-            tours: c.tours.filter(t => t !== tourTitle)
-          }))
+          // Rimuovi il tour da altre categorie e aggiungilo a questa
           return { ...cat, tours: [...cat.tours, tourTitle] }
         }
       }
+      // Rimuovi il tour da tutte le altre categorie
       return { ...cat, tours: cat.tours.filter(t => t !== tourTitle) }
     }))
   }
@@ -341,7 +332,6 @@ const CategoryManagementModal = ({
                     }`}
                     onClick={() => {
                       setEditingCategory(category.name)
-                      setSelectedTours(category.tours)
                     }}
                   >
                     <div className="flex justify-between items-center">
