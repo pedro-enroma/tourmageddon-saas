@@ -2,55 +2,27 @@
 'use client'
 import { useState, useEffect, useRef } from 'react'
 import { supabase } from '@/lib/supabase'
-import { RefreshCw, Download, ChevronDown, ChevronUp, Search } from 'lucide-react'
+import { RefreshCw, Download, ChevronDown, ChevronUp, Search, Tags, X, Plus, Trash2 } from 'lucide-react'
 import * as XLSX from 'xlsx'
 
-// Funzione per rilevare la lingua dal titolo
-const detectLanguage = (title: string): string => {
-  const lowerTitle = title.toLowerCase()
+// Tipi per le categorie
+interface TourCategory {
+  name: string
+  tours: string[]
+}
 
-  // Pattern specifici per portoghese (controllare per primo per evitare overlap con spagnolo)
-  const portuguesePatterns = [
-    'passeio', 'praça', 'praias', 'praia', 'visita guiada em',
-    'excursão', 'cidade de', 'pelo', 'pela', 'pelos', 'pelas',
-    'à noite', 'de manhã', 'tarde', 'noturno', 'diurno',
-    'incluído', 'saída', 'retorno', 'com guia em português'
-  ]
+interface CategoryManagement {
+  categories: TourCategory[]
+}
 
-  // Pattern specifici per spagnolo
-  const spanishPatterns = [
-    'visita guiada', 'paseo', 'recorrido', 'excursión', 'ciudad de',
-    'por la', 'del', 'de la', 'al', 'desde', 'hasta',
-    'incluido', 'salida', 'regreso', 'con guía', 'guiado',
-    'coliseo', 'plaza', 'museo', 'catedral', 'palacio',
-    'nocturno', 'diurno', 'mañana', 'tarde', 'noche'
-  ]
-
-  // Pattern specifici per inglese
-  const englishPatterns = [
-    'guided tour', 'walking tour', 'private tour', 'group tour',
-    'skip the line', 'with guide', 'entrance included',
-    'from', 'to', 'morning', 'afternoon', 'evening',
-    'explore', 'discover', 'experience', 'visit to'
-  ]
-
-  // Controlla portoghese per primo
-  if (portuguesePatterns.some(pattern => lowerTitle.includes(pattern))) {
-    return 'Portoghese'
+// Funzione per ottenere la categoria di un tour
+const getTourCategory = (tourTitle: string, categories: TourCategory[]): string | null => {
+  for (const category of categories) {
+    if (category.tours.includes(tourTitle)) {
+      return category.name
+    }
   }
-
-  // Controlla spagnolo (prima di inglese perché "tour" è usato anche in spagnolo)
-  if (spanishPatterns.some(pattern => lowerTitle.includes(pattern))) {
-    return 'Spagnolo'
-  }
-
-  // Controlla inglese
-  if (englishPatterns.some(pattern => lowerTitle.includes(pattern))) {
-    return 'Inglese'
-  }
-
-  // Default a inglese se non rilevato
-  return 'Inglese'
+  return null
 }
 
 // Componente Dropdown Custom
@@ -60,18 +32,20 @@ const CustomDropdown = ({
   selected,
   onChange,
   placeholder = "Seleziona...",
-  groupByLanguage = false
+  groupByCategory = false,
+  categories = []
 }: {
   label: string
   options: string[]
   selected: string[]
   onChange: (value: string[]) => void
   placeholder?: string
-  groupByLanguage?: boolean
+  groupByCategory?: boolean
+  categories?: TourCategory[]
 }) => {
   const [isOpen, setIsOpen] = useState(false)
   const [searchTerm, setSearchTerm] = useState('')
-  const [selectedLanguages, setSelectedLanguages] = useState<string[]>([])
+  const [selectedCategories, setSelectedCategories] = useState<string[]>([])
   const dropdownRef = useRef<HTMLDivElement>(null)
 
   // Chiudi dropdown quando clicchi fuori
@@ -85,24 +59,32 @@ const CustomDropdown = ({
     return () => document.removeEventListener('mousedown', handleClickOutside)
   }, [])
 
-  // Raggruppa opzioni per lingua se necessario
-  const groupedOptions = groupByLanguage
-    ? options.reduce((acc, option) => {
-        const lang = detectLanguage(option)
-        if (!acc[lang]) acc[lang] = []
-        acc[lang].push(option)
+  // Raggruppa opzioni per categoria se necessario
+  const groupedOptions = groupByCategory
+    ? categories.reduce((acc, category) => {
+        acc[category.name] = category.tours.filter(tour => options.includes(tour))
         return acc
       }, {} as Record<string, string[]>)
     : { 'Tutti': options }
 
-  const availableLanguages = Object.keys(groupedOptions).sort()
+  // Aggiungi tours senza categoria
+  if (groupByCategory) {
+    const uncategorized = options.filter(opt => !getTourCategory(opt, categories))
+    if (uncategorized.length > 0) {
+      groupedOptions['Senza Categoria'] = uncategorized
+    }
+  }
 
-  // Filtra opzioni per ricerca e lingua
+  const availableCategories = Object.keys(groupedOptions).sort()
+
+  // Filtra opzioni per ricerca e categoria
   const filteredOptions = options.filter(option => {
     const matchesSearch = option.toLowerCase().includes(searchTerm.toLowerCase())
-    if (!groupByLanguage || selectedLanguages.length === 0) return matchesSearch
-    const lang = detectLanguage(option)
-    return matchesSearch && selectedLanguages.includes(lang)
+    if (!groupByCategory || selectedCategories.length === 0) return matchesSearch
+    const category = getTourCategory(option, categories)
+    return matchesSearch && (
+      selectedCategories.includes(category || 'Senza Categoria')
+    )
   })
 
   const handleToggle = (option: string) => {
@@ -121,14 +103,14 @@ const CustomDropdown = ({
   const clearAll = () => {
     onChange([])
     setSearchTerm('')
-    setSelectedLanguages([])
+    setSelectedCategories([])
   }
 
-  const toggleLanguageFilter = (lang: string) => {
-    if (selectedLanguages.includes(lang)) {
-      setSelectedLanguages(selectedLanguages.filter(l => l !== lang))
+  const toggleCategoryFilter = (category: string) => {
+    if (selectedCategories.includes(category)) {
+      setSelectedCategories(selectedCategories.filter(c => c !== category))
     } else {
-      setSelectedLanguages([...selectedLanguages, lang])
+      setSelectedCategories([...selectedCategories, category])
     }
   }
 
@@ -168,23 +150,23 @@ const CustomDropdown = ({
             </div>
           </div>
 
-          {/* Filtri per lingua */}
-          {groupByLanguage && availableLanguages.length > 1 && (
+          {/* Filtri per categoria */}
+          {groupByCategory && availableCategories.length > 1 && (
             <div className="p-2 border-b bg-gray-50">
-              <div className="text-xs text-gray-600 mb-2">Filtra per lingua:</div>
+              <div className="text-xs text-gray-600 mb-2">Filtra per categoria:</div>
               <div className="flex gap-2 flex-wrap">
-                {availableLanguages.map(lang => (
+                {availableCategories.map(cat => (
                   <button
-                    key={lang}
+                    key={cat}
                     type="button"
-                    onClick={() => toggleLanguageFilter(lang)}
+                    onClick={() => toggleCategoryFilter(cat)}
                     className={`px-3 py-1 text-xs rounded-full transition-colors ${
-                      selectedLanguages.includes(lang)
+                      selectedCategories.includes(cat)
                         ? 'bg-blue-600 text-white'
                         : 'bg-gray-200 text-gray-700 hover:bg-gray-300'
                     }`}
                   >
-                    {lang} ({groupedOptions[lang]?.length || 0})
+                    {cat} ({groupedOptions[cat]?.length || 0})
                   </button>
                 ))}
               </div>
@@ -243,6 +225,216 @@ const CustomDropdown = ({
   )
 }
 
+// Modal per gestire le categorie
+const CategoryManagementModal = ({
+  allTours,
+  categories,
+  onSave,
+  onClose
+}: {
+  allTours: string[]
+  categories: TourCategory[]
+  onSave: (cats: TourCategory[]) => void
+  onClose: () => void
+}) => {
+  const [localCategories, setLocalCategories] = useState<TourCategory[]>([...categories])
+  const [newCategoryName, setNewCategoryName] = useState('')
+  const [editingCategory, setEditingCategory] = useState<string | null>(null)
+  const [selectedTours, setSelectedTours] = useState<string[]>([])
+
+  const addCategory = () => {
+    if (newCategoryName.trim() && !localCategories.find(c => c.name === newCategoryName.trim())) {
+      setLocalCategories([...localCategories, { name: newCategoryName.trim(), tours: [] }])
+      setNewCategoryName('')
+    }
+  }
+
+  const deleteCategory = (categoryName: string) => {
+    setLocalCategories(localCategories.filter(c => c.name !== categoryName))
+    if (editingCategory === categoryName) {
+      setEditingCategory(null)
+      setSelectedTours([])
+    }
+  }
+
+  const toggleTourInCategory = (categoryName: string, tourTitle: string) => {
+    setLocalCategories(localCategories.map(cat => {
+      if (cat.name === categoryName) {
+        if (cat.tours.includes(tourTitle)) {
+          return { ...cat, tours: cat.tours.filter(t => t !== tourTitle) }
+        } else {
+          // Rimuovi il tour da altre categorie
+          const updatedCategories = localCategories.map(c => ({
+            ...c,
+            tours: c.tours.filter(t => t !== tourTitle)
+          }))
+          return { ...cat, tours: [...cat.tours, tourTitle] }
+        }
+      }
+      return { ...cat, tours: cat.tours.filter(t => t !== tourTitle) }
+    }))
+  }
+
+  const handleSave = () => {
+    onSave(localCategories)
+    onClose()
+  }
+
+  const getTourCategory = (tourTitle: string): string | null => {
+    for (const cat of localCategories) {
+      if (cat.tours.includes(tourTitle)) {
+        return cat.name
+      }
+    }
+    return null
+  }
+
+  return (
+    <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50 p-4">
+      <div className="bg-white rounded-lg shadow-xl max-w-6xl w-full max-h-[90vh] overflow-hidden flex flex-col">
+        {/* Header */}
+        <div className="p-6 border-b flex justify-between items-center">
+          <h2 className="text-2xl font-semibold">Gestione Categorie Tour</h2>
+          <button
+            onClick={onClose}
+            className="text-gray-500 hover:text-gray-700"
+          >
+            <X className="w-6 h-6" />
+          </button>
+        </div>
+
+        {/* Content */}
+        <div className="flex-1 overflow-y-auto p-6">
+          <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
+            {/* Colonna Sinistra: Gestione Categorie */}
+            <div>
+              <h3 className="text-lg font-semibold mb-4">Categorie</h3>
+
+              {/* Aggiungi nuova categoria */}
+              <div className="mb-4 flex gap-2">
+                <input
+                  type="text"
+                  value={newCategoryName}
+                  onChange={(e) => setNewCategoryName(e.target.value)}
+                  onKeyPress={(e) => e.key === 'Enter' && addCategory()}
+                  placeholder="Nome nuova categoria..."
+                  className="flex-1 px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-purple-500"
+                />
+                <button
+                  onClick={addCategory}
+                  className="px-4 py-2 bg-purple-600 text-white rounded-md hover:bg-purple-700 flex items-center gap-2"
+                >
+                  <Plus className="w-4 h-4" />
+                  Aggiungi
+                </button>
+              </div>
+
+              {/* Lista categorie */}
+              <div className="space-y-2">
+                {localCategories.map(category => (
+                  <div
+                    key={category.name}
+                    className={`p-3 border rounded-md cursor-pointer transition-colors ${
+                      editingCategory === category.name
+                        ? 'border-purple-600 bg-purple-50'
+                        : 'border-gray-200 hover:border-purple-300'
+                    }`}
+                    onClick={() => {
+                      setEditingCategory(category.name)
+                      setSelectedTours(category.tours)
+                    }}
+                  >
+                    <div className="flex justify-between items-center">
+                      <div>
+                        <div className="font-medium">{category.name}</div>
+                        <div className="text-sm text-gray-500">{category.tours.length} tour</div>
+                      </div>
+                      <button
+                        onClick={(e) => {
+                          e.stopPropagation()
+                          deleteCategory(category.name)
+                        }}
+                        className="text-red-600 hover:text-red-800"
+                      >
+                        <Trash2 className="w-4 h-4" />
+                      </button>
+                    </div>
+                  </div>
+                ))}
+              </div>
+            </div>
+
+            {/* Colonna Destra: Assegnazione Tour */}
+            <div>
+              <h3 className="text-lg font-semibold mb-4">
+                {editingCategory ? `Assegna tour a "${editingCategory}"` : 'Seleziona una categoria'}
+              </h3>
+
+              {editingCategory ? (
+                <div className="space-y-2 max-h-96 overflow-y-auto">
+                  {allTours.map(tour => {
+                    const tourCat = getTourCategory(tour)
+                    const isInThisCategory = tourCat === editingCategory
+                    const isInOtherCategory = tourCat && tourCat !== editingCategory
+
+                    return (
+                      <label
+                        key={tour}
+                        className={`flex items-start p-2 border rounded-md cursor-pointer transition-colors ${
+                          isInThisCategory
+                            ? 'border-purple-600 bg-purple-50'
+                            : isInOtherCategory
+                            ? 'border-gray-300 bg-gray-50'
+                            : 'border-gray-200 hover:border-purple-300'
+                        }`}
+                      >
+                        <input
+                          type="checkbox"
+                          checked={isInThisCategory}
+                          onChange={() => toggleTourInCategory(editingCategory, tour)}
+                          className="mt-1 mr-3 h-4 w-4 text-purple-600 border-gray-300 rounded focus:ring-purple-500"
+                        />
+                        <div className="flex-1">
+                          <div className="text-sm">{tour}</div>
+                          {isInOtherCategory && (
+                            <div className="text-xs text-gray-500 mt-1">
+                              Attualmente in: {tourCat}
+                            </div>
+                          )}
+                        </div>
+                      </label>
+                    )
+                  })}
+                </div>
+              ) : (
+                <div className="text-gray-500 text-center py-8">
+                  Seleziona una categoria a sinistra per assegnare i tour
+                </div>
+              )}
+            </div>
+          </div>
+        </div>
+
+        {/* Footer */}
+        <div className="p-6 border-t flex justify-end gap-3">
+          <button
+            onClick={onClose}
+            className="px-4 py-2 border border-gray-300 text-gray-700 rounded-md hover:bg-gray-50"
+          >
+            Annulla
+          </button>
+          <button
+            onClick={handleSave}
+            className="px-4 py-2 bg-purple-600 text-white rounded-md hover:bg-purple-700"
+          >
+            Salva Modifiche
+          </button>
+        </div>
+      </div>
+    </div>
+  )
+}
+
 interface ActivityData {
   activity_booking_id: string
   booking_id: string
@@ -279,12 +471,16 @@ export default function MarketingExport() {
   const [data, setData] = useState<BookingRecord[]>([])
   const [loading, setLoading] = useState(false)
   const [hasSearched, setHasSearched] = useState(false)
-  
+
   // Liste di opzioni disponibili
   const [allTours, setAllTours] = useState<string[]>([])
   const [allSellers, setAllSellers] = useState<string[]>([])
   const [allParticipantTypes, setAllParticipantTypes] = useState<string[]>([])
-  
+
+  // Stati per le categorie
+  const [tourCategories, setTourCategories] = useState<TourCategory[]>([])
+  const [showCategoryModal, setShowCategoryModal] = useState(false)
+
   // Stati per i filtri
   const [selectedTours, setSelectedTours] = useState<string[]>([])
   const [excludedTours, setExcludedTours] = useState<string[]>([])
@@ -294,6 +490,24 @@ export default function MarketingExport() {
     start: new Date().toISOString().split('T')[0],
     end: new Date(Date.now() + 30 * 24 * 60 * 60 * 1000).toISOString().split('T')[0]
   })
+
+  // Carica le categorie da localStorage
+  useEffect(() => {
+    const saved = localStorage.getItem('tourCategories')
+    if (saved) {
+      try {
+        setTourCategories(JSON.parse(saved))
+      } catch (e) {
+        console.error('Error loading categories:', e)
+      }
+    }
+  }, [])
+
+  // Salva le categorie in localStorage
+  const saveCategories = (cats: TourCategory[]) => {
+    setTourCategories(cats)
+    localStorage.setItem('tourCategories', JSON.stringify(cats))
+  }
 
   // Handler per gestire il conflitto tra selectedTours e excludedTours
   const handleSelectedToursChange = (tours: string[]) => {
@@ -586,9 +800,28 @@ export default function MarketingExport() {
 
   return (
     <div className="p-4 max-w-7xl mx-auto">
+      {/* Modal Gestione Categorie */}
+      {showCategoryModal && (
+        <CategoryManagementModal
+          allTours={allTours}
+          categories={tourCategories}
+          onSave={saveCategories}
+          onClose={() => setShowCategoryModal(false)}
+        />
+      )}
+
       {/* Sezione Filtri */}
       <div className="bg-white rounded-lg shadow-sm border border-gray-200 p-6 mb-6">
-        <h2 className="text-xl font-semibold mb-6">Filtri</h2>
+        <div className="flex justify-between items-center mb-6">
+          <h2 className="text-xl font-semibold">Filtri</h2>
+          <button
+            onClick={() => setShowCategoryModal(true)}
+            className="flex items-center gap-2 px-4 py-2 bg-purple-600 text-white rounded-md hover:bg-purple-700 transition-colors"
+          >
+            <Tags className="w-4 h-4" />
+            Gestisci Categorie
+          </button>
+        </div>
         
         <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
           {/* Seleziona Tour */}
@@ -598,7 +831,8 @@ export default function MarketingExport() {
             selected={selectedTours}
             onChange={handleSelectedToursChange}
             placeholder="Seleziona tour..."
-            groupByLanguage={true}
+            groupByCategory={tourCategories.length > 0}
+            categories={tourCategories}
           />
 
           {/* Escludi Tour */}
@@ -608,7 +842,8 @@ export default function MarketingExport() {
             selected={excludedTours}
             onChange={handleExcludedToursChange}
             placeholder="Escludi tour..."
-            groupByLanguage={true}
+            groupByCategory={tourCategories.length > 0}
+            categories={tourCategories}
           />
 
           {/* Tipo Partecipanti */}
