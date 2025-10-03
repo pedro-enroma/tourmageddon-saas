@@ -14,6 +14,8 @@ import AvailabilitySyncPage from '@/components/AvailabilitySyncPage'
 import CancellationRatePage from '@/components/CancellationRatePage'
 import AffiliatesPage from './affiliates/page'
 import GuidesListPage from '@/components/GuidesListPage'
+import UpcomingServicesPage from '@/components/UpcomingServicesPage'
+import GuidesCalendarPage from '@/components/GuidesCalendarPage'
 
 // Custom Sidebar Component
 function AppSidebar({ currentView, onNavigate }: {
@@ -175,9 +177,9 @@ export default function DashboardLayout() {
       case 'guides-list':
         return <GuidesListPage />
       case 'upcoming-services':
-        return <div className="p-6"><h1 className="text-2xl font-bold">Upcoming Services - Coming Soon</h1></div>
+        return <UpcomingServicesPage />
       case 'guides-calendar':
-        return <div className="p-6"><h1 className="text-2xl font-bold">Guides Calendar - Coming Soon</h1></div>
+        return <GuidesCalendarPage />
       case 'marketing-export':
         return <MarketingExportPage />
       case 'finance-overview':
@@ -219,6 +221,9 @@ export default function DashboardLayout() {
   const getBreadcrumbSection = () => {
     if (['recap', 'consumed', 'pax-names', 'availability-sync'].includes(currentView)) {
       return 'Operations'
+    }
+    if (['guides-list', 'upcoming-services', 'guides-calendar'].includes(currentView)) {
+      return 'Guides'
     }
     if (currentView === 'marketing-export') {
       return 'Reports'
