@@ -77,7 +77,6 @@ export default function FinanceOverviewPage() {
   // Calculate date ranges based on selection (fixed to not mutate date)
   const getDateRange = (rangeType: DateRangeType): { start: Date; end: Date } => {
     const now = new Date()
-    const today = new Date(now.getFullYear(), now.getMonth(), now.getDate(), 23, 59, 59, 999)
 
     switch (rangeType) {
       case 'today':
@@ -388,7 +387,7 @@ export default function FinanceOverviewPage() {
           value: Math.round(value * 100) / 100,
         }))
 
-      setChartData(chartData as any)
+      setChartData(chartData as ChartData[])
     } else {
       // Group data by date
       const groupedData = data.reduce((acc, row) => {
@@ -418,38 +417,6 @@ export default function FinanceOverviewPage() {
         }))
 
       setChartData(chartData)
-    }
-  }
-
-  const getTotalMetrics = () => {
-    const totalRevenue = rawData.reduce((sum, row) => sum + (row.total_revenue || 0), 0)
-    const totalBookings = rawData.reduce((sum, row) => sum + (row.unique_bookings || 0), 0)
-    const totalParticipants = rawData.reduce((sum, row) => sum + (row.reservation_count || 0), 0)
-
-    const prevTotalRevenue = previousPeriodData.reduce((sum, row) => sum + (row.total_revenue || 0), 0)
-
-    let growthRate = 0
-    let growthTrend: 'up' | 'down' | 'steady' = 'steady'
-    if (prevTotalRevenue > 0) {
-      growthRate = ((totalRevenue - prevTotalRevenue) / prevTotalRevenue) * 100
-      growthTrend = growthRate > 5 ? 'up' : growthRate < -5 ? 'down' : 'steady'
-    }
-
-    const revenueChange = prevTotalRevenue > 0 ? ((totalRevenue - prevTotalRevenue) / prevTotalRevenue) * 100 : 0
-    const prevTotalBookings = previousPeriodData.reduce((sum, row) => sum + (row.unique_bookings || 0), 0)
-    const bookingsChange = prevTotalBookings > 0 ? ((totalBookings - prevTotalBookings) / prevTotalBookings) * 100 : 0
-    const prevTotalParticipants = previousPeriodData.reduce((sum, row) => sum + (row.reservation_count || 0), 0)
-    const participantsChange = prevTotalParticipants > 0 ? ((totalParticipants - prevTotalParticipants) / prevTotalParticipants) * 100 : 0
-
-    return {
-      totalRevenue,
-      totalBookings,
-      totalParticipants,
-      growthRate,
-      growthTrend,
-      revenueChange,
-      bookingsChange,
-      participantsChange
     }
   }
 
@@ -489,7 +456,37 @@ export default function FinanceOverviewPage() {
   }
 
   // Memoize metrics calculation to avoid recalculating on every render
-  const metrics = useMemo(() => getTotalMetrics(), [rawData, previousPeriodData])
+  const metrics = useMemo(() => {
+    const totalRevenue = rawData.reduce((sum, row) => sum + (row.total_revenue || 0), 0)
+    const totalBookings = rawData.reduce((sum, row) => sum + (row.unique_bookings || 0), 0)
+    const totalParticipants = rawData.reduce((sum, row) => sum + (row.reservation_count || 0), 0)
+
+    const prevTotalRevenue = previousPeriodData.reduce((sum, row) => sum + (row.total_revenue || 0), 0)
+
+    let growthRate = 0
+    let growthTrend: 'up' | 'down' | 'steady' = 'steady'
+    if (prevTotalRevenue > 0) {
+      growthRate = ((totalRevenue - prevTotalRevenue) / prevTotalRevenue) * 100
+      growthTrend = growthRate > 5 ? 'up' : growthRate < -5 ? 'down' : 'steady'
+    }
+
+    const revenueChange = prevTotalRevenue > 0 ? ((totalRevenue - prevTotalRevenue) / prevTotalRevenue) * 100 : 0
+    const prevTotalBookings = previousPeriodData.reduce((sum, row) => sum + (row.unique_bookings || 0), 0)
+    const bookingsChange = prevTotalBookings > 0 ? ((totalBookings - prevTotalBookings) / prevTotalBookings) * 100 : 0
+    const prevTotalParticipants = previousPeriodData.reduce((sum, row) => sum + (row.reservation_count || 0), 0)
+    const participantsChange = prevTotalParticipants > 0 ? ((totalParticipants - prevTotalParticipants) / prevTotalParticipants) * 100 : 0
+
+    return {
+      totalRevenue,
+      totalBookings,
+      totalParticipants,
+      growthRate,
+      growthTrend,
+      revenueChange,
+      bookingsChange,
+      participantsChange
+    }
+  }, [rawData, previousPeriodData])
 
   // Export to Excel function
   const exportToExcel = () => {
