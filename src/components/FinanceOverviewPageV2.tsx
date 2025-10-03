@@ -7,10 +7,11 @@ import { Label } from '@/components/ui/label'
 import { Popover, PopoverContent, PopoverTrigger } from '@/components/ui/popover'
 import { Button } from '@/components/ui/button'
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select'
-import { ChevronDown, Search, TrendingUp, TrendingDown, ArrowRight, AlertCircle, X } from 'lucide-react'
+import { ChevronDown, Search, TrendingUp, TrendingDown, ArrowRight, AlertCircle, X, Download, RotateCcw } from 'lucide-react'
 import { Checkbox } from '@/components/ui/checkbox'
 import { BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer, Legend } from 'recharts'
 import { format, subDays, subMonths, subYears, startOfYear, startOfWeek, endOfWeek, startOfMonth, endOfMonth } from 'date-fns'
+import * as XLSX from 'xlsx'
 
 // Constants
 const ENROMA_SELLER = 'EnRoma.com' as const
@@ -104,6 +105,37 @@ export default function FinanceOverviewPage() {
         return { start: subDays(now, 30), end: now }
     }
   }
+
+  // Load saved filters from localStorage on mount
+  useEffect(() => {
+    const savedFilters = localStorage.getItem('financeFilters')
+    if (savedFilters) {
+      try {
+        const filters = JSON.parse(savedFilters)
+        if (filters.transactionDateRange) setTransactionDateRange(filters.transactionDateRange)
+        if (filters.tourDateRange) setTourDateRange(filters.tourDateRange)
+        if (filters.selectedSellers) setSelectedSellers(filters.selectedSellers)
+        if (filters.selectedAffiliates) setSelectedAffiliates(filters.selectedAffiliates)
+        if (filters.transactionComparison) setTransactionComparison(filters.transactionComparison)
+        if (filters.tourComparison) setTourComparison(filters.tourComparison)
+      } catch (e) {
+        console.error('Error loading saved filters:', e)
+      }
+    }
+  }, [])
+
+  // Save filters to localStorage whenever they change
+  useEffect(() => {
+    const filters = {
+      transactionDateRange,
+      tourDateRange,
+      selectedSellers,
+      selectedAffiliates,
+      transactionComparison,
+      tourComparison
+    }
+    localStorage.setItem('financeFilters', JSON.stringify(filters))
+  }, [transactionDateRange, tourDateRange, selectedSellers, selectedAffiliates, transactionComparison, tourComparison])
 
   // Fetch available sellers and affiliates on mount
   useEffect(() => {
@@ -424,9 +456,71 @@ export default function FinanceOverviewPage() {
   // Memoize metrics calculation to avoid recalculating on every render
   const metrics = useMemo(() => getTotalMetrics(), [rawData, previousPeriodData])
 
+  // Export to Excel function
+  const exportToExcel = () => {
+    const exportData: Record<string, string | number>[] = []
+
+    rawData.forEach(row => {
+      exportData.push({
+        'Date': transactionDateRange ? row.booking_date : row.activity_date,
+        'Seller Group': row.seller_group,
+        'Original Seller': row.original_seller,
+        'Affiliate ID': row.affiliate_id || 'N/A',
+        'Revenue': row.total_revenue || 0,
+        'Bookings': row.unique_bookings || 0,
+        'Participants': row.reservation_count || 0
+      })
+    })
+
+    const wb = XLSX.utils.book_new()
+    const ws = XLSX.utils.json_to_sheet(exportData)
+    XLSX.utils.book_append_sheet(wb, ws, 'Finance Data')
+
+    const fileName = `finance_export_${format(new Date(), 'yyyy-MM-dd')}.xlsx`
+    XLSX.writeFile(wb, fileName)
+  }
+
+  // Reset all filters
+  const resetFilters = () => {
+    setTransactionDateRange('last30days')
+    setTourDateRange(undefined)
+    setCustomTransactionStart(undefined)
+    setCustomTransactionEnd(undefined)
+    setCustomTourStart(undefined)
+    setCustomTourEnd(undefined)
+    setSelectedSellers([])
+    setSelectedAffiliates([])
+    setTransactionComparison('lastMonth')
+    setTourComparison('lastMonth')
+    setCustomTransactionCompStart(undefined)
+    setCustomTransactionCompEnd(undefined)
+    setCustomTourCompStart(undefined)
+    setCustomTourCompEnd(undefined)
+  }
+
   return (
     <div className="space-y-6">
-      <h1 className="text-2xl font-bold">Finance Overview</h1>
+      <div className="flex justify-between items-center">
+        <h1 className="text-2xl font-bold">Finance Overview</h1>
+        <div className="flex gap-3">
+          <Button
+            onClick={resetFilters}
+            variant="outline"
+            className="flex items-center gap-2"
+          >
+            <RotateCcw className="w-4 h-4" />
+            Reset Filters
+          </Button>
+          <Button
+            onClick={exportToExcel}
+            disabled={rawData.length === 0}
+            className="flex items-center gap-2 bg-green-600 hover:bg-green-700 text-white"
+          >
+            <Download className="w-4 h-4" />
+            Export Excel
+          </Button>
+        </div>
+      </div>
 
       {/* Error Banner */}
       {error && (
@@ -448,7 +542,7 @@ export default function FinanceOverviewPage() {
       {/* Filters Section */}
       <div className="bg-white rounded-lg shadow p-4">
         {/* All filters in one row with 4 columns at 25% each */}
-        <div className="grid grid-cols-4 gap-4">
+        <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4">
           {/* Transaction Date - 25% */}
           <div>
             <Label className="text-sm font-medium mb-1">Transaction Date</Label>
@@ -708,7 +802,7 @@ export default function FinanceOverviewPage() {
       </div>
 
       {/* Summary Cards */}
-      <div className={`grid grid-cols-4 gap-4 transition-opacity ${loading ? 'opacity-50 pointer-events-none' : ''}`}>
+      <div className={`grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4 transition-opacity ${loading ? 'opacity-50 pointer-events-none' : ''}`}>
         {/* Total Revenue Card */}
         <div className="bg-white rounded-2xl p-6 border border-gray-100 shadow-lg hover:shadow-xl transition-shadow">
           <div className="flex justify-between items-start mb-2">
