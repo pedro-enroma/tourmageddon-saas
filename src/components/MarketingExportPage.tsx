@@ -154,7 +154,9 @@ interface ActivityData {
   status: string
   activities?: {
     title: string
-  }
+  } | {
+    title: string
+  }[]
   pricing_category_bookings?: Array<{
     booked_title?: string
     quantity?: number
@@ -427,6 +429,14 @@ export default function MarketingExport() {
     })
   }
 
+  const getActivityTitle = (activity: ActivityData): string => {
+    if (!activity.activities) return ''
+    if (Array.isArray(activity.activities)) {
+      return activity.activities[0]?.title || ''
+    }
+    return activity.activities.title || ''
+  }
+
   const exportToExcel = () => {
     const exportData: Record<string, string | number>[] = []
 
@@ -438,7 +448,7 @@ export default function MarketingExport() {
           'Cognome Cliente': record.last_name || '',
           'Email': record.email || '',
           'Telefono': record.phone_number || '',
-          'Tour': activity.activities?.title || '',
+          'Tour': getActivityTitle(activity),
           'Data e Ora': formatDate(activity.start_date_time),
           'Totale Partecipanti': activity.total_participants || 0,
           'Seller': activity.activity_seller || '',
@@ -643,7 +653,7 @@ export default function MarketingExport() {
                           </>
                         )}
                         <td className="px-6 py-4 text-sm text-gray-900">
-                          {activity.activities?.title || ''}
+                          {getActivityTitle(activity)}
                         </td>
                         <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-500">
                           {formatDate(activity.start_date_time)}
