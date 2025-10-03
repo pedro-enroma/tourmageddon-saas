@@ -9,17 +9,37 @@ import * as XLSX from 'xlsx'
 const detectLanguage = (title: string): string => {
   const lowerTitle = title.toLowerCase()
 
-  // Pattern comuni per diverse lingue
-  const portuguesePatterns = ['passeio', 'cidade', 'dia', 'noite', 'praia', 'tour em', 'de dia', 'à noite']
-  const spanishPatterns = ['paseo', 'ciudad', 'día', 'noche', 'playa', 'tour en', 'de día', 'por la noche']
-  const englishPatterns = ['tour', 'city', 'day', 'night', 'beach', 'walking', 'guided', 'visit']
+  // Pattern specifici per portoghese (controllare per primo per evitare overlap con spagnolo)
+  const portuguesePatterns = [
+    'passeio', 'praça', 'praias', 'praia', 'visita guiada em',
+    'excursão', 'cidade de', 'pelo', 'pela', 'pelos', 'pelas',
+    'à noite', 'de manhã', 'tarde', 'noturno', 'diurno',
+    'incluído', 'saída', 'retorno', 'com guia em português'
+  ]
 
-  // Controlla portoghese
+  // Pattern specifici per spagnolo
+  const spanishPatterns = [
+    'visita guiada', 'paseo', 'recorrido', 'excursión', 'ciudad de',
+    'por la', 'del', 'de la', 'al', 'desde', 'hasta',
+    'incluido', 'salida', 'regreso', 'con guía', 'guiado',
+    'coliseo', 'plaza', 'museo', 'catedral', 'palacio',
+    'nocturno', 'diurno', 'mañana', 'tarde', 'noche'
+  ]
+
+  // Pattern specifici per inglese
+  const englishPatterns = [
+    'guided tour', 'walking tour', 'private tour', 'group tour',
+    'skip the line', 'with guide', 'entrance included',
+    'from', 'to', 'morning', 'afternoon', 'evening',
+    'explore', 'discover', 'experience', 'visit to'
+  ]
+
+  // Controlla portoghese per primo
   if (portuguesePatterns.some(pattern => lowerTitle.includes(pattern))) {
     return 'Portoghese'
   }
 
-  // Controlla spagnolo
+  // Controlla spagnolo (prima di inglese perché "tour" è usato anche in spagnolo)
   if (spanishPatterns.some(pattern => lowerTitle.includes(pattern))) {
     return 'Spagnolo'
   }
