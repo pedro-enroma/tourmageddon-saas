@@ -137,9 +137,9 @@ export default function GuidesListPage() {
 
       handleCloseModal()
       fetchGuides()
-    } catch (err: any) {
+    } catch (err) {
       console.error('Error saving guide:', err)
-      setError(err.message || 'Failed to save guide')
+      setError(err instanceof Error ? err.message : 'Failed to save guide')
     }
   }
 
