@@ -40,7 +40,8 @@ interface FinanceData {
 
 export default function FinanceOverviewPage() {
   const [metricType, setMetricType] = useState<MetricType>('revenue')
-  
+  const [showIndividualSellers, setShowIndividualSellers] = useState(false)
+
   // Transaction Date
   const [transactionDateRange, setTransactionDateRange] = useState<DateRangeType | undefined>('last30days')
   const [customTransactionStart, setCustomTransactionStart] = useState<Date | undefined>()
@@ -150,6 +151,14 @@ export default function FinanceOverviewPage() {
   }, [metricType, transactionDateRange, customTransactionStart, customTransactionEnd,
       tourDateRange, customTourStart, customTourEnd, selectedSellers, selectedAffiliates,
       transactionComparison, tourComparison])
+
+  // Re-process chart data when view type changes
+  useEffect(() => {
+    if (rawData.length > 0) {
+      processChartData(rawData)
+    }
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [showIndividualSellers, metricType])
 
   const fetchAvailableAffiliates = async () => {
     try {
@@ -356,34 +365,60 @@ export default function FinanceOverviewPage() {
   }
 
   const processChartData = (data: FinanceData[]) => {
-    // Group data by date
-    const groupedData = data.reduce((acc, row) => {
-      const date = transactionDateRange ? row.booking_date : row.activity_date
-      if (!acc[date]) {
-        acc[date] = { EnRoma: 0, Resellers: 0 }
-      }
+    if (showIndividualSellers) {
+      // Group data by seller
+      const groupedData = data.reduce((acc, row) => {
+        const seller = row.original_seller
+        const value = metricType === 'revenue' ? (row.total_revenue || 0) : (row.reservation_count || 0)
 
-      const value = metricType === 'revenue' ? (row.total_revenue || 0) : (row.reservation_count || 0)
+        if (!acc[seller]) {
+          acc[seller] = 0
+        }
+        acc[seller] += value
 
-      if (row.seller_group === ENROMA_SELLER) {
-        acc[date].EnRoma += value
-      } else {
-        acc[date].Resellers += value
-      }
+        return acc
+      }, {} as Record<string, number>)
 
-      return acc
-    }, {} as Record<string, { EnRoma: number; Resellers: number }>)
+      // Convert to chart format and take top 10 sellers
+      const chartData = Object.entries(groupedData)
+        .sort(([, a], [, b]) => b - a)
+        .slice(0, 10)
+        .map(([seller, value]) => ({
+          date: seller,
+          value: Math.round(value * 100) / 100,
+        }))
 
-    // Convert to chart format
-    const chartData = Object.entries(groupedData)
-      .sort(([a], [b]) => a.localeCompare(b))
-      .map(([date, values]) => ({
-        date: format(new Date(date), 'MMM dd'),
-        EnRoma: Math.round(values.EnRoma * 100) / 100,
-        Resellers: Math.round(values.Resellers * 100) / 100,
-      }))
-    
-    setChartData(chartData)
+      setChartData(chartData as any)
+    } else {
+      // Group data by date
+      const groupedData = data.reduce((acc, row) => {
+        const date = transactionDateRange ? row.booking_date : row.activity_date
+        if (!acc[date]) {
+          acc[date] = { EnRoma: 0, Resellers: 0 }
+        }
+
+        const value = metricType === 'revenue' ? (row.total_revenue || 0) : (row.reservation_count || 0)
+
+        if (row.seller_group === ENROMA_SELLER) {
+          acc[date].EnRoma += value
+        } else {
+          acc[date].Resellers += value
+        }
+
+        return acc
+      }, {} as Record<string, { EnRoma: number; Resellers: number }>)
+
+      // Convert to chart format
+      const chartData = Object.entries(groupedData)
+        .sort(([a], [b]) => a.localeCompare(b))
+        .map(([date, values]) => ({
+          date: format(new Date(date), 'MMM dd'),
+          EnRoma: Math.round(values.EnRoma * 100) / 100,
+          Resellers: Math.round(values.Resellers * 100) / 100,
+        }))
+
+      setChartData(chartData)
+    }
   }
 
   const getTotalMetrics = () => {
@@ -903,25 +938,40 @@ export default function FinanceOverviewPage() {
             {metricType === 'revenue' ? 'Revenue' : 'Reservations'} Comparison
           </h2>
           <div className="flex items-center gap-4">
-            {/* Transaction Date/Tour Date Switch */}
+            {/* Grouped/Individual Sellers Switch */}
             <div className="flex items-center gap-2">
-              <Label htmlFor="date-switch" className="text-sm">Transaction Date</Label>
+              <Label htmlFor="seller-view-switch" className="text-sm">Grouped</Label>
               <Switch
-                id="date-switch"
-                checked={!transactionDateRange}
-                onCheckedChange={(checked) => {
-                  if (checked) {
-                    setTransactionDateRange(undefined)
-                    setTourDateRange('last30days')
-                  } else {
-                    setTransactionDateRange('last30days')
-                    setTourDateRange(undefined)
-                  }
-                }}
+                id="seller-view-switch"
+                checked={showIndividualSellers}
+                onCheckedChange={setShowIndividualSellers}
               />
-              <Label htmlFor="date-switch" className="text-sm">Tour Date</Label>
+              <Label htmlFor="seller-view-switch" className="text-sm">By Seller</Label>
             </div>
-            
+
+            {!showIndividualSellers && (
+              <>
+                {/* Transaction Date/Tour Date Switch */}
+                <div className="flex items-center gap-2">
+                  <Label htmlFor="date-switch" className="text-sm">Transaction Date</Label>
+                  <Switch
+                    id="date-switch"
+                    checked={!transactionDateRange}
+                    onCheckedChange={(checked) => {
+                      if (checked) {
+                        setTransactionDateRange(undefined)
+                        setTourDateRange('last30days')
+                      } else {
+                        setTransactionDateRange('last30days')
+                        setTourDateRange(undefined)
+                      }
+                    }}
+                  />
+                  <Label htmlFor="date-switch" className="text-sm">Tour Date</Label>
+                </div>
+              </>
+            )}
+
             {/* Revenue/Reservations Switch */}
             <div className="flex items-center gap-2">
               <Label htmlFor="metric-switch" className="text-sm">Revenue</Label>
@@ -943,35 +993,49 @@ export default function FinanceOverviewPage() {
           <ResponsiveContainer width="100%" height={400}>
             <BarChart data={chartData}>
               <CartesianGrid vertical={false} strokeDasharray="3 3" />
-              <XAxis 
-                dataKey="date" 
+              <XAxis
+                dataKey="date"
                 tickLine={false}
                 axisLine={false}
                 tickMargin={10}
+                angle={showIndividualSellers ? -45 : 0}
+                textAnchor={showIndividualSellers ? "end" : "middle"}
+                height={showIndividualSellers ? 100 : 30}
               />
-              <YAxis 
+              <YAxis
                 tickFormatter={(value) => metricType === 'revenue' ? `€${value.toLocaleString()}` : value.toLocaleString()}
                 axisLine={false}
                 tickLine={false}
               />
-              <Tooltip 
+              <Tooltip
                 formatter={formatTooltipValue}
                 labelStyle={{ color: '#000' }}
                 cursor={false}
               />
-              <Legend />
-              <Bar 
-                dataKey="EnRoma" 
-                name="EnRoma.com"
-                fill="#3b82f6" 
-                radius={[4, 4, 0, 0]}
-              />
-              <Bar 
-                dataKey="Resellers" 
-                name="Resellers"
-                fill="#10b981" 
-                radius={[4, 4, 0, 0]}
-              />
+              {!showIndividualSellers && <Legend />}
+              {showIndividualSellers ? (
+                <Bar
+                  dataKey="value"
+                  name={metricType === 'revenue' ? 'Revenue' : 'Reservations'}
+                  fill="#8b5cf6"
+                  radius={[4, 4, 0, 0]}
+                />
+              ) : (
+                <>
+                  <Bar
+                    dataKey="EnRoma"
+                    name="EnRoma.com"
+                    fill="#3b82f6"
+                    radius={[4, 4, 0, 0]}
+                  />
+                  <Bar
+                    dataKey="Resellers"
+                    name="Resellers"
+                    fill="#10b981"
+                    radius={[4, 4, 0, 0]}
+                  />
+                </>
+              )}
             </BarChart>
           </ResponsiveContainer>
         ) : (
