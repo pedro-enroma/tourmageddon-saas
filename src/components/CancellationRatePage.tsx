@@ -52,7 +52,7 @@ export default function CancellationRatePage() {
   const [isDateDropdownOpen, setIsDateDropdownOpen] = React.useState(false)
   const [isExportDropdownOpen, setIsExportDropdownOpen] = React.useState(false)
 
-  const getDateRange = () => {
+  const getDateRange = React.useCallback(() => {
     const now = new Date()
     let startDate: Date
     let endDate = new Date()
@@ -87,7 +87,7 @@ export default function CancellationRatePage() {
       startDate: `${startDate.toISOString().split('T')[0]}T00:00:00`,
       endDate: `${endDate.toISOString().split('T')[0]}T23:59:59`
     }
-  }
+  }, [dateRange, customStartDate, customEndDate])
 
   const loadCancellationData = React.useCallback(async () => {
     try {

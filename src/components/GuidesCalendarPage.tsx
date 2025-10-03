@@ -118,7 +118,7 @@ export default function GuidesCalendarPage() {
           activity_id: avail.activity_id,
           title: 'Unknown Activity'
         }
-      })) as ActivityAvailability[]
+      })) as unknown as ActivityAvailability[]
 
       setAvailabilities(enrichedData)
 
