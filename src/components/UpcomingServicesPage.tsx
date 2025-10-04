@@ -82,14 +82,7 @@ export default function UpcomingServicesPage() {
       if (error) throw error
 
       // Fetch activity details separately
-      interface RawAssignment {
-        activity_availability: {
-          activity_id: string
-          [key: string]: unknown
-        }
-        [key: string]: unknown
-      }
-      const activityIds = [...new Set(data?.map((a: RawAssignment) => a.activity_availability.activity_id) || [])]
+      const activityIds = [...new Set(data?.map((a) => a.activity_availability.activity_id) || [])]
 
       const { data: activities, error: actError } = await supabase
         .from('activities')
@@ -104,7 +97,7 @@ export default function UpcomingServicesPage() {
         return acc
       }, {})
 
-      const enrichedData = (data || []).map((assignment: RawAssignment) => ({
+      const enrichedData = (data || []).map((assignment) => ({
         ...assignment,
         activity_availability: {
           ...assignment.activity_availability,
@@ -113,7 +106,7 @@ export default function UpcomingServicesPage() {
             title: 'Unknown Activity'
           }
         }
-      }))
+      })) as Assignment[]
 
       setAssignments(enrichedData)
     } catch (err) {
