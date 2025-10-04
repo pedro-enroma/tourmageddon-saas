@@ -82,7 +82,10 @@ export default function UpcomingServicesPage() {
       if (error) throw error
 
       // Fetch activity details separately
-      const activityIds = [...new Set(data?.map((a) => a.activity_availability.activity_id) || [])]
+      const activityIds = [...new Set(data?.map((a) => {
+        const avail = Array.isArray(a.activity_availability) ? a.activity_availability[0] : a.activity_availability
+        return avail?.activity_id
+      }).filter(Boolean) || [])]
 
       const { data: activities, error: actError } = await supabase
         .from('activities')
@@ -97,16 +100,26 @@ export default function UpcomingServicesPage() {
         return acc
       }, {})
 
-      const enrichedData = (data || []).map((assignment) => ({
-        ...assignment,
-        activity_availability: {
-          ...assignment.activity_availability,
-          activity: activitiesMap[assignment.activity_availability.activity_id] || {
-            activity_id: assignment.activity_availability.activity_id,
-            title: 'Unknown Activity'
+      const enrichedData = (data || []).map((assignment) => {
+        const avail = Array.isArray(assignment.activity_availability)
+          ? assignment.activity_availability[0]
+          : assignment.activity_availability
+        const guide = Array.isArray(assignment.guide)
+          ? assignment.guide[0]
+          : assignment.guide
+
+        return {
+          ...assignment,
+          guide,
+          activity_availability: {
+            ...avail,
+            activity: activitiesMap[avail.activity_id] || {
+              activity_id: avail.activity_id,
+              title: 'Unknown Activity'
+            }
           }
         }
-      })) as Assignment[]
+      }) as Assignment[]
 
       setAssignments(enrichedData)
     } catch (err) {
