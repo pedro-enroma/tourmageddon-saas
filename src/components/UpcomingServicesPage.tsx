@@ -91,6 +91,7 @@ export default function UpcomingServicesPage() {
         .from('activities')
         .select('activity_id, title')
         .in('activity_id', activityIds)
+        .not('title', 'ilike', '%traslado%')
 
       if (actError) throw actError
 
@@ -100,26 +101,29 @@ export default function UpcomingServicesPage() {
         return acc
       }, {})
 
-      const enrichedData = (data || []).map((assignment) => {
-        const avail = Array.isArray(assignment.activity_availability)
-          ? assignment.activity_availability[0]
-          : assignment.activity_availability
-        const guide = Array.isArray(assignment.guide)
-          ? assignment.guide[0]
-          : assignment.guide
+      // Filter out Traslados assignments (those not in activitiesMap)
+      const enrichedData = (data || [])
+        .map((assignment) => {
+          const avail = Array.isArray(assignment.activity_availability)
+            ? assignment.activity_availability[0]
+            : assignment.activity_availability
+          const guide = Array.isArray(assignment.guide)
+            ? assignment.guide[0]
+            : assignment.guide
 
-        return {
-          ...assignment,
-          guide,
-          activity_availability: {
-            ...avail,
-            activity: activitiesMap[avail.activity_id] || {
-              activity_id: avail.activity_id,
-              title: 'Unknown Activity'
+          const activity = activitiesMap[avail.activity_id]
+          if (!activity) return null // Skip Traslados
+
+          return {
+            ...assignment,
+            guide,
+            activity_availability: {
+              ...avail,
+              activity
             }
           }
-        }
-      }) as Assignment[]
+        })
+        .filter((assignment) => assignment !== null) as Assignment[]
 
       setAssignments(enrichedData)
     } catch (err) {
