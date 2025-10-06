@@ -182,12 +182,11 @@ export default function GuidesCalendarPage() {
         query = query.in('activity_id', includedActivityIds)
       }
 
-      // Order and get ALL results - use range to bypass default 1000 limit
+      // CRITICAL: Order by date FIRST to ensure we get all 7 days before time
+      // If we order by date,time,activity - we might hit limit mid-week
       const { data: avails, error: availError } = await query
         .order('local_date', { ascending: true })
-        .order('local_time', { ascending: true })
-        .order('activity_id', { ascending: true })
-        .range(0, 50000) // Fetch up to 50k rows
+        .limit(100000) // Very high limit
 
       if (availError) {
         console.error('Error fetching availabilities:', availError)
