@@ -3,7 +3,7 @@
 import { useState, useEffect } from 'react'
 import { supabase } from '@/lib/supabase'
 import { Calendar as CalendarIcon, ChevronLeft, ChevronRight, Clock, Users, MapPin, X } from 'lucide-react'
-import { format, addWeeks, startOfWeek, endOfWeek, eachDayOfInterval, isSameMonth, isSameDay } from 'date-fns'
+import { format, addWeeks, startOfWeek, endOfWeek, eachDayOfInterval, isSameDay } from 'date-fns'
 import { Button } from '@/components/ui/button'
 import { Checkbox } from '@/components/ui/checkbox'
 
@@ -414,15 +414,12 @@ export default function GuidesCalendarPage() {
           <div className={viewMode === 'daily' ? 'grid grid-cols-1' : 'grid grid-cols-7 gap-px bg-gray-200'}>
             {calendarDays.map(day => {
               const dayAvailabilities = getAvailabilitiesForDay(day)
-              const isCurrentMonth = viewMode === 'monthly' ? isSameMonth(day, currentDate) : true
               const isToday = isSameDay(day, new Date())
 
               return (
                 <div
                   key={day.toISOString()}
-                  className={`bg-white min-h-[120px] p-2 ${
-                    !isCurrentMonth ? 'opacity-40' : ''
-                  }`}
+                  className="bg-white min-h-[120px] p-2"
                 >
                   <div className={`text-sm font-medium mb-2 ${
                     isToday ? 'bg-blue-600 text-white rounded-full w-7 h-7 flex items-center justify-center' : 'text-gray-700'
