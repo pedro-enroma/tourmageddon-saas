@@ -46,6 +46,7 @@ export default function GuidesCalendarPage() {
   const [viewMode, setViewMode] = useState<ViewMode>('daily')
   const [currentDate, setCurrentDate] = useState(new Date())
   const [availabilities, setAvailabilities] = useState<ActivityAvailability[]>([])
+  const [allActivities, setAllActivities] = useState<{ activity_id: string; title: string }[]>([])
   const [guides, setGuides] = useState<Guide[]>([])
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState<string | null>(null)
@@ -53,6 +54,12 @@ export default function GuidesCalendarPage() {
   const [selectedGuides, setSelectedGuides] = useState<string[]>([])
   const [assignmentNotes, setAssignmentNotes] = useState('')
   const [showModal, setShowModal] = useState(false)
+
+  // Filter states
+  const [selectedActivityIds, setSelectedActivityIds] = useState<string[]>([])
+  const [showOnlyWithBookings, setShowOnlyWithBookings] = useState(false)
+  const [showOnlyUnassigned, setShowOnlyUnassigned] = useState(false)
+  const [activitySearchOpen, setActivitySearchOpen] = useState(false)
 
   useEffect(() => {
     fetchData()
@@ -138,6 +145,9 @@ export default function GuidesCalendarPage() {
         .in('activity_id', activityIds)
 
       if (actError) throw actError
+
+      // Store all activities for filter dropdown
+      setAllActivities(activities || [])
 
       // Map activities to availabilities
       const activitiesMap = (activities || []).reduce((acc: Record<string, { activity_id: string; title: string }>, activity: { activity_id: string; title: string }) => {
@@ -244,7 +254,24 @@ export default function GuidesCalendarPage() {
 
   const getAvailabilitiesForDay = (day: Date) => {
     const dayStr = format(day, 'yyyy-MM-dd')
-    return availabilities.filter(avail => avail.local_date === dayStr)
+    let filtered = availabilities.filter(avail => avail.local_date === dayStr)
+
+    // Apply activity filter
+    if (selectedActivityIds.length > 0) {
+      filtered = filtered.filter(avail => selectedActivityIds.includes(avail.activity_id))
+    }
+
+    // Apply bookings filter
+    if (showOnlyWithBookings) {
+      filtered = filtered.filter(avail => (avail.vacancy_sold || 0) > 0)
+    }
+
+    // Apply unassigned filter
+    if (showOnlyUnassigned) {
+      filtered = filtered.filter(avail => !avail.guide_assignments || avail.guide_assignments.length === 0)
+    }
+
+    return filtered
   }
 
   const getStatusColor = (status: string) => {
@@ -333,6 +360,14 @@ export default function GuidesCalendarPage() {
 
   const calendarDays = getCalendarDays()
 
+  const toggleActivity = (activityId: string) => {
+    setSelectedActivityIds(prev =>
+      prev.includes(activityId)
+        ? prev.filter(id => id !== activityId)
+        : [...prev, activityId]
+    )
+  }
+
   return (
     <div className="p-6 max-w-7xl mx-auto">
       <div className="flex justify-between items-center mb-6">
@@ -350,6 +385,67 @@ export default function GuidesCalendarPage() {
           >
             Daily
           </Button>
+        </div>
+      </div>
+
+      {/* Filters */}
+      <div className="bg-white rounded-lg shadow p-4 mb-6">
+        <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+          {/* Activity Filter */}
+          <div>
+            <label className="block text-sm font-medium mb-2">Activity</label>
+            <div className="relative">
+              <button
+                onClick={() => setActivitySearchOpen(!activitySearchOpen)}
+                className="w-full px-3 py-2 border border-gray-300 rounded-md text-left flex justify-between items-center"
+              >
+                <span className="text-sm">
+                  {selectedActivityIds.length === 0
+                    ? 'All Activities'
+                    : `${selectedActivityIds.length} selected`}
+                </span>
+                <ChevronRight className={`w-4 h-4 transition-transform ${activitySearchOpen ? 'rotate-90' : ''}`} />
+              </button>
+              {activitySearchOpen && (
+                <div className="absolute z-10 mt-1 w-full bg-white border border-gray-300 rounded-md shadow-lg max-h-60 overflow-y-auto">
+                  {allActivities.map(activity => (
+                    <label
+                      key={activity.activity_id}
+                      className="flex items-center gap-2 px-3 py-2 hover:bg-gray-50 cursor-pointer"
+                    >
+                      <Checkbox
+                        checked={selectedActivityIds.includes(activity.activity_id)}
+                        onCheckedChange={() => toggleActivity(activity.activity_id)}
+                      />
+                      <span className="text-sm">{activity.title}</span>
+                    </label>
+                  ))}
+                </div>
+              )}
+            </div>
+          </div>
+
+          {/* Bookings Filter */}
+          <div className="flex items-end">
+            <label className="flex items-center gap-2 cursor-pointer">
+              <Checkbox
+                checked={showOnlyWithBookings}
+                onCheckedChange={(checked) => setShowOnlyWithBookings(checked as boolean)}
+              />
+              <span className="text-sm">Only with bookings</span>
+            </label>
+          </div>
+
+          {/* Unassigned Filter */}
+          <div className="flex items-end">
+            <label className="flex items-center gap-2 cursor-pointer">
+              <Checkbox
+                checked={showOnlyUnassigned}
+                onCheckedChange={(checked) => setShowOnlyUnassigned(checked as boolean)}
+              />
+              <span className="text-sm">Only unassigned</span>
+            </label>
+          </div>
         </div>
       </div>
 
