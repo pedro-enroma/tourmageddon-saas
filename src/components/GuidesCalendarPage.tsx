@@ -307,8 +307,9 @@ export default function GuidesCalendarPage() {
 
   const getDateRange = () => {
     if (viewMode === 'weekly') {
-      const start = startOfWeek(currentDate, { weekStartsOn: 0 }) // 0 = Sunday
-      const end = endOfWeek(currentDate, { weekStartsOn: 0 })
+      const start = startOfWeek(currentDate, { weekStartsOn: 1 }) // 1 = Monday
+      const end = endOfWeek(currentDate, { weekStartsOn: 1 })
+      console.log('📅 Week range:', format(start, 'yyyy-MM-dd (EEEE)'), 'to', format(end, 'yyyy-MM-dd (EEEE)'))
       return { start, end }
     } else {
       // Daily view - just the current day
@@ -343,7 +344,10 @@ export default function GuidesCalendarPage() {
       return [currentDate]
     }
     const { start, end } = getDateRange()
-    return eachDayOfInterval({ start, end })
+    const days = eachDayOfInterval({ start, end })
+    console.log('📅 Calendar days:', days.map(d => format(d, 'yyyy-MM-dd (EEEE)')))
+    console.log('📅 Total days:', days.length)
+    return days
   }
 
   const getAvailabilitiesForDay = (day: Date) => {
@@ -893,7 +897,7 @@ export default function GuidesCalendarPage() {
                 <CalendarIcon className="w-5 h-5 text-gray-500" />
                 <span className="text-xl font-semibold">
                   {viewMode === 'weekly'
-                    ? `Week of ${format(startOfWeek(currentDate, { weekStartsOn: 0 }), 'MMM d, yyyy')}`
+                    ? `Week of ${format(startOfWeek(currentDate, { weekStartsOn: 1 }), 'MMM d, yyyy')}`
                     : format(currentDate, 'EEEE, MMMM d, yyyy')
                   }
                 </span>
@@ -933,7 +937,7 @@ export default function GuidesCalendarPage() {
           {/* Day Headers */}
           {viewMode === 'weekly' && (
             <div className="grid grid-cols-7 gap-px bg-gray-200">
-              {['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'].map(day => (
+              {['Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat', 'Sun'].map(day => (
                 <div key={day} className="bg-gray-50 p-3 text-center font-semibold text-sm text-gray-700">
                   {day}
                 </div>

@@ -29,7 +29,8 @@
       "Bash(echo:*)",
       "Bash(git log:*)",
       "Bash(xargs -r kill -9)",
-      "Bash(node:*)"
+      "Bash(node:*)",
+      "Bash(pkill:*)"
     ],
     "deny": [],
     "ask": []
