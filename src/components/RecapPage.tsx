@@ -83,6 +83,7 @@ interface SlotData {
   status: string
   bookings: Booking[]
   guidesAssigned?: number
+  guideNames?: string[]
   lastReservation: {
     date: string
     name: string
@@ -227,19 +228,29 @@ export default function RecapPage() {
       activities: Array.isArray(avail.activities) ? avail.activities[0] : avail.activities
     })) as Availability[]
 
-    // Query per le assegnazioni delle guide
+    // Query per le assegnazioni delle guide con nomi
     const { data: guideAssignments } = await supabase
       .from('guide_assignments')
       .select(`
         assignment_id,
-        availability_id
+        availability_id,
+        guide:guides (
+          first_name,
+          last_name
+        )
       `)
 
-    // Crea una mappa per contare le guide assegnate per availability_id
+    // Crea mappe per contare e memorizzare i nomi delle guide per availability_id
     const guideCountMap = new Map<string, number>()
-    guideAssignments?.forEach(assignment => {
+    const guideNamesMap = new Map<string, string[]>()
+
+    guideAssignments?.forEach((assignment: { availability_id: string; guide: { first_name: string; last_name: string } }) => {
       const availId = assignment.availability_id
       guideCountMap.set(availId, (guideCountMap.get(availId) || 0) + 1)
+
+      const guideName = `${assignment.guide.first_name} ${assignment.guide.last_name}`
+      const existingNames = guideNamesMap.get(availId) || []
+      guideNamesMap.set(availId, [...existingNames, guideName])
     })
 
     // Query opzionale per categorie storiche se è selezionato un prodotto specifico
@@ -275,7 +286,8 @@ export default function RecapPage() {
       (bookings as Booking[]) || [],
       (availabilities as Availability[]) || [],
       historicalCategories,
-      guideCountMap
+      guideCountMap,
+      guideNamesMap
     )
     
     // Filtra per prenotazioni se toggle attivo
@@ -423,7 +435,7 @@ export default function RecapPage() {
     }
   }
 
-  const processDataForDisplay = (bookings: Booking[], availabilities: Availability[], historicalCategories: string[] = [], guideCountMap: Map<string, number> = new Map()): SlotData[] => {
+  const processDataForDisplay = (bookings: Booking[], availabilities: Availability[], historicalCategories: string[] = [], guideCountMap: Map<string, number> = new Map(), guideNamesMap: Map<string, string[]> = new Map()): SlotData[] => {
     // Funzione helper per normalizzare l'orario in formato HH:MM
     const normalizeTime = (timeStr: string) => {
       if (!timeStr) return '00:00'
@@ -466,6 +478,7 @@ export default function RecapPage() {
         status: avail.status,
         bookings: [],
         guidesAssigned: guideCountMap.get(avail.id) || 0,  // Get guide count from map
+        guideNames: guideNamesMap.get(avail.id) || [],  // Get guide names from map
         lastReservation: null,
         firstReservation: null
       })
@@ -913,6 +926,7 @@ export default function RecapPage() {
       rowData['Availability Left'] = row.availabilityLeft
       rowData['Status'] = row.status
       rowData['Guides'] = row.guidesAssigned || 0
+      rowData['Guide Names'] = row.guideNames?.join(', ') || ''
       rowData['Last Reservation'] = row.lastReservation?.name || ''
       rowData['First Reservation Date'] = row.firstReservation ?
         new Date(row.firstReservation.date).toLocaleDateString('it-IT') : ''
