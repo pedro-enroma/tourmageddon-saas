@@ -137,8 +137,14 @@ export default function GuidesCalendarPage() {
       console.log('Total raw availabilities:', avails?.length || 0)
       console.log('After grouping by activity/date/time:', filteredAvails.length)
 
+      // Exclude specific activity IDs (Traslados)
+      const EXCLUDED_ACTIVITY_IDS = ['243718', '243709', '219735', '217930']
+      const withoutExcluded = filteredAvails.filter(avail => !EXCLUDED_ACTIVITY_IDS.includes(avail.activity_id))
+
+      console.log('After excluding specific activity IDs:', withoutExcluded.length)
+
       // Fetch activity details
-      const activityIds = [...new Set(filteredAvails?.map(a => a.activity_id) || [])]
+      const activityIds = [...new Set(withoutExcluded?.map(a => a.activity_id) || [])]
       const { data: activities, error: actError } = await supabase
         .from('activities')
         .select('activity_id, title')
@@ -156,7 +162,7 @@ export default function GuidesCalendarPage() {
       }, {})
 
       // Don't filter anything - show all availabilities
-      const enrichedData = (filteredAvails || [])
+      const enrichedData = (withoutExcluded || [])
         .map((avail) => {
           const activity = activitiesMap[avail.activity_id]
           if (!activity) {

@@ -107,6 +107,9 @@ export default function UpcomingServicesPage() {
         return acc
       }, {})
 
+      // Exclude specific activity IDs (Traslados)
+      const EXCLUDED_ACTIVITY_IDS = ['243718', '243709', '219735', '217930']
+
       // Filter out Traslados assignments
       const enrichedData = (filteredData || [])
         .map((assignment) => {
@@ -120,8 +123,8 @@ export default function UpcomingServicesPage() {
           const activity = activitiesMap[avail.activity_id]
           if (!activity) return null
 
-          // Skip Traslados activities
-          if (activity.title.toLowerCase().includes('traslado')) return null
+          // Skip excluded activity IDs
+          if (EXCLUDED_ACTIVITY_IDS.includes(avail.activity_id)) return null
 
           return {
             ...assignment,
