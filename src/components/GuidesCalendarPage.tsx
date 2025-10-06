@@ -2,7 +2,7 @@
 
 import { useState, useEffect } from 'react'
 import { supabase } from '@/lib/supabase'
-import { Calendar as CalendarIcon, ChevronLeft, ChevronRight, Clock, Users, MapPin, X, Settings, GripVertical } from 'lucide-react'
+import { Calendar as CalendarIcon, ChevronLeft, ChevronRight, Clock, Users, MapPin, X, Settings, GripVertical, Pencil } from 'lucide-react'
 import { format, addWeeks, startOfWeek, endOfWeek, eachDayOfInterval, isSameDay } from 'date-fns'
 import { Button } from '@/components/ui/button'
 import { Checkbox } from '@/components/ui/checkbox'
@@ -73,6 +73,7 @@ export default function GuidesCalendarPage() {
   const [settingsSearchText, setSettingsSearchText] = useState('')
   const [newGroupName, setNewGroupName] = useState('')
   const [showGroupForm, setShowGroupForm] = useState(false)
+  const [editingGroup, setEditingGroup] = useState<string | null>(null)
 
   useEffect(() => {
     fetchExcludedActivities()
@@ -592,12 +593,23 @@ export default function GuidesCalendarPage() {
       return
     }
 
-    const newGroup = {
-      name: newGroupName.trim(),
-      activity_ids: tempExcludedIds
-    }
+    let updatedGroups: { name: string; activity_ids: string[] }[]
 
-    const updatedGroups = [...activityGroups, newGroup]
+    if (editingGroup) {
+      // Update existing group
+      updatedGroups = activityGroups.map(g =>
+        g.name === editingGroup
+          ? { name: newGroupName.trim(), activity_ids: tempExcludedIds }
+          : g
+      )
+    } else {
+      // Create new group
+      const newGroup = {
+        name: newGroupName.trim(),
+        activity_ids: tempExcludedIds
+      }
+      updatedGroups = [...activityGroups, newGroup]
+    }
 
     try {
       const { error } = await supabase
@@ -615,6 +627,7 @@ export default function GuidesCalendarPage() {
       setActivityGroups(updatedGroups)
       setNewGroupName('')
       setShowGroupForm(false)
+      setEditingGroup(null)
     } catch (err) {
       console.error('Error saving group:', err)
       setError('Failed to save group')
@@ -623,6 +636,13 @@ export default function GuidesCalendarPage() {
 
   const loadGroup = (group: { name: string; activity_ids: string[] }) => {
     setTempExcludedIds(group.activity_ids)
+  }
+
+  const editGroup = (group: { name: string; activity_ids: string[] }) => {
+    setEditingGroup(group.name)
+    setNewGroupName(group.name)
+    setTempExcludedIds(group.activity_ids)
+    setShowGroupForm(true)
   }
 
   const deleteGroup = async (groupName: string) => {
@@ -701,6 +721,14 @@ export default function GuidesCalendarPage() {
                           <Button
                             variant="ghost"
                             size="sm"
+                            onClick={() => editGroup(group)}
+                            className="text-blue-600 hover:text-blue-700"
+                          >
+                            <Pencil className="h-4 w-4" />
+                          </Button>
+                          <Button
+                            variant="ghost"
+                            size="sm"
                             onClick={() => deleteGroup(group.name)}
                             className="text-red-600 hover:text-red-700"
                           >
@@ -728,6 +756,9 @@ export default function GuidesCalendarPage() {
                 {/* Save Group Form */}
                 {showGroupForm && (
                   <div className="mb-4 p-3 border rounded-md bg-gray-50">
+                    <label className="block text-xs font-medium text-gray-700 mb-2">
+                      {editingGroup ? 'Edit Group' : 'Create New Group'}
+                    </label>
                     <input
                       type="text"
                       placeholder="Group name..."
@@ -736,8 +767,14 @@ export default function GuidesCalendarPage() {
                       className="w-full px-3 py-2 border border-gray-300 rounded-md text-sm mb-2"
                     />
                     <div className="flex gap-2">
-                      <Button size="sm" onClick={saveCurrentAsGroup}>Save Group</Button>
-                      <Button variant="outline" size="sm" onClick={() => { setShowGroupForm(false); setNewGroupName('') }}>Cancel</Button>
+                      <Button size="sm" onClick={saveCurrentAsGroup}>
+                        {editingGroup ? 'Update Group' : 'Save Group'}
+                      </Button>
+                      <Button variant="outline" size="sm" onClick={() => {
+                        setShowGroupForm(false)
+                        setNewGroupName('')
+                        setEditingGroup(null)
+                      }}>Cancel</Button>
                     </div>
                   </div>
                 )}
