@@ -74,23 +74,40 @@ export default function UpcomingServicesPage() {
             vacancy_available,
             vacancy_sold,
             activity_id,
-            availability_id,
-            availability:availabilities!inner(
-              supplier_name
-            )
+            availability_id
           )
         `)
         .eq('activity_availability.local_date', dateStr)
         .gt('activity_availability.vacancy_available', 0)
         .gt('activity_availability.vacancy_sold', 0)
         .neq('activity_availability.local_time', '00:00:00')
-        .eq('activity_availability.availability.supplier_name', 'EnRoma')
         .order('activity_availability(local_time)', { ascending: true })
 
       if (error) throw error
 
+      // Filter by EnRoma supplier
+      const dataWithAvail = (data || []).map(d => {
+        const avail = Array.isArray(d.activity_availability) ? d.activity_availability[0] : d.activity_availability
+        return { ...d, availability_id: avail?.availability_id }
+      }).filter(d => d.availability_id)
+
+      const availabilityIds = [...new Set(dataWithAvail.map(d => d.availability_id))]
+      const { data: availabilities, error: availError } = await supabase
+        .from('availabilities')
+        .select('id, supplier_name')
+        .in('id', availabilityIds)
+        .eq('supplier_name', 'EnRoma')
+
+      if (availError) throw availError
+
+      const enromaAvailabilityIds = new Set(availabilities?.map(a => a.id) || [])
+      const filteredData = (data || []).filter(d => {
+        const avail = Array.isArray(d.activity_availability) ? d.activity_availability[0] : d.activity_availability
+        return enromaAvailabilityIds.has(avail?.availability_id)
+      })
+
       // Fetch activity details separately
-      const activityIds = [...new Set(data?.map((a) => {
+      const activityIds = [...new Set(filteredData?.map((a) => {
         const avail = Array.isArray(a.activity_availability) ? a.activity_availability[0] : a.activity_availability
         return avail?.activity_id
       }).filter(Boolean) || [])]
@@ -109,7 +126,7 @@ export default function UpcomingServicesPage() {
       }, {})
 
       // Filter out Traslados assignments
-      const enrichedData = (data || [])
+      const enrichedData = (filteredData || [])
         .map((assignment) => {
           const avail = Array.isArray(assignment.activity_availability)
             ? assignment.activity_availability[0]

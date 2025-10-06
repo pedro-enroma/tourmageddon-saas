@@ -88,9 +88,6 @@ export default function GuidesCalendarPage() {
               first_name,
               last_name
             )
-          ),
-          availability:availabilities!inner(
-            supplier_name
           )
         `)
         .gte('local_date', startStr)
@@ -98,14 +95,34 @@ export default function GuidesCalendarPage() {
         .gt('vacancy_available', 0)
         .gt('vacancy_sold', 0)
         .neq('local_time', '00:00:00')
-        .eq('availability.supplier_name', 'EnRoma')
         .order('local_date', { ascending: true })
         .order('local_time', { ascending: true })
 
-      if (availError) throw availError
+      if (availError) {
+        console.error('Error fetching availabilities:', availError)
+        throw availError
+      }
+
+      // Fetch availability details to filter by supplier
+      const availabilityIds = [...new Set(avails?.map(a => a.availability_id) || [])]
+      const { data: availabilities, error: availError2 } = await supabase
+        .from('availabilities')
+        .select('id, supplier_name')
+        .in('id', availabilityIds)
+        .eq('supplier_name', 'EnRoma')
+
+      if (availError2) throw availError2
+
+      // Create set of EnRoma availability IDs
+      const enromaAvailabilityIds = new Set(availabilities?.map(a => a.id) || [])
+
+      // Filter to only EnRoma availabilities
+      const filteredAvails = (avails || []).filter(avail =>
+        enromaAvailabilityIds.has(avail.availability_id)
+      )
 
       // Fetch activity details
-      const activityIds = [...new Set(avails?.map(a => a.activity_id) || [])]
+      const activityIds = [...new Set(filteredAvails?.map(a => a.activity_id) || [])]
       const { data: activities, error: actError } = await supabase
         .from('activities')
         .select('activity_id, title')
@@ -120,7 +137,7 @@ export default function GuidesCalendarPage() {
       }, {})
 
       // Filter out Traslados availabilities
-      const enrichedData = (avails || [])
+      const enrichedData = (filteredAvails || [])
         .map((avail) => {
           const activity = activitiesMap[avail.activity_id]
           if (!activity) return null
