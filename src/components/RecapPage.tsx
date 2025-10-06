@@ -1014,16 +1014,7 @@ export default function RecapPage() {
   }
 
   // Component for Guide Capacity Settings Content
-  const GuideCapacitySettingsContent = React.memo(({
-    tours,
-    guideCapacitySettings,
-    guideCapacityCategories,
-    newCategoryName,
-    setNewCategoryName,
-    onAddCategory,
-    onDeleteCategory,
-    onUpdateSetting
-  }: {
+  const GuideCapacitySettingsContent: React.FC<{
     tours: Tour[]
     guideCapacitySettings: GuideCapacitySetting[]
     guideCapacityCategories: GuideCapacityCategory[]
@@ -1032,6 +1023,15 @@ export default function RecapPage() {
     onAddCategory: () => void
     onDeleteCategory: (categoryId: string) => void
     onUpdateSetting: (activityId: string, maxParticipants: number, category?: string) => void
+  }> = React.memo(({
+    tours,
+    guideCapacitySettings,
+    guideCapacityCategories,
+    newCategoryName,
+    setNewCategoryName,
+    onAddCategory,
+    onDeleteCategory,
+    onUpdateSetting
   }) => {
     const [activitySearch, setActivitySearch] = React.useState('')
 
@@ -1199,6 +1199,8 @@ export default function RecapPage() {
       </div>
     )
   })
+
+  GuideCapacitySettingsContent.displayName = 'GuideCapacitySettingsContent'
 
   return (
     <div className="max-w-full">
