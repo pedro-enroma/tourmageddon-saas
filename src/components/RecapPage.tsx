@@ -1027,23 +1027,22 @@ export default function RecapPage() {
   const GuideCapacitySettingsContent = ({
     tours,
     guideCapacitySettings,
-    setGuideCapacitySettings,
     guideCapacityCategories,
-    setGuideCapacityCategories,
     newCategoryName,
-    setNewCategoryName
+    setNewCategoryName,
+    onAddCategory,
+    onDeleteCategory,
+    onUpdateSetting
   }: {
     tours: Tour[]
     guideCapacitySettings: GuideCapacitySetting[]
-    setGuideCapacitySettings: (settings: GuideCapacitySetting[]) => void
     guideCapacityCategories: GuideCapacityCategory[]
-    setGuideCapacityCategories: (categories: GuideCapacityCategory[]) => void
     newCategoryName: string
     setNewCategoryName: (name: string) => void
+    onAddCategory: () => void
+    onDeleteCategory: (categoryId: string) => void
+    onUpdateSetting: (activityId: string, maxParticipants: number, category?: string) => void
   }) => {
-    const getSettingForActivity = (activityId: string) => {
-      return guideCapacitySettings.find(s => s.activity_id === activityId)
-    }
 
     const groupedByCategory = guideCapacityCategories.map(category => ({
       category,
@@ -1062,7 +1061,7 @@ export default function RecapPage() {
               <div key={category.id} className="flex items-center justify-between p-2 border rounded">
                 <span>{category.name}</span>
                 <button
-                  onClick={() => deleteCategory(category.id)}
+                  onClick={() => onDeleteCategory(category.id)}
                   className="text-red-600 hover:text-red-700"
                 >
                   <Trash2 className="w-4 h-4" />
@@ -1078,7 +1077,7 @@ export default function RecapPage() {
                 className="flex-1 px-3 py-2 border rounded"
               />
               <button
-                onClick={addNewCategory}
+                onClick={onAddCategory}
                 className="px-4 py-2 bg-blue-600 text-white rounded hover:bg-blue-700"
               >
                 <Plus className="w-4 h-4" />
@@ -1100,7 +1099,7 @@ export default function RecapPage() {
                     <input
                       type="number"
                       value={setting.max_participants_per_guide}
-                      onChange={(e) => updateActivitySetting(
+                      onChange={(e) => onUpdateSetting(
                         setting.activity_id,
                         parseInt(e.target.value) || 0,
                         setting.category
@@ -1110,7 +1109,7 @@ export default function RecapPage() {
                     />
                     <select
                       value={setting.category || ''}
-                      onChange={(e) => updateActivitySetting(
+                      onChange={(e) => onUpdateSetting(
                         setting.activity_id,
                         setting.max_participants_per_guide,
                         e.target.value || undefined
@@ -1139,7 +1138,7 @@ export default function RecapPage() {
                     <input
                       type="number"
                       value={setting.max_participants_per_guide}
-                      onChange={(e) => updateActivitySetting(
+                      onChange={(e) => onUpdateSetting(
                         setting.activity_id,
                         parseInt(e.target.value) || 0,
                         setting.category
@@ -1149,7 +1148,7 @@ export default function RecapPage() {
                     />
                     <select
                       value={setting.category || ''}
-                      onChange={(e) => updateActivitySetting(
+                      onChange={(e) => onUpdateSetting(
                         setting.activity_id,
                         setting.max_participants_per_guide,
                         e.target.value || undefined
@@ -1173,7 +1172,7 @@ export default function RecapPage() {
             <select
               onChange={(e) => {
                 if (e.target.value) {
-                  updateActivitySetting(e.target.value, 25)
+                  onUpdateSetting(e.target.value, 25)
                   e.target.value = ''
                 }
               }}
@@ -1220,11 +1219,12 @@ export default function RecapPage() {
                     <GuideCapacitySettingsContent
                       tours={tours}
                       guideCapacitySettings={guideCapacitySettings}
-                      setGuideCapacitySettings={setGuideCapacitySettings}
                       guideCapacityCategories={guideCapacityCategories}
-                      setGuideCapacityCategories={setGuideCapacityCategories}
                       newCategoryName={newCategoryName}
                       setNewCategoryName={setNewCategoryName}
+                      onAddCategory={addNewCategory}
+                      onDeleteCategory={deleteCategory}
+                      onUpdateSetting={updateActivitySetting}
                     />
                   </div>
                   <DrawerFooter>
