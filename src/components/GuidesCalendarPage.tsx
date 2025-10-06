@@ -197,7 +197,16 @@ export default function GuidesCalendarPage() {
       console.log('📊 Calendar Data Debug:')
       console.log('Date range:', startStr, 'to', endStr)
       console.log('Raw availabilities fetched:', avails?.length || 0)
-      console.log('Unique dates in avails:', [...new Set(avails?.map(a => a.local_date))].sort())
+
+      const uniqueDatesInQuery = [...new Set(avails?.map(a => a.local_date))].sort()
+      console.log('❗❗❗ UNIQUE DATES IN QUERY RESULT:', uniqueDatesInQuery)
+      console.log('❗❗❗ NUMBER OF UNIQUE DATES:', uniqueDatesInQuery.length)
+      console.log('❗❗❗ EXPECTED 7 DAYS FROM', startStr, 'TO', endStr)
+
+      if (uniqueDatesInQuery.length < 7) {
+        console.error('🚨 NOT ENOUGH DAYS! Only got', uniqueDatesInQuery.length, 'days instead of 7')
+        console.error('🚨 Missing dates. This means the query is incomplete.')
+      }
 
       // Fetch guide assignments separately to avoid duplication
       const availabilityIds = avails?.map(a => a.id) || []
