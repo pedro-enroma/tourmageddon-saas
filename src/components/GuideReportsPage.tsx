@@ -131,11 +131,13 @@ export default function GuideReportsPage() {
 
           if (!availability) return null // Filter out assignments outside date range
 
+          const activity = availability.activity as { title?: string } | null
+
           return {
             assignment_id: assignment.assignment_id,
             local_date: availability.local_date || '',
             local_time: availability.local_time || '',
-            activity_title: (availability.activity as any)?.title || 'Unknown Activity',
+            activity_title: activity?.title || 'Unknown Activity',
             guide_name: guide ? `${guide.first_name} ${guide.last_name}` : 'Unknown Guide',
             participants: availability.vacancy_sold || 0,
             capacity: availability.vacancy_opening || 0,
