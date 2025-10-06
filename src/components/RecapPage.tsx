@@ -244,13 +244,17 @@ export default function RecapPage() {
     const guideCountMap = new Map<string, number>()
     const guideNamesMap = new Map<string, string[]>()
 
-    guideAssignments?.forEach((assignment: { availability_id: string; guide: { first_name: string; last_name: string } }) => {
+    guideAssignments?.forEach((assignment) => {
       const availId = assignment.availability_id
       guideCountMap.set(availId, (guideCountMap.get(availId) || 0) + 1)
 
-      const guideName = `${assignment.guide.first_name} ${assignment.guide.last_name}`
-      const existingNames = guideNamesMap.get(availId) || []
-      guideNamesMap.set(availId, [...existingNames, guideName])
+      // Supabase returns guide as an array
+      const guide = Array.isArray(assignment.guide) ? assignment.guide[0] : assignment.guide
+      if (guide) {
+        const guideName = `${guide.first_name} ${guide.last_name}`
+        const existingNames = guideNamesMap.get(availId) || []
+        guideNamesMap.set(availId, [...existingNames, guideName])
+      }
     })
 
     // Query opzionale per categorie storiche se è selezionato un prodotto specifico
