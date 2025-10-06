@@ -65,12 +65,16 @@ export default function GuidesCalendarPage() {
 
   // Settings states
   const [includedActivityIds, setIncludedActivityIds] = useState<string[]>([])
+  const [activityGroups, setActivityGroups] = useState<{ name: string; activity_ids: string[] }[]>([])
   const [settingsOpen, setSettingsOpen] = useState(false)
   const [tempIncludedIds, setTempIncludedIds] = useState<string[]>([])
   const [settingsSearchText, setSettingsSearchText] = useState('')
+  const [newGroupName, setNewGroupName] = useState('')
+  const [showGroupForm, setShowGroupForm] = useState(false)
 
   useEffect(() => {
     fetchIncludedActivities()
+    fetchActivityGroups()
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [])
 
@@ -104,6 +108,29 @@ export default function GuidesCalendarPage() {
     } catch (err) {
       console.error('Error fetching settings:', err)
       setIncludedActivityIds([])
+    }
+  }
+
+  const fetchActivityGroups = async () => {
+    try {
+      const { data, error } = await supabase
+        .from('guide_calendar_settings')
+        .select('setting_value')
+        .eq('setting_key', 'activity_groups')
+        .single()
+
+      if (error) {
+        console.error('Error fetching activity groups:', error)
+        setActivityGroups([])
+        return
+      }
+
+      if (data?.setting_value) {
+        setActivityGroups(data.setting_value as { name: string; activity_ids: string[] }[])
+      }
+    } catch (err) {
+      console.error('Error fetching activity groups:', err)
+      setActivityGroups([])
     }
   }
 
@@ -478,6 +505,80 @@ export default function GuidesCalendarPage() {
     )
   }
 
+  const selectAllActivities = () => {
+    setTempIncludedIds(allActivities.map(a => a.activity_id))
+  }
+
+  const clearAllActivities = () => {
+    setTempIncludedIds([])
+  }
+
+  const saveCurrentAsGroup = async () => {
+    if (!newGroupName.trim() || tempIncludedIds.length === 0) {
+      setError('Please enter a group name and select at least one activity')
+      return
+    }
+
+    const newGroup = {
+      name: newGroupName.trim(),
+      activity_ids: tempIncludedIds
+    }
+
+    const updatedGroups = [...activityGroups, newGroup]
+
+    try {
+      const { error } = await supabase
+        .from('guide_calendar_settings')
+        .upsert({
+          setting_key: 'activity_groups',
+          setting_value: updatedGroups,
+          updated_at: new Date().toISOString()
+        }, {
+          onConflict: 'setting_key'
+        })
+
+      if (error) throw error
+
+      setActivityGroups(updatedGroups)
+      setNewGroupName('')
+      setShowGroupForm(false)
+    } catch (err) {
+      console.error('Error saving group:', err)
+      setError('Failed to save group')
+    }
+  }
+
+  const loadGroup = (group: { name: string; activity_ids: string[] }) => {
+    setTempIncludedIds(group.activity_ids)
+  }
+
+  const deleteGroup = async (groupName: string) => {
+    const updatedGroups = activityGroups.filter(g => g.name !== groupName)
+
+    try {
+      const { error } = await supabase
+        .from('guide_calendar_settings')
+        .upsert({
+          setting_key: 'activity_groups',
+          setting_value: updatedGroups,
+          updated_at: new Date().toISOString()
+        }, {
+          onConflict: 'setting_key'
+        })
+
+      if (error) throw error
+
+      setActivityGroups(updatedGroups)
+    } catch (err) {
+      console.error('Error deleting group:', err)
+      setError('Failed to delete group')
+    }
+  }
+
+  const applyGroupToFilter = (activityIds: string[]) => {
+    setSelectedActivityIds(activityIds)
+  }
+
   return (
     <div className="p-6 max-w-7xl mx-auto">
       <div className="flex justify-between items-center mb-6">
@@ -504,11 +605,76 @@ export default function GuidesCalendarPage() {
             <DrawerContent>
               <DrawerHeader>
                 <DrawerTitle>Calendar Settings</DrawerTitle>
-<DrawerDescription>
+                <DrawerDescription>
                   Select which activities to show in the calendar view (leave empty to show all)
                 </DrawerDescription>
               </DrawerHeader>
               <div className="p-4 max-h-[60vh] overflow-y-auto">
+                {/* Saved Groups */}
+                {activityGroups.length > 0 && (
+                  <div className="mb-4">
+                    <label className="block text-sm font-medium mb-2">Saved Groups</label>
+                    <div className="space-y-2">
+                      {activityGroups.map(group => (
+                        <div key={group.name} className="flex items-center gap-2">
+                          <Button
+                            variant="outline"
+                            size="sm"
+                            onClick={() => loadGroup(group)}
+                            className="flex-1 justify-start"
+                          >
+                            {group.name} ({group.activity_ids.length} activities)
+                          </Button>
+                          <Button
+                            variant="ghost"
+                            size="sm"
+                            onClick={() => deleteGroup(group.name)}
+                            className="text-red-600 hover:text-red-700"
+                          >
+                            <X className="h-4 w-4" />
+                          </Button>
+                        </div>
+                      ))}
+                    </div>
+                  </div>
+                )}
+
+                {/* Selection Controls */}
+                <div className="mb-4 flex gap-2">
+                  <Button variant="outline" size="sm" onClick={selectAllActivities}>
+                    Select All
+                  </Button>
+                  <Button variant="outline" size="sm" onClick={clearAllActivities}>
+                    Clear All
+                  </Button>
+                  <Button variant="outline" size="sm" onClick={() => setShowGroupForm(!showGroupForm)}>
+                    Save as Group
+                  </Button>
+                </div>
+
+                {/* Save Group Form */}
+                {showGroupForm && (
+                  <div className="mb-4 p-3 border rounded-md bg-gray-50">
+                    <input
+                      type="text"
+                      placeholder="Group name..."
+                      value={newGroupName}
+                      onChange={(e) => setNewGroupName(e.target.value)}
+                      className="w-full px-3 py-2 border border-gray-300 rounded-md text-sm mb-2"
+                    />
+                    <div className="flex gap-2">
+                      <Button size="sm" onClick={saveCurrentAsGroup}>Save Group</Button>
+                      <Button variant="outline" size="sm" onClick={() => { setShowGroupForm(false); setNewGroupName('') }}>Cancel</Button>
+                    </div>
+                  </div>
+                )}
+
+                {/* Selected Count */}
+                <div className="mb-2 text-sm text-gray-600">
+                  {tempIncludedIds.length === 0 ? 'All activities selected' : `${tempIncludedIds.length} activities selected`}
+                </div>
+
+                {/* Search */}
                 <div className="mb-4">
                   <input
                     type="text"
@@ -518,6 +684,8 @@ export default function GuidesCalendarPage() {
                     className="w-full px-3 py-2 border border-gray-300 rounded-md text-sm focus:outline-none focus:ring-2 focus:ring-blue-500"
                   />
                 </div>
+
+                {/* Activity List */}
                 <div className="space-y-2">
                   {filteredSettingsActivities.length === 0 ? (
                     <div className="text-sm text-gray-500">No activities found</div>
@@ -571,6 +739,25 @@ export default function GuidesCalendarPage() {
               </button>
               {activitySearchOpen && (
                 <div className="absolute z-10 mt-1 w-full bg-white border border-gray-300 rounded-md shadow-lg overflow-hidden">
+                  {/* Activity Groups at the top */}
+                  {activityGroups.length > 0 && (
+                    <div className="p-2 border-b bg-gray-50">
+                      <div className="text-xs font-medium text-gray-700 mb-2">Quick Groups</div>
+                      <div className="flex flex-wrap gap-1">
+                        {activityGroups.map(group => (
+                          <Button
+                            key={group.name}
+                            variant="outline"
+                            size="sm"
+                            onClick={() => { applyGroupToFilter(group.activity_ids); setActivitySearchOpen(false) }}
+                            className="text-xs"
+                          >
+                            {group.name}
+                          </Button>
+                        ))}
+                      </div>
+                    </div>
+                  )}
                   <div className="p-2 border-b sticky top-0 bg-white">
                     <input
                       type="text"
