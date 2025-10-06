@@ -159,7 +159,7 @@ export default function GuidesCalendarPage() {
       const startStr = format(start, 'yyyy-MM-dd')
       const endStr = format(end, 'yyyy-MM-dd')
 
-      // Build the query
+      // Build the query - fetch availabilities WITHOUT guide_assignments to avoid duplication
       let query = supabase
         .from('activity_availability')
         .select(`
@@ -172,15 +172,7 @@ export default function GuidesCalendarPage() {
           status,
           vacancy_available,
           vacancy_sold,
-          vacancy_opening,
-          guide_assignments (
-            assignment_id,
-            guide:guides (
-              guide_id,
-              first_name,
-              last_name
-            )
-          )
+          vacancy_opening
         `)
         .gte('local_date', startStr)
         .lte('local_date', endStr)
@@ -205,36 +197,41 @@ export default function GuidesCalendarPage() {
       console.log('📊 Calendar Data Debug:')
       console.log('Date range:', startStr, 'to', endStr)
       console.log('Raw availabilities fetched:', avails?.length || 0)
-      console.log('Sample availability:', avails?.[0])
+      console.log('Unique dates in avails:', [...new Set(avails?.map(a => a.local_date))].sort())
 
-      // Group by activity_id, local_date, local_time to combine duplicate slots
-      const groupedMap = new Map<string, typeof avails[0]>()
+      // Fetch guide assignments separately to avoid duplication
+      const availabilityIds = avails?.map(a => a.id) || []
+      const { data: guideAssignmentsData } = await supabase
+        .from('guide_assignments')
+        .select(`
+          assignment_id,
+          availability_id,
+          guide:guides (
+            guide_id,
+            first_name,
+            last_name
+          )
+        `)
+        .in('availability_id', availabilityIds)
 
-      avails?.forEach(avail => {
-        const key = `${avail.activity_id}_${avail.local_date}_${avail.local_time}`
-        if (!groupedMap.has(key)) {
-          groupedMap.set(key, avail)
-        } else {
-          // Merge guide assignments if there are duplicates
-          const existing = groupedMap.get(key)!
-          if (avail.guide_assignments && avail.guide_assignments.length > 0) {
-            existing.guide_assignments = [
-              ...(existing.guide_assignments || []),
-              ...avail.guide_assignments
-            ]
-          }
-        }
+      // Group guide assignments by availability_id
+      const guideAssignmentsMap = new Map<number, typeof guideAssignmentsData>()
+      guideAssignmentsData?.forEach(assignment => {
+        const existing = guideAssignmentsMap.get(assignment.availability_id) || []
+        guideAssignmentsMap.set(assignment.availability_id, [...existing, assignment])
       })
 
-      const filteredAvails = Array.from(groupedMap.values())
+      // Merge guide assignments into availabilities
+      const availsWithGuides = avails?.map(avail => ({
+        ...avail,
+        guide_assignments: guideAssignmentsMap.get(avail.id) || []
+      }))
 
-      console.log('Total raw availabilities:', avails?.length || 0)
-      console.log('After grouping by activity/date/time:', filteredAvails.length)
+      console.log('Total availabilities with guides:', availsWithGuides?.length || 0)
       console.log('🔍 Current includedActivityIds:', includedActivityIds)
-      console.log('🔍 Sample activity IDs in results:', filteredAvails.slice(0, 5).map(a => a.activity_id))
 
       // Activity filtering is now done at the database level
-      const filtered = filteredAvails
+      const filtered = availsWithGuides || []
 
       // Fetch activity details
       const activityIds = [...new Set(filtered?.map(a => a.activity_id) || [])]
