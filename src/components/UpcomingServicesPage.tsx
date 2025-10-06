@@ -91,7 +91,6 @@ export default function UpcomingServicesPage() {
         .from('activities')
         .select('activity_id, title')
         .in('activity_id', activityIds)
-        .not('title', 'ilike', '%traslado%')
 
       if (actError) throw actError
 
@@ -101,7 +100,7 @@ export default function UpcomingServicesPage() {
         return acc
       }, {})
 
-      // Filter out Traslados assignments (those not in activitiesMap)
+      // Filter out Traslados assignments
       const enrichedData = (data || [])
         .map((assignment) => {
           const avail = Array.isArray(assignment.activity_availability)
@@ -112,7 +111,10 @@ export default function UpcomingServicesPage() {
             : assignment.guide
 
           const activity = activitiesMap[avail.activity_id]
-          if (!activity) return null // Skip Traslados
+          if (!activity) return null
+
+          // Skip Traslados activities
+          if (activity.title.toLowerCase().includes('traslado')) return null
 
           return {
             ...assignment,

@@ -97,13 +97,12 @@ export default function GuidesCalendarPage() {
 
       if (availError) throw availError
 
-      // Fetch activity details (exclude Traslados)
+      // Fetch activity details
       const activityIds = [...new Set(avails?.map(a => a.activity_id) || [])]
       const { data: activities, error: actError } = await supabase
         .from('activities')
         .select('activity_id, title')
         .in('activity_id', activityIds)
-        .not('title', 'ilike', '%traslado%')
 
       if (actError) throw actError
 
@@ -113,17 +112,22 @@ export default function GuidesCalendarPage() {
         return acc
       }, {})
 
-      // Filter out availabilities for Traslados activities (those not in activitiesMap)
+      // Filter out Traslados availabilities
       const enrichedData = (avails || [])
-        .map((avail) => ({
-          ...avail,
-          activity: activitiesMap[avail.activity_id] || null
-        }))
-        .filter((avail) => avail.activity !== null)
-        .map((avail) => ({
-          ...avail,
-          activity: avail.activity!
-        })) as unknown as ActivityAvailability[]
+        .map((avail) => {
+          const activity = activitiesMap[avail.activity_id]
+          if (!activity) return null
+
+          // Skip Traslados activities
+          if (activity.title.toLowerCase().includes('traslado')) return null
+
+          return {
+            ...avail,
+            activity
+          }
+        })
+        .filter((avail) => avail !== null)
+        .map((avail) => avail!) as unknown as ActivityAvailability[]
 
       setAvailabilities(enrichedData)
 
