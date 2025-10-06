@@ -909,13 +909,14 @@ export default function RecapPage() {
       participantCategories.forEach(category => {
         rowData[category] = row.participants?.[category] || 0
       })
-      
+
       rowData['Availability Left'] = row.availabilityLeft
       rowData['Status'] = row.status
+      rowData['Guides'] = row.guidesAssigned || 0
       rowData['Last Reservation'] = row.lastReservation?.name || ''
-      rowData['First Reservation Date'] = row.firstReservation ? 
+      rowData['First Reservation Date'] = row.firstReservation ?
         new Date(row.firstReservation.date).toLocaleDateString('it-IT') : ''
-      
+
       return rowData
     })
     
@@ -1467,9 +1468,9 @@ export default function RecapPage() {
                     {category}
                   </th>
                 ))}
-                <th className="px-4 py-3 text-center bg-green-50">Guides Assigned</th>
                 <th className="px-4 py-3 text-center">Disponibilità</th>
                 <th className="px-4 py-3 text-center">Stato</th>
+                <th className="px-4 py-3 text-center bg-green-50">Guides</th>
               </tr>
             </thead>
             <tbody>
@@ -1550,6 +1551,11 @@ export default function RecapPage() {
                         </span>
                       )}
                     </td>
+                    <td className="px-4 py-3 text-center bg-green-50">
+                      <span className="font-medium">
+                        {row.guidesAssigned || 0}
+                      </span>
+                    </td>
                   </tr>
                   
                   {/* Righe espanse per i gruppi */}
@@ -1568,7 +1574,6 @@ export default function RecapPage() {
                           {tour.participants?.[category] || 0}
                         </td>
                       ))}
-                      <td className="px-4 py-2 text-center text-sm bg-green-50">{tour.guidesAssigned || 0}</td>
                       <td className="px-4 py-2 text-center text-sm">{tour.availabilityLeft || 0}</td>
                       <td className="px-4 py-2 text-center">
                         {tour.status && (
@@ -1577,6 +1582,7 @@ export default function RecapPage() {
                           </span>
                         )}
                       </td>
+                      <td className="px-4 py-2 text-center text-sm bg-green-50">{tour.guidesAssigned || 0}</td>
                     </tr>
                   ))}
                   
@@ -1595,7 +1601,6 @@ export default function RecapPage() {
                           {slot.participants?.[category] || 0}
                         </td>
                       ))}
-                      <td className="px-4 py-2 text-center text-sm bg-green-50">{slot.guidesAssigned || 0}</td>
                       <td className="px-4 py-2 text-center text-sm">{slot.availabilityLeft || 0}</td>
                       <td className="px-4 py-2 text-center">
                         {slot.status && (
@@ -1604,9 +1609,10 @@ export default function RecapPage() {
                           </span>
                         )}
                       </td>
+                      <td className="px-4 py-2 text-center text-sm bg-green-50">{slot.guidesAssigned || 0}</td>
                     </tr>
                   ))}
-                  
+
                   {/* Righe espanse per le settimane */}
                   {row.isWeekGroup && expandedRows.has(row.id) && row.days &&
                     Object.entries(row.days).sort(([a], [b]) => new Date(a).getTime() - new Date(b).getTime()).map(([date, slots]) => (
@@ -1628,7 +1634,6 @@ export default function RecapPage() {
                                 {slot.participants?.[category] || 0}
                               </td>
                             ))}
-                            <td className="px-4 py-2 text-center text-sm bg-green-50">{slot.guidesAssigned || 0}</td>
                             <td className="px-4 py-2 text-center text-sm">{slot.availabilityLeft || 0}</td>
                             <td className="px-4 py-2 text-center">
                               {slot.status && (
@@ -1637,6 +1642,7 @@ export default function RecapPage() {
                                 </span>
                               )}
                             </td>
+                            <td className="px-4 py-2 text-center text-sm bg-green-50">{slot.guidesAssigned || 0}</td>
                           </tr>
                         ))}
                       </React.Fragment>
