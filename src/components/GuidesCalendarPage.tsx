@@ -104,21 +104,32 @@ export default function GuidesCalendarPage() {
       }
 
       // Fetch availability details to filter by supplier
-      const availabilityIds = [...new Set(avails?.map(a => a.availability_id) || [])]
-      const { data: availabilities, error: availError2 } = await supabase
-        .from('availabilities')
-        .select('availability_id, supplier_name')
-        .in('availability_id', availabilityIds)
-        .eq('supplier_name', 'EnRoma')
+      const availabilityIds = [...new Set(avails?.map(a => a.availability_id).filter(Boolean) || [])]
 
-      if (availError2) throw availError2
+      let enromaAvailabilityIds = new Set<number>()
 
-      // Create set of EnRoma availability IDs
-      const enromaAvailabilityIds = new Set(availabilities?.map(a => a.availability_id) || [])
+      if (availabilityIds.length > 0) {
+        const { data: availabilities, error: availError2 } = await supabase
+          .from('availabilities')
+          .select('availability_id, supplier_name')
+          .in('availability_id', availabilityIds)
 
-      // Filter to only EnRoma availabilities
+        if (availError2) {
+          console.error('Error fetching supplier info:', availError2)
+          // Continue without supplier filter if query fails
+        } else {
+          // Filter to only EnRoma
+          enromaAvailabilityIds = new Set(
+            (availabilities || [])
+              .filter(a => a.supplier_name === 'EnRoma')
+              .map(a => a.availability_id)
+          )
+        }
+      }
+
+      // Filter to only EnRoma availabilities (or all if supplier query failed)
       const filteredAvails = (avails || []).filter(avail =>
-        enromaAvailabilityIds.has(avail.availability_id)
+        enromaAvailabilityIds.size === 0 || enromaAvailabilityIds.has(avail.availability_id)
       )
 
       // Fetch activity details
