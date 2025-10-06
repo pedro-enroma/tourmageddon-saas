@@ -88,10 +88,17 @@ export default function GuidesCalendarPage() {
               first_name,
               last_name
             )
+          ),
+          availability:availabilities!inner(
+            supplier_name
           )
         `)
         .gte('local_date', startStr)
         .lte('local_date', endStr)
+        .gt('vacancy_available', 0)
+        .gt('vacancy_sold', 0)
+        .neq('local_time', '00:00:00')
+        .eq('availability.supplier_name', 'EnRoma')
         .order('local_date', { ascending: true })
         .order('local_time', { ascending: true })
 

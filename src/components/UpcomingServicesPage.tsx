@@ -73,10 +73,18 @@ export default function UpcomingServicesPage() {
             status,
             vacancy_available,
             vacancy_sold,
-            activity_id
+            activity_id,
+            availability_id,
+            availability:availabilities!inner(
+              supplier_name
+            )
           )
         `)
         .eq('activity_availability.local_date', dateStr)
+        .gt('activity_availability.vacancy_available', 0)
+        .gt('activity_availability.vacancy_sold', 0)
+        .neq('activity_availability.local_time', '00:00:00')
+        .eq('activity_availability.availability.supplier_name', 'EnRoma')
         .order('activity_availability(local_time)', { ascending: true })
 
       if (error) throw error
