@@ -205,15 +205,7 @@ export default function RecapPage() {
     let availabilityQuery = supabase
       .from('activity_availability')
       .select(`
-        id,
-        activity_id,
-        local_date,
-        local_time,
-        local_date_time,
-        vacancy_available,
-        vacancy_opening,
-        vacancy,
-        status,
+        *,
         activities!inner (
           activity_id,
           title
