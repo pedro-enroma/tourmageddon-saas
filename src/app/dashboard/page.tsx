@@ -2,7 +2,7 @@
 'use client'
 
 import React, { useState } from 'react'
-import { Menu, ChevronRight, Users, FileBarChart, LayoutDashboard, FileText, FileSpreadsheet, BarChart3, DollarSign, TrendingUp, RefreshCw, Percent, UserCog, Calendar, Clock } from 'lucide-react'
+import { Menu, ChevronRight, Users, FileBarChart, LayoutDashboard, FileText, FileSpreadsheet, BarChart3, DollarSign, TrendingUp, RefreshCw, Percent, UserCog, Calendar, Clock, FileText as ReportIcon } from 'lucide-react'
 import { SidebarProvider, SidebarTrigger } from "@/components/ui/sidebar"
 import { Sidebar, SidebarContent, SidebarGroup, SidebarHeader, SidebarMenu, SidebarMenuButton, SidebarMenuItem, SidebarMenuSub, SidebarMenuSubButton, SidebarMenuSubItem } from "@/components/ui/sidebar"
 import RecapPage from '@/components/RecapPage'
@@ -16,6 +16,7 @@ import AffiliatesPage from './affiliates/page'
 import GuidesListPage from '@/components/GuidesListPage'
 import UpcomingServicesPage from '@/components/UpcomingServicesPage'
 import GuidesCalendarPage from '@/components/GuidesCalendarPage'
+import GuideReportsPage from '@/components/GuideReportsPage'
 
 // Custom Sidebar Component
 function AppSidebar({ currentView, onNavigate }: {
@@ -76,6 +77,11 @@ function AppSidebar({ currentView, onNavigate }: {
           title: "Calendar",
           icon: Calendar,
           view: "guides-calendar",
+        },
+        {
+          title: "Guide Reports",
+          icon: FileSpreadsheet,
+          view: "guide-reports",
         },
       ],
     },
@@ -180,6 +186,8 @@ export default function DashboardLayout() {
         return <UpcomingServicesPage />
       case 'guides-calendar':
         return <GuidesCalendarPage />
+      case 'guide-reports':
+        return <GuideReportsPage />
       case 'marketing-export':
         return <MarketingExportPage />
       case 'finance-overview':
@@ -203,6 +211,14 @@ export default function DashboardLayout() {
         return 'Service Consumed'
       case 'pax-names':
         return 'Pax Names'
+      case 'guides-list':
+        return 'Guides List'
+      case 'upcoming-services':
+        return 'Upcoming Services'
+      case 'guides-calendar':
+        return 'Guides Calendar'
+      case 'guide-reports':
+        return 'Guide Reports'
       case 'marketing-export':
         return 'Marketing Export'
       case 'finance-overview':
@@ -222,7 +238,7 @@ export default function DashboardLayout() {
     if (['recap', 'consumed', 'pax-names', 'availability-sync'].includes(currentView)) {
       return 'Operations'
     }
-    if (['guides-list', 'upcoming-services', 'guides-calendar'].includes(currentView)) {
+    if (['guides-list', 'upcoming-services', 'guides-calendar', 'guide-reports'].includes(currentView)) {
       return 'Guides'
     }
     if (currentView === 'marketing-export') {
