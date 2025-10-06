@@ -369,10 +369,17 @@ export default function GuidesCalendarPage() {
   }
 
   const getStatusColor = (availability: ActivityAvailability) => {
-    // Green if there are bookings, gray if no bookings
-    if ((availability.vacancy_sold || 0) > 0) {
+    const hasBookings = (availability.vacancy_sold || 0) > 0
+    const hasGuides = availability.guide_assignments && availability.guide_assignments.length > 0
+
+    if (hasBookings && hasGuides) {
+      // Green: has bookings and guide assigned
       return 'bg-green-100 border-green-300 text-green-800'
+    } else if (hasBookings && !hasGuides) {
+      // Yellow/Orange: has bookings but no guide assigned (TO DO)
+      return 'bg-yellow-100 border-yellow-300 text-yellow-800'
     }
+    // Gray: no bookings
     return 'bg-gray-100 border-gray-300 text-gray-800'
   }
 
