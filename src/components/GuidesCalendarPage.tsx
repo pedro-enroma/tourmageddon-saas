@@ -20,6 +20,7 @@ interface ActivityAvailability {
   status: string
   vacancy_available: number
   vacancy_sold: number
+  vacancy_opening: number
   activity: {
     activity_id: string
     title: string
@@ -171,6 +172,7 @@ export default function GuidesCalendarPage() {
           status,
           vacancy_available,
           vacancy_sold,
+          vacancy_opening,
           guide_assignments (
             assignment_id,
             guide:guides (
@@ -935,7 +937,7 @@ export default function GuidesCalendarPage() {
                         <div className="truncate">{avail.activity.title}</div>
                         <div className="flex items-center gap-1 mt-1">
                           <Users className="w-3 h-3" />
-                          <span>{avail.vacancy_sold || 0}/{avail.vacancy_available || 0}</span>
+                          <span>{avail.vacancy_sold || 0}/{avail.vacancy_opening || 0}</span>
                         </div>
                         {avail.guide_assignments && avail.guide_assignments.length > 0 && (
                           <div className="text-xs text-purple-700 font-medium mt-1">
@@ -975,7 +977,7 @@ export default function GuidesCalendarPage() {
                   </div>
                   <div className="flex items-center gap-2">
                     <Users className="w-4 h-4" />
-                    <span>{selectedSlot.vacancy_sold || 0} / {selectedSlot.vacancy_available || 0} participants</span>
+                    <span>{selectedSlot.vacancy_sold || 0} / {selectedSlot.vacancy_opening || 0} participants</span>
                   </div>
                 </div>
               </div>
