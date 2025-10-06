@@ -1,9 +1,11 @@
 // src/components/RecapPage.tsx
 'use client'
 import React, { useState, useEffect, useCallback } from 'react'
-import { ChevronDown, ChevronRight, Plus, X, Save, RefreshCw, Download, Edit2, Trash2 } from 'lucide-react'
+import { ChevronDown, ChevronRight, Plus, X, Save, RefreshCw, Download, Edit2, Trash2, Settings } from 'lucide-react'
 import { supabase } from '@/lib/supabase'
 import { Switch } from "@/components/ui/switch"
+import { Drawer, DrawerClose, DrawerContent, DrawerDescription, DrawerFooter, DrawerHeader, DrawerTitle, DrawerTrigger } from "@/components/ui/drawer"
+import { Button } from "@/components/ui/button"
 import * as XLSX from 'xlsx'
 
 // Definizione dei tipi
@@ -52,6 +54,7 @@ interface Booking {
 }
 
 interface Availability {
+  id: string
   activity_id: string
   local_date: string
   local_time: string
@@ -79,6 +82,7 @@ interface SlotData {
   availabilityLeft: number
   status: string
   bookings: Booking[]
+  guidesAssigned?: number
   lastReservation: {
     date: string
     name: string
@@ -96,6 +100,18 @@ interface SlotData {
   days?: Record<string, SlotData[]>
   weekStart?: string
   weekEnd?: string
+}
+
+interface GuideCapacitySetting {
+  activity_id: string
+  activity_title: string
+  max_participants_per_guide: number
+  category?: string
+}
+
+interface GuideCapacityCategory {
+  id: string
+  name: string
 }
 
 export default function RecapPage() {
@@ -120,6 +136,12 @@ export default function RecapPage() {
   const [newGroupName, setNewGroupName] = useState('')
   const [selectedTours, setSelectedTours] = useState<string[]>([])
   const [searchTerm, setSearchTerm] = useState('')
+
+  // Stati per guide capacity settings
+  const [guideCapacitySettings, setGuideCapacitySettings] = useState<GuideCapacitySetting[]>([])
+  const [guideCapacityCategories, setGuideCapacityCategories] = useState<GuideCapacityCategory[]>([])
+  const [newCategoryName, setNewCategoryName] = useState('')
+  const [settingsDrawerOpen, setSettingsDrawerOpen] = useState(false)
 
   // Tour filtrati per la ricerca
   const filteredTours = tours.filter(tour => 
@@ -183,7 +205,15 @@ export default function RecapPage() {
     let availabilityQuery = supabase
       .from('activity_availability')
       .select(`
-        *,
+        id,
+        activity_id,
+        local_date,
+        local_time,
+        local_date_time,
+        vacancy_available,
+        vacancy_opening,
+        vacancy,
+        status,
         activities!inner (
           activity_id,
           title
@@ -198,10 +228,25 @@ export default function RecapPage() {
     }
 
     const { data: availabilities } = await availabilityQuery
-    
+
+    // Query per le assegnazioni delle guide
+    const { data: guideAssignments } = await supabase
+      .from('guide_assignments')
+      .select(`
+        assignment_id,
+        availability_id
+      `)
+
+    // Crea una mappa per contare le guide assegnate per availability_id
+    const guideCountMap = new Map<string, number>()
+    guideAssignments?.forEach(assignment => {
+      const availId = assignment.availability_id
+      guideCountMap.set(availId, (guideCountMap.get(availId) || 0) + 1)
+    })
+
     // Query opzionale per categorie storiche se è selezionato un prodotto specifico
     let historicalCategories: string[] = []
-    
+
     if (tourIds.length === 1 && selectedFilter !== 'all') {
       const { data: historicalBookings } = await supabase
         .from('activity_bookings')
@@ -212,7 +257,7 @@ export default function RecapPage() {
         `)
         .eq('activity_id', tourIds[0])
         .not('pricing_category_bookings.booked_title', 'is', null)
-      
+
       const historicalCategoriesSet = new Set<string>()
       historicalBookings?.forEach(booking => {
         if ('pricing_category_bookings' in booking && Array.isArray(booking.pricing_category_bookings)) {
@@ -223,15 +268,16 @@ export default function RecapPage() {
           })
         }
       })
-      
+
       historicalCategories = Array.from(historicalCategoriesSet)
     }
-    
+
     // Processa i dati
     const processedData = processDataForDisplay(
-      (bookings as Booking[]) || [], 
-      (availabilities as Availability[]) || [], 
-      historicalCategories
+      (bookings as Booking[]) || [],
+      (availabilities as Availability[]) || [],
+      historicalCategories,
+      guideCountMap
     )
     
     // Filtra per prenotazioni se toggle attivo
@@ -258,12 +304,13 @@ export default function RecapPage() {
   useEffect(() => {
     loadTours()
     loadTourGroups() // Carica da DB invece che da localStorage
-    
+    loadGuideCapacitySettings() // Load guide capacity settings
+
     const savedFilter = localStorage.getItem('selectedFilter')
     if (savedFilter) {
       setSelectedFilter(savedFilter)
     }
-    
+
     const savedDateRange = localStorage.getItem('dateRange')
     if (savedDateRange) {
       try {
@@ -272,12 +319,12 @@ export default function RecapPage() {
         console.error('Error parsing saved date range:', e)
       }
     }
-    
+
     const savedViewMode = localStorage.getItem('viewMode')
     if (savedViewMode) {
       setViewMode(savedViewMode)
     }
-    
+
     const savedShowOnlyWithBookings = localStorage.getItem('showOnlyWithBookings')
     if (savedShowOnlyWithBookings) {
       setShowOnlyWithBookings(savedShowOnlyWithBookings === 'true')
@@ -378,7 +425,7 @@ export default function RecapPage() {
     }
   }
 
-  const processDataForDisplay = (bookings: Booking[], availabilities: Availability[], historicalCategories: string[] = []): SlotData[] => {
+  const processDataForDisplay = (bookings: Booking[], availabilities: Availability[], historicalCategories: string[] = [], guideCountMap: Map<string, number> = new Map()): SlotData[] => {
     // Funzione helper per normalizzare l'orario in formato HH:MM
     const normalizeTime = (timeStr: string) => {
       if (!timeStr) return '00:00'
@@ -406,7 +453,7 @@ export default function RecapPage() {
     availabilities?.forEach(avail => {
       const normalizedTime = normalizeTime(avail.local_time)
       const key = `${avail.activity_id}-${avail.local_date}-${normalizedTime}`
-      
+
       allSlots.set(key, {
         id: key,
         tourId: avail.activity_id,
@@ -420,6 +467,7 @@ export default function RecapPage() {
         availabilityLeft: avail.vacancy_available || 0,  // FIX: usa vacancy_available
         status: avail.status,
         bookings: [],
+        guidesAssigned: guideCountMap.get(avail.id) || 0,  // Get guide count from map
         lastReservation: null,
         firstReservation: null
       })
@@ -447,6 +495,7 @@ export default function RecapPage() {
           availabilityLeft: 0,
           status: 'SOLD_OUT',
           bookings: [],
+          guidesAssigned: 0,
           lastReservation: null,
           firstReservation: null
         })
@@ -572,6 +621,7 @@ export default function RecapPage() {
           participants: {},
           totalParticipants: 0,  // AGGIUNTO
           availabilityLeft: 0,
+          guidesAssigned: 0,
           tourId: '',
           tourTitle: '',
           time: '',
@@ -587,7 +637,8 @@ export default function RecapPage() {
       grouped[key].bookingCount += row.bookingCount
       grouped[key].totalParticipants += row.totalParticipants || 0  // AGGIUNTO
       grouped[key].availabilityLeft += row.availabilityLeft
-      
+      grouped[key].guidesAssigned += row.guidesAssigned || 0
+
       // Aggrega partecipanti
       Object.keys(row.participants).forEach(cat => {
         if (!grouped[key].participants[cat]) {
@@ -625,6 +676,7 @@ export default function RecapPage() {
           participants: {},
           totalParticipants: 0,  // AGGIUNTO
           availabilityLeft: 0,
+          guidesAssigned: 0,
           tourId: '',
           tourTitle: '',
           date: weekKey,
@@ -645,7 +697,8 @@ export default function RecapPage() {
       grouped[weekKey].bookingCount += row.bookingCount
       grouped[weekKey].totalParticipants += row.totalParticipants || 0  // AGGIUNTO
       grouped[weekKey].availabilityLeft += row.availabilityLeft
-      
+      grouped[weekKey].guidesAssigned += row.guidesAssigned || 0
+
       // Aggrega partecipanti
       Object.keys(row.participants).forEach(cat => {
         if (!grouped[weekKey].participants[cat]) {
@@ -677,6 +730,7 @@ export default function RecapPage() {
           participants: {},
           totalParticipants: 0,  // AGGIUNTO
           availabilityLeft: 0,
+          guidesAssigned: 0,
           tourId: '',
           tourTitle: '',
           status: '',
@@ -691,7 +745,8 @@ export default function RecapPage() {
       grouped[key].bookingCount += row.bookingCount
       grouped[key].totalParticipants += row.totalParticipants || 0  // AGGIUNTO
       grouped[key].availabilityLeft += row.availabilityLeft
-      
+      grouped[key].guidesAssigned += row.guidesAssigned || 0
+
       // Aggrega partecipanti
       Object.keys(row.participants).forEach(cat => {
         if (!grouped[key].participants[cat]) {
@@ -868,12 +923,320 @@ export default function RecapPage() {
     XLSX.writeFile(wb, fileName)
   }
 
+  // Guide Capacity Settings Functions
+  const loadGuideCapacitySettings = async () => {
+    try {
+      const { data, error } = await supabase
+        .from('guide_capacity_settings')
+        .select('*')
+        .order('activity_title', { ascending: true })
+
+      if (error) throw error
+
+      if (data) {
+        setGuideCapacitySettings(data)
+      }
+
+      // Load categories
+      const { data: categoriesData, error: categoriesError } = await supabase
+        .from('guide_capacity_categories')
+        .select('*')
+        .order('name', { ascending: true })
+
+      if (categoriesError) throw categoriesError
+
+      if (categoriesData) {
+        setGuideCapacityCategories(categoriesData)
+      }
+    } catch (error) {
+      console.error('Error loading guide capacity settings:', error)
+    }
+  }
+
+  const saveGuideCapacitySettings = async () => {
+    try {
+      // Save categories first
+      for (const category of guideCapacityCategories) {
+        const { error } = await supabase
+          .from('guide_capacity_categories')
+          .upsert(category)
+
+        if (error) throw error
+      }
+
+      // Save settings
+      for (const setting of guideCapacitySettings) {
+        const { error } = await supabase
+          .from('guide_capacity_settings')
+          .upsert(setting)
+
+        if (error) throw error
+      }
+
+      setSettingsDrawerOpen(false)
+      alert('Settings saved successfully!')
+    } catch (error) {
+      console.error('Error saving guide capacity settings:', error)
+      alert('Failed to save settings')
+    }
+  }
+
+  const addNewCategory = () => {
+    if (!newCategoryName.trim()) return
+
+    const newCategory: GuideCapacityCategory = {
+      id: `category_${Date.now()}`,
+      name: newCategoryName.trim()
+    }
+
+    setGuideCapacityCategories([...guideCapacityCategories, newCategory])
+    setNewCategoryName('')
+  }
+
+  const deleteCategory = (categoryId: string) => {
+    setGuideCapacityCategories(guideCapacityCategories.filter(c => c.id !== categoryId))
+    // Also remove category from settings
+    setGuideCapacitySettings(guideCapacitySettings.map(s => ({
+      ...s,
+      category: s.category === categoryId ? undefined : s.category
+    })))
+  }
+
+  const updateActivitySetting = (activityId: string, maxParticipants: number, category?: string) => {
+    const activityTitle = tours.find(t => t.activity_id === activityId)?.title || ''
+
+    const existing = guideCapacitySettings.find(s => s.activity_id === activityId)
+
+    if (existing) {
+      setGuideCapacitySettings(guideCapacitySettings.map(s =>
+        s.activity_id === activityId
+          ? { ...s, max_participants_per_guide: maxParticipants, category }
+          : s
+      ))
+    } else {
+      setGuideCapacitySettings([...guideCapacitySettings, {
+        activity_id: activityId,
+        activity_title: activityTitle,
+        max_participants_per_guide: maxParticipants,
+        category
+      }])
+    }
+  }
+
+  // Component for Guide Capacity Settings Content
+  const GuideCapacitySettingsContent = ({
+    tours,
+    guideCapacitySettings,
+    setGuideCapacitySettings,
+    guideCapacityCategories,
+    setGuideCapacityCategories,
+    newCategoryName,
+    setNewCategoryName
+  }: {
+    tours: Tour[]
+    guideCapacitySettings: GuideCapacitySetting[]
+    setGuideCapacitySettings: (settings: GuideCapacitySetting[]) => void
+    guideCapacityCategories: GuideCapacityCategory[]
+    setGuideCapacityCategories: (categories: GuideCapacityCategory[]) => void
+    newCategoryName: string
+    setNewCategoryName: (name: string) => void
+  }) => {
+    const getSettingForActivity = (activityId: string) => {
+      return guideCapacitySettings.find(s => s.activity_id === activityId)
+    }
+
+    const groupedByCategory = guideCapacityCategories.map(category => ({
+      category,
+      activities: guideCapacitySettings.filter(s => s.category === category.id)
+    }))
+
+    const uncategorized = guideCapacitySettings.filter(s => !s.category)
+
+    return (
+      <div className="space-y-6">
+        {/* Categories Management */}
+        <div>
+          <h3 className="text-sm font-semibold mb-3">Categories</h3>
+          <div className="space-y-2">
+            {guideCapacityCategories.map(category => (
+              <div key={category.id} className="flex items-center justify-between p-2 border rounded">
+                <span>{category.name}</span>
+                <button
+                  onClick={() => deleteCategory(category.id)}
+                  className="text-red-600 hover:text-red-700"
+                >
+                  <Trash2 className="w-4 h-4" />
+                </button>
+              </div>
+            ))}
+            <div className="flex gap-2">
+              <input
+                type="text"
+                value={newCategoryName}
+                onChange={(e) => setNewCategoryName(e.target.value)}
+                placeholder="New category name"
+                className="flex-1 px-3 py-2 border rounded"
+              />
+              <button
+                onClick={addNewCategory}
+                className="px-4 py-2 bg-blue-600 text-white rounded hover:bg-blue-700"
+              >
+                <Plus className="w-4 h-4" />
+              </button>
+            </div>
+          </div>
+        </div>
+
+        {/* Activities by Category */}
+        <div>
+          <h3 className="text-sm font-semibold mb-3">Activities</h3>
+          {groupedByCategory.map(({ category, activities }) => (
+            <div key={category.id} className="mb-4">
+              <h4 className="text-sm font-medium text-gray-700 mb-2">{category.name}</h4>
+              <div className="space-y-2">
+                {activities.map(setting => (
+                  <div key={setting.activity_id} className="grid grid-cols-3 gap-2 p-2 border rounded">
+                    <span className="text-sm">{setting.activity_title}</span>
+                    <input
+                      type="number"
+                      value={setting.max_participants_per_guide}
+                      onChange={(e) => updateActivitySetting(
+                        setting.activity_id,
+                        parseInt(e.target.value) || 0,
+                        setting.category
+                      )}
+                      className="px-2 py-1 border rounded text-sm"
+                      min="0"
+                    />
+                    <select
+                      value={setting.category || ''}
+                      onChange={(e) => updateActivitySetting(
+                        setting.activity_id,
+                        setting.max_participants_per_guide,
+                        e.target.value || undefined
+                      )}
+                      className="px-2 py-1 border rounded text-sm"
+                    >
+                      <option value="">Uncategorized</option>
+                      {guideCapacityCategories.map(cat => (
+                        <option key={cat.id} value={cat.id}>{cat.name}</option>
+                      ))}
+                    </select>
+                  </div>
+                ))}
+              </div>
+            </div>
+          ))}
+
+          {/* Uncategorized */}
+          {uncategorized.length > 0 && (
+            <div className="mb-4">
+              <h4 className="text-sm font-medium text-gray-700 mb-2">Uncategorized</h4>
+              <div className="space-y-2">
+                {uncategorized.map(setting => (
+                  <div key={setting.activity_id} className="grid grid-cols-3 gap-2 p-2 border rounded">
+                    <span className="text-sm">{setting.activity_title}</span>
+                    <input
+                      type="number"
+                      value={setting.max_participants_per_guide}
+                      onChange={(e) => updateActivitySetting(
+                        setting.activity_id,
+                        parseInt(e.target.value) || 0,
+                        setting.category
+                      )}
+                      className="px-2 py-1 border rounded text-sm"
+                      min="0"
+                    />
+                    <select
+                      value={setting.category || ''}
+                      onChange={(e) => updateActivitySetting(
+                        setting.activity_id,
+                        setting.max_participants_per_guide,
+                        e.target.value || undefined
+                      )}
+                      className="px-2 py-1 border rounded text-sm"
+                    >
+                      <option value="">Uncategorized</option>
+                      {guideCapacityCategories.map(cat => (
+                        <option key={cat.id} value={cat.id}>{cat.name}</option>
+                      ))}
+                    </select>
+                  </div>
+                ))}
+              </div>
+            </div>
+          )}
+
+          {/* Add New Activity */}
+          <div>
+            <h4 className="text-sm font-medium text-gray-700 mb-2">Add Activity</h4>
+            <select
+              onChange={(e) => {
+                if (e.target.value) {
+                  updateActivitySetting(e.target.value, 25)
+                  e.target.value = ''
+                }
+              }}
+              className="w-full px-3 py-2 border rounded"
+            >
+              <option value="">Select an activity...</option>
+              {tours
+                .filter(tour => !guideCapacitySettings.find(s => s.activity_id === tour.activity_id))
+                .map(tour => (
+                  <option key={tour.activity_id} value={tour.activity_id}>
+                    {tour.title}
+                  </option>
+                ))}
+            </select>
+          </div>
+        </div>
+      </div>
+    )
+  }
+
   return (
     <div className="max-w-full">
       {/* Sezione Filtri - Struttura riorganizzata */}
       <div className="bg-white border-b pb-6">
         <div className="space-y-4">
-          <h2 className="text-lg font-semibold">Filtri</h2>
+          <div className="flex items-center justify-between">
+            <h2 className="text-lg font-semibold">Filtri</h2>
+            <Drawer open={settingsDrawerOpen} onOpenChange={setSettingsDrawerOpen}>
+              <DrawerTrigger asChild>
+                <button className="p-2 hover:bg-gray-100 rounded-lg transition-colors">
+                  <Settings className="w-5 h-5 text-gray-600" />
+                </button>
+              </DrawerTrigger>
+              <DrawerContent>
+                <div className="mx-auto w-full max-w-4xl">
+                  <DrawerHeader>
+                    <DrawerTitle>Guide Capacity Settings</DrawerTitle>
+                    <DrawerDescription>
+                      Set the maximum number of participants per guide for each activity and organize them into categories.
+                    </DrawerDescription>
+                  </DrawerHeader>
+                  <div className="p-4 pb-0 max-h-[60vh] overflow-y-auto">
+                    {/* Settings content will be added here */}
+                    <GuideCapacitySettingsContent
+                      tours={tours}
+                      guideCapacitySettings={guideCapacitySettings}
+                      setGuideCapacitySettings={setGuideCapacitySettings}
+                      guideCapacityCategories={guideCapacityCategories}
+                      setGuideCapacityCategories={setGuideCapacityCategories}
+                      newCategoryName={newCategoryName}
+                      setNewCategoryName={setNewCategoryName}
+                    />
+                  </div>
+                  <DrawerFooter>
+                    <Button onClick={() => saveGuideCapacitySettings()}>Save Settings</Button>
+                    <DrawerClose asChild>
+                      <Button variant="outline">Cancel</Button>
+                    </DrawerClose>
+                  </DrawerFooter>
+                </div>
+              </DrawerContent>
+            </Drawer>
+          </div>
           
           {/* Prima riga: 60% Seleziona Tour - 40% Pulsante Crea Gruppo */}
           <div className="grid grid-cols-10 gap-4 items-end">
@@ -1100,6 +1463,7 @@ export default function RecapPage() {
                     {category}
                   </th>
                 ))}
+                <th className="px-4 py-3 text-center bg-green-50">Guides Assigned</th>
                 <th className="px-4 py-3 text-center">Disponibilità</th>
                 <th className="px-4 py-3 text-center">Stato</th>
               </tr>
@@ -1200,6 +1564,7 @@ export default function RecapPage() {
                           {tour.participants?.[category] || 0}
                         </td>
                       ))}
+                      <td className="px-4 py-2 text-center text-sm bg-green-50">{tour.guidesAssigned || 0}</td>
                       <td className="px-4 py-2 text-center text-sm">{tour.availabilityLeft || 0}</td>
                       <td className="px-4 py-2 text-center">
                         {tour.status && (
@@ -1226,6 +1591,7 @@ export default function RecapPage() {
                           {slot.participants?.[category] || 0}
                         </td>
                       ))}
+                      <td className="px-4 py-2 text-center text-sm bg-green-50">{slot.guidesAssigned || 0}</td>
                       <td className="px-4 py-2 text-center text-sm">{slot.availabilityLeft || 0}</td>
                       <td className="px-4 py-2 text-center">
                         {slot.status && (
@@ -1258,6 +1624,7 @@ export default function RecapPage() {
                                 {slot.participants?.[category] || 0}
                               </td>
                             ))}
+                            <td className="px-4 py-2 text-center text-sm bg-green-50">{slot.guidesAssigned || 0}</td>
                             <td className="px-4 py-2 text-center text-sm">{slot.availabilityLeft || 0}</td>
                             <td className="px-4 py-2 text-center">
                               {slot.status && (
