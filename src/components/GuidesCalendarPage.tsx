@@ -610,7 +610,7 @@ export default function GuidesCalendarPage() {
                   Select which activities to show in the calendar view (leave empty to show all)
                 </DrawerDescription>
               </DrawerHeader>
-              <div className="p-4 max-h-[60vh] overflow-y-auto">
+              <div className="p-4 h-[70vh] overflow-y-auto">
                 {/* Saved Groups */}
                 {activityGroups.length > 0 && (
                   <div className="mb-4">
@@ -694,26 +694,35 @@ export default function GuidesCalendarPage() {
                 </div>
 
                 {/* Activity List */}
-                <div className="space-y-2">
-                  {filteredSettingsActivities.length === 0 ? (
-                    <div className="text-sm text-gray-500">No activities found</div>
-                  ) : (
-                    filteredSettingsActivities.map(activity => (
-                      <label
-                        key={activity.activity_id}
-                        className="flex items-center gap-3 p-3 hover:bg-gray-50 rounded cursor-pointer border"
-                      >
-                        <Checkbox
-                          checked={tempIncludedIds.includes(activity.activity_id)}
-                          onCheckedChange={() => toggleIncludedActivity(activity.activity_id)}
-                        />
-                        <div className="flex-1">
-                          <div className="text-sm font-medium">{activity.title}</div>
-                          <div className="text-xs text-gray-500">ID: {activity.activity_id}</div>
-                        </div>
-                      </label>
-                    ))
-                  )}
+                <div>
+                  <label className="block text-sm font-medium mb-2">
+                    All Activities ({allActivities.length} total)
+                  </label>
+                  <div className="space-y-2">
+                    {filteredSettingsActivities.length === 0 ? (
+                      <div className="text-sm text-gray-500 p-4 border rounded">
+                        {allActivities.length === 0
+                          ? 'No activities loaded. Try refreshing the page.'
+                          : 'No activities match your search.'}
+                      </div>
+                    ) : (
+                      filteredSettingsActivities.map(activity => (
+                        <label
+                          key={activity.activity_id}
+                          className="flex items-center gap-3 p-3 hover:bg-gray-50 rounded cursor-pointer border"
+                        >
+                          <Checkbox
+                            checked={tempIncludedIds.includes(activity.activity_id)}
+                            onCheckedChange={() => toggleIncludedActivity(activity.activity_id)}
+                          />
+                          <div className="flex-1">
+                            <div className="text-sm font-medium">{activity.title}</div>
+                            <div className="text-xs text-gray-500">ID: {activity.activity_id}</div>
+                          </div>
+                        </label>
+                      ))
+                    )}
+                  </div>
                 </div>
               </div>
               <DrawerFooter>
