@@ -227,7 +227,13 @@ export default function RecapPage() {
       availabilityQuery = availabilityQuery.in('activity_id', tourIds)
     }
 
-    const { data: availabilities } = await availabilityQuery
+    const { data: availabilitiesRaw } = await availabilityQuery
+
+    // Transform the data to match our interface (Supabase returns activities as array)
+    const availabilities = availabilitiesRaw?.map((avail: any) => ({
+      ...avail,
+      activities: Array.isArray(avail.activities) ? avail.activities[0] : avail.activities
+    }))
 
     // Query per le assegnazioni delle guide
     const { data: guideAssignments } = await supabase
