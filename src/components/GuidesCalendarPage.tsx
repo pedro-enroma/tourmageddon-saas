@@ -212,20 +212,20 @@ export default function GuidesCalendarPage() {
         .from('guide_assignments')
         .select(`
           assignment_id,
-          availability_id,
+          activity_availability_id,
           guide:guides (
             guide_id,
             first_name,
             last_name
           )
         `)
-        .in('availability_id', availabilityIds)
+        .in('activity_availability_id', availabilityIds)
 
-      // Group guide assignments by availability_id
+      // Group guide assignments by activity_availability_id
       const guideAssignmentsMap = new Map<number, typeof guideAssignmentsData>()
       guideAssignmentsData?.forEach(assignment => {
-        const existing = guideAssignmentsMap.get(assignment.availability_id) || []
-        guideAssignmentsMap.set(assignment.availability_id, [...existing, assignment])
+        const existing = guideAssignmentsMap.get(assignment.activity_availability_id) || []
+        guideAssignmentsMap.set(assignment.activity_availability_id, [...existing, assignment])
       })
 
       // Merge guide assignments into availabilities
@@ -479,7 +479,7 @@ export default function GuidesCalendarPage() {
         const { error: deleteError } = await supabase
           .from('guide_assignments')
           .delete()
-          .eq('availability_id', selectedSlot.id)
+          .eq('activity_availability_id', selectedSlot.id)
           .in('guide_id', guidesToRemove)
 
         if (deleteError) throw deleteError
@@ -489,7 +489,7 @@ export default function GuidesCalendarPage() {
       if (guidesToAdd.length > 0) {
         const newAssignments = guidesToAdd.map(guideId => ({
           guide_id: guideId,
-          availability_id: selectedSlot.id,
+          activity_availability_id: selectedSlot.id,
           notes: assignmentNotes || null
         }))
 
