@@ -85,38 +85,8 @@ export default function UpcomingServicesPage() {
 
       if (error) throw error
 
-      // Filter by EnRoma supplier
-      const dataWithAvail = (data || []).map(d => {
-        const avail = Array.isArray(d.activity_availability) ? d.activity_availability[0] : d.activity_availability
-        return { ...d, availability_id: avail?.availability_id }
-      }).filter(d => d.availability_id)
-
-      const availabilityIds = [...new Set(dataWithAvail.map(d => d.availability_id))]
-
-      let enromaAvailabilityIds = new Set<number>()
-
-      if (availabilityIds.length > 0) {
-        const { data: availabilities, error: availError } = await supabase
-          .from('availabilities')
-          .select('availability_id, supplier_name')
-          .in('availability_id', availabilityIds)
-
-        if (availError) {
-          console.error('Error fetching supplier info:', availError)
-          // Continue without supplier filter
-        } else {
-          enromaAvailabilityIds = new Set(
-            (availabilities || [])
-              .filter(a => a.supplier_name === 'EnRoma')
-              .map(a => a.availability_id)
-          )
-        }
-      }
-
-      const filteredData = (data || []).filter(d => {
-        const avail = Array.isArray(d.activity_availability) ? d.activity_availability[0] : d.activity_availability
-        return enromaAvailabilityIds.size === 0 || enromaAvailabilityIds.has(avail?.availability_id)
-      })
+      // Skip supplier filter for now
+      const filteredData = data || []
 
       // Fetch activity details separately
       const activityIds = [...new Set(filteredData?.map((a) => {

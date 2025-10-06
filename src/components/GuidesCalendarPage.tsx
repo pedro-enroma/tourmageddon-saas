@@ -108,37 +108,11 @@ export default function GuidesCalendarPage() {
       console.log('Raw availabilities fetched:', avails?.length || 0)
       console.log('Sample availability:', avails?.[0])
 
-      // Fetch availability details to filter by supplier
-      const availabilityIds = [...new Set(avails?.map(a => a.availability_id).filter(Boolean) || [])]
+      // Skip supplier filter for now - using all availabilities
+      const filteredAvails = avails || []
 
-      let enromaAvailabilityIds = new Set<number>()
-
-      if (availabilityIds.length > 0) {
-        const { data: availabilities, error: availError2 } = await supabase
-          .from('availabilities')
-          .select('availability_id, supplier_name')
-          .in('availability_id', availabilityIds)
-
-        if (availError2) {
-          console.error('Error fetching supplier info:', availError2)
-          // Continue without supplier filter if query fails
-        } else {
-          // Filter to only EnRoma
-          enromaAvailabilityIds = new Set(
-            (availabilities || [])
-              .filter(a => a.supplier_name === 'EnRoma')
-              .map(a => a.availability_id)
-          )
-        }
-      }
-
-      // Filter to only EnRoma availabilities (or all if supplier query failed)
-      const filteredAvails = (avails || []).filter(avail =>
-        enromaAvailabilityIds.size === 0 || enromaAvailabilityIds.has(avail.availability_id)
-      )
-
-      console.log('EnRoma availability IDs:', enromaAvailabilityIds.size)
-      console.log('After EnRoma filter:', filteredAvails.length)
+      console.log('Skipping supplier filter - showing all tours')
+      console.log('Total availabilities after basic filters:', filteredAvails.length)
 
       // Fetch activity details
       const activityIds = [...new Set(filteredAvails?.map(a => a.activity_id) || [])]
