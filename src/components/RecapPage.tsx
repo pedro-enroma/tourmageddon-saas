@@ -643,7 +643,9 @@ export default function RecapPage() {
       grouped[key].bookingCount += row.bookingCount
       grouped[key].totalParticipants += row.totalParticipants || 0  // AGGIUNTO
       grouped[key].availabilityLeft += row.availabilityLeft
-      grouped[key].guidesAssigned += row.guidesAssigned || 0
+      if (grouped[key].guidesAssigned !== undefined) {
+        grouped[key].guidesAssigned = (grouped[key].guidesAssigned || 0) + (row.guidesAssigned || 0)
+      }
 
       // Aggrega partecipanti
       Object.keys(row.participants).forEach(cat => {
@@ -703,7 +705,9 @@ export default function RecapPage() {
       grouped[weekKey].bookingCount += row.bookingCount
       grouped[weekKey].totalParticipants += row.totalParticipants || 0  // AGGIUNTO
       grouped[weekKey].availabilityLeft += row.availabilityLeft
-      grouped[weekKey].guidesAssigned += row.guidesAssigned || 0
+      if (grouped[weekKey].guidesAssigned !== undefined) {
+        grouped[weekKey].guidesAssigned = (grouped[weekKey].guidesAssigned || 0) + (row.guidesAssigned || 0)
+      }
 
       // Aggrega partecipanti
       Object.keys(row.participants).forEach(cat => {
@@ -751,7 +755,9 @@ export default function RecapPage() {
       grouped[key].bookingCount += row.bookingCount
       grouped[key].totalParticipants += row.totalParticipants || 0  // AGGIUNTO
       grouped[key].availabilityLeft += row.availabilityLeft
-      grouped[key].guidesAssigned += row.guidesAssigned || 0
+      if (grouped[key].guidesAssigned !== undefined) {
+        grouped[key].guidesAssigned = (grouped[key].guidesAssigned || 0) + (row.guidesAssigned || 0)
+      }
 
       // Aggrega partecipanti
       Object.keys(row.participants).forEach(cat => {
