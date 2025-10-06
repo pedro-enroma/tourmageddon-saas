@@ -958,26 +958,11 @@ export default function RecapPage() {
     }
   }
 
-  const saveGuideCapacitySettings = async () => {
+  const saveGuideCapacitySettings = () => {
     try {
-      // Save categories first
-      for (const category of guideCapacityCategories) {
-        const { error } = await supabase
-          .from('guide_capacity_categories')
-          .upsert(category)
-
-        if (error) throw error
-      }
-
-      // Save settings
-      for (const setting of guideCapacitySettings) {
-        const { error } = await supabase
-          .from('guide_capacity_settings')
-          .upsert(setting)
-
-        if (error) throw error
-      }
-
+      // Save to localStorage (database tables will be created later)
+      localStorage.setItem('guideCapacityCategories', JSON.stringify(guideCapacityCategories))
+      localStorage.setItem('guideCapacitySettings', JSON.stringify(guideCapacitySettings))
       setSettingsDrawerOpen(false)
       alert('Settings saved successfully!')
     } catch (error) {
@@ -1029,7 +1014,7 @@ export default function RecapPage() {
   }
 
   // Component for Guide Capacity Settings Content
-  const GuideCapacitySettingsContent = ({
+  const GuideCapacitySettingsContent = React.memo(({
     tours,
     guideCapacitySettings,
     guideCapacityCategories,
@@ -1048,13 +1033,25 @@ export default function RecapPage() {
     onDeleteCategory: (categoryId: string) => void
     onUpdateSetting: (activityId: string, maxParticipants: number, category?: string) => void
   }) => {
+    const [activitySearch, setActivitySearch] = React.useState('')
 
-    const groupedByCategory = guideCapacityCategories.map(category => ({
-      category,
-      activities: guideCapacitySettings.filter(s => s.category === category.id)
-    }))
+    const groupedByCategory = React.useMemo(() =>
+      guideCapacityCategories.map(category => ({
+        category,
+        activities: guideCapacitySettings.filter(s => s.category === category.id)
+      }))
+    , [guideCapacityCategories, guideCapacitySettings])
 
-    const uncategorized = guideCapacitySettings.filter(s => !s.category)
+    const uncategorized = React.useMemo(() =>
+      guideCapacitySettings.filter(s => !s.category)
+    , [guideCapacitySettings])
+
+    const availableTours = React.useMemo(() =>
+      tours.filter(tour =>
+        !guideCapacitySettings.find(s => s.activity_id === tour.activity_id) &&
+        tour.title.toLowerCase().includes(activitySearch.toLowerCase())
+      )
+    , [tours, guideCapacitySettings, activitySearch])
 
     return (
       <div className="space-y-6">
@@ -1174,29 +1171,34 @@ export default function RecapPage() {
           {/* Add New Activity */}
           <div>
             <h4 className="text-sm font-medium text-gray-700 mb-2">Add Activity</h4>
-            <select
-              onChange={(e) => {
-                if (e.target.value) {
-                  onUpdateSetting(e.target.value, 25)
-                  e.target.value = ''
-                }
-              }}
-              className="w-full px-3 py-2 border rounded"
-            >
-              <option value="">Select an activity...</option>
-              {tours
-                .filter(tour => !guideCapacitySettings.find(s => s.activity_id === tour.activity_id))
-                .map(tour => (
-                  <option key={tour.activity_id} value={tour.activity_id}>
+            <input
+              type="text"
+              placeholder="Search activities..."
+              value={activitySearch}
+              onChange={(e) => setActivitySearch(e.target.value)}
+              className="w-full px-3 py-2 border rounded mb-2"
+            />
+            {activitySearch && availableTours.length > 0 && (
+              <div className="max-h-48 overflow-y-auto border rounded">
+                {availableTours.map(tour => (
+                  <button
+                    key={tour.activity_id}
+                    onClick={() => {
+                      onUpdateSetting(tour.activity_id, 25)
+                      setActivitySearch('')
+                    }}
+                    className="w-full text-left px-3 py-2 hover:bg-gray-100 text-sm"
+                  >
                     {tour.title}
-                  </option>
+                  </button>
                 ))}
-            </select>
+              </div>
+            )}
           </div>
         </div>
       </div>
     )
-  }
+  })
 
   return (
     <div className="max-w-full">
