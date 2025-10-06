@@ -929,29 +929,18 @@ export default function RecapPage() {
   }
 
   // Guide Capacity Settings Functions
-  const loadGuideCapacitySettings = async () => {
+  const loadGuideCapacitySettings = () => {
     try {
-      const { data, error } = await supabase
-        .from('guide_capacity_settings')
-        .select('*')
-        .order('activity_title', { ascending: true })
+      // Load from localStorage (database tables will be created later)
+      const savedSettings = localStorage.getItem('guideCapacitySettings')
+      const savedCategories = localStorage.getItem('guideCapacityCategories')
 
-      if (error) throw error
-
-      if (data) {
-        setGuideCapacitySettings(data)
+      if (savedSettings) {
+        setGuideCapacitySettings(JSON.parse(savedSettings))
       }
 
-      // Load categories
-      const { data: categoriesData, error: categoriesError } = await supabase
-        .from('guide_capacity_categories')
-        .select('*')
-        .order('name', { ascending: true })
-
-      if (categoriesError) throw categoriesError
-
-      if (categoriesData) {
-        setGuideCapacityCategories(categoriesData)
+      if (savedCategories) {
+        setGuideCapacityCategories(JSON.parse(savedCategories))
       }
     } catch (error) {
       console.error('Error loading guide capacity settings:', error)
