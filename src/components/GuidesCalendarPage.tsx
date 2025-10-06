@@ -75,6 +75,7 @@ export default function GuidesCalendarPage() {
   useEffect(() => {
     fetchIncludedActivities()
     fetchActivityGroups()
+    fetchAllActivitiesList()
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [])
 
@@ -131,6 +132,20 @@ export default function GuidesCalendarPage() {
     } catch (err) {
       console.error('Error fetching activity groups:', err)
       setActivityGroups([])
+    }
+  }
+
+  const fetchAllActivitiesList = async () => {
+    try {
+      const { data, error } = await supabase
+        .from('activities')
+        .select('activity_id, title')
+        .order('title', { ascending: true })
+
+      if (error) throw error
+      setAllActivities(data || [])
+    } catch (err) {
+      console.error('Error fetching all activities:', err)
     }
   }
 
@@ -224,9 +239,6 @@ export default function GuidesCalendarPage() {
         .in('activity_id', activityIds)
 
       if (actError) throw actError
-
-      // Store all activities for filter dropdown
-      setAllActivities(activities || [])
 
       // Map activities to availabilities
       const activitiesMap = (activities || []).reduce((acc: Record<string, { activity_id: string; title: string }>, activity: { activity_id: string; title: string }) => {
