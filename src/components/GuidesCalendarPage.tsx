@@ -277,6 +277,10 @@ export default function GuidesCalendarPage() {
       const uniqueDates = [...new Set(enrichedData.map(slot => slot.local_date))].sort()
       console.log('📅 Unique dates in fetched data:', uniqueDates)
 
+      // Show which activity IDs are in the data
+      const activityIdsInData = [...new Set(enrichedData.map(slot => slot.activity_id))]
+      console.log('📅 Activity IDs in fetched data:', activityIdsInData)
+
       // Show detailed info for each slot
       enrichedData.forEach((slot, index) => {
         console.log(`Slot ${index + 1}:`, {
