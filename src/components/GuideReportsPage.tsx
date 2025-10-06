@@ -68,45 +68,81 @@ export default function GuideReportsPage() {
     setError(null)
 
     try {
-      const { data, error } = await supabase
+      // First, get all assignments for selected guides
+      const { data: assignmentsData, error: assignmentsError } = await supabase
         .from('guide_assignments')
         .select(`
           assignment_id,
           guide_id,
-          guide:guides (
-            guide_id,
-            first_name,
-            last_name
-          ),
-          availability:activity_availability (
-            local_date,
-            local_time,
-            vacancy_sold,
-            vacancy_opening,
-            status,
-            activity:activities (
-              title
-            )
-          )
+          availability_id
         `)
         .in('guide_id', selectedGuides)
-        .gte('availability.local_date', startDate)
-        .lte('availability.local_date', endDate)
-        .order('availability.local_date', { ascending: true })
 
-      if (error) throw error
+      if (assignmentsError) throw assignmentsError
+
+      if (!assignmentsData || assignmentsData.length === 0) {
+        setAssignments([])
+        return
+      }
+
+      const availabilityIds = assignmentsData.map(a => a.availability_id)
+
+      // Fetch availability details with activity info
+      const { data: availabilitiesData, error: availError } = await supabase
+        .from('activity_availability')
+        .select(`
+          id,
+          availability_id,
+          local_date,
+          local_time,
+          vacancy_sold,
+          vacancy_opening,
+          status,
+          activity_id,
+          activity:activities (
+            title
+          )
+        `)
+        .in('id', availabilityIds)
+        .gte('local_date', startDate)
+        .lte('local_date', endDate)
+        .order('local_date', { ascending: true })
+        .order('local_time', { ascending: true })
+
+      if (availError) throw availError
+
+      // Fetch guide details
+      const { data: guidesData, error: guidesError } = await supabase
+        .from('guides')
+        .select('guide_id, first_name, last_name')
+        .in('guide_id', selectedGuides)
+
+      if (guidesError) throw guidesError
+
+      // Create lookup maps
+      const guidesMap = new Map(guidesData?.map(g => [g.guide_id, g]) || [])
+      const availabilitiesMap = new Map(availabilitiesData?.map(a => [a.id, a]) || [])
 
       // Transform data into report format
-      const reportData: AssignmentReport[] = (data || []).map((assignment) => ({
-        assignment_id: assignment.assignment_id,
-        local_date: assignment.availability?.local_date || '',
-        local_time: assignment.availability?.local_time || '',
-        activity_title: assignment.availability?.activity?.title || 'Unknown Activity',
-        guide_name: `${assignment.guide?.first_name} ${assignment.guide?.last_name}`,
-        participants: assignment.availability?.vacancy_sold || 0,
-        capacity: assignment.availability?.vacancy_opening || 0,
-        status: assignment.availability?.status || ''
-      }))
+      const reportData: AssignmentReport[] = assignmentsData
+        .map((assignment) => {
+          const availability = availabilitiesMap.get(assignment.availability_id)
+          const guide = guidesMap.get(assignment.guide_id)
+
+          if (!availability) return null // Filter out assignments outside date range
+
+          return {
+            assignment_id: assignment.assignment_id,
+            local_date: availability.local_date || '',
+            local_time: availability.local_time || '',
+            activity_title: (availability.activity as any)?.title || 'Unknown Activity',
+            guide_name: guide ? `${guide.first_name} ${guide.last_name}` : 'Unknown Guide',
+            participants: availability.vacancy_sold || 0,
+            capacity: availability.vacancy_opening || 0,
+            status: availability.status || ''
+          }
+        })
+        .filter((item): item is AssignmentReport => item !== null)
 
       setAssignments(reportData)
     } catch (err) {
