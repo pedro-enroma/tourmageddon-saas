@@ -2,10 +2,11 @@
 
 import { useState, useEffect } from 'react'
 import { supabase } from '@/lib/supabase'
-import { Calendar as CalendarIcon, ChevronLeft, ChevronRight, Clock, Users, MapPin, X } from 'lucide-react'
+import { Calendar as CalendarIcon, ChevronLeft, ChevronRight, Clock, Users, MapPin, X, Settings } from 'lucide-react'
 import { format, addWeeks, startOfWeek, endOfWeek, eachDayOfInterval, isSameDay } from 'date-fns'
 import { Button } from '@/components/ui/button'
 import { Checkbox } from '@/components/ui/checkbox'
+import { Drawer, DrawerClose, DrawerContent, DrawerDescription, DrawerFooter, DrawerHeader, DrawerTitle, DrawerTrigger } from '@/components/ui/drawer'
 
 type ViewMode = 'weekly' | 'daily'
 
@@ -62,10 +63,47 @@ export default function GuidesCalendarPage() {
   const [activitySearchOpen, setActivitySearchOpen] = useState(false)
   const [activitySearchText, setActivitySearchText] = useState('')
 
+  // Settings states
+  const [excludedActivityIds, setExcludedActivityIds] = useState<string[]>([])
+  const [settingsOpen, setSettingsOpen] = useState(false)
+  const [tempExcludedIds, setTempExcludedIds] = useState<string[]>([])
+  const [settingsSearchText, setSettingsSearchText] = useState('')
+
   useEffect(() => {
-    fetchData()
+    fetchExcludedActivities()
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [currentDate, viewMode])
+  }, [])
+
+  useEffect(() => {
+    if (excludedActivityIds.length > 0) {
+      fetchData()
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [currentDate, viewMode, excludedActivityIds])
+
+  const fetchExcludedActivities = async () => {
+    try {
+      const { data, error } = await supabase
+        .from('guide_calendar_settings')
+        .select('setting_value')
+        .eq('setting_key', 'excluded_activity_ids')
+        .single()
+
+      if (error) {
+        console.error('Error fetching excluded activities:', error)
+        // Use default if not found
+        setExcludedActivityIds(['243718', '243709', '219735', '217930'])
+        return
+      }
+
+      if (data?.setting_value) {
+        setExcludedActivityIds(data.setting_value as string[])
+      }
+    } catch (err) {
+      console.error('Error fetching settings:', err)
+      setExcludedActivityIds(['243718', '243709', '219735', '217930'])
+    }
+  }
 
   const fetchData = async () => {
     setLoading(true)
@@ -138,9 +176,8 @@ export default function GuidesCalendarPage() {
       console.log('Total raw availabilities:', avails?.length || 0)
       console.log('After grouping by activity/date/time:', filteredAvails.length)
 
-      // Exclude specific activity IDs (Traslados)
-      const EXCLUDED_ACTIVITY_IDS = ['243718', '243709', '219735', '217930']
-      const withoutExcluded = filteredAvails.filter(avail => !EXCLUDED_ACTIVITY_IDS.includes(avail.activity_id))
+      // Exclude activity IDs based on settings
+      const withoutExcluded = filteredAvails.filter(avail => !excludedActivityIds.includes(avail.activity_id))
 
       console.log('After excluding specific activity IDs:', withoutExcluded.length)
 
@@ -379,6 +416,44 @@ export default function GuidesCalendarPage() {
     activity.title.toLowerCase().includes(activitySearchText.toLowerCase())
   )
 
+  const filteredSettingsActivities = allActivities.filter(activity =>
+    activity.title.toLowerCase().includes(settingsSearchText.toLowerCase())
+  )
+
+  const handleOpenSettings = () => {
+    setTempExcludedIds([...excludedActivityIds])
+    setSettingsOpen(true)
+  }
+
+  const handleSaveSettings = async () => {
+    try {
+      const { error } = await supabase
+        .from('guide_calendar_settings')
+        .upsert({
+          setting_key: 'excluded_activity_ids',
+          setting_value: tempExcludedIds,
+          updated_at: new Date().toISOString()
+        })
+
+      if (error) throw error
+
+      setExcludedActivityIds(tempExcludedIds)
+      setSettingsOpen(false)
+      setSettingsSearchText('')
+    } catch (err) {
+      console.error('Error saving settings:', err)
+      setError('Failed to save settings')
+    }
+  }
+
+  const toggleExcludedActivity = (activityId: string) => {
+    setTempExcludedIds(prev =>
+      prev.includes(activityId)
+        ? prev.filter(id => id !== activityId)
+        : [...prev, activityId]
+    )
+  }
+
   return (
     <div className="p-6 max-w-7xl mx-auto">
       <div className="flex justify-between items-center mb-6">
@@ -396,6 +471,59 @@ export default function GuidesCalendarPage() {
           >
             Daily
           </Button>
+          <Drawer open={settingsOpen} onOpenChange={setSettingsOpen}>
+            <DrawerTrigger asChild>
+              <Button variant="outline" size="icon" onClick={handleOpenSettings}>
+                <Settings className="h-5 w-5" />
+              </Button>
+            </DrawerTrigger>
+            <DrawerContent>
+              <DrawerHeader>
+                <DrawerTitle>Calendar Settings</DrawerTitle>
+                <DrawerDescription>
+                  Select which activities to exclude from the calendar view
+                </DrawerDescription>
+              </DrawerHeader>
+              <div className="p-4 max-h-[60vh] overflow-y-auto">
+                <div className="mb-4">
+                  <input
+                    type="text"
+                    placeholder="Search activities..."
+                    value={settingsSearchText}
+                    onChange={(e) => setSettingsSearchText(e.target.value)}
+                    className="w-full px-3 py-2 border border-gray-300 rounded-md text-sm focus:outline-none focus:ring-2 focus:ring-blue-500"
+                  />
+                </div>
+                <div className="space-y-2">
+                  {filteredSettingsActivities.length === 0 ? (
+                    <div className="text-sm text-gray-500">No activities found</div>
+                  ) : (
+                    filteredSettingsActivities.map(activity => (
+                      <label
+                        key={activity.activity_id}
+                        className="flex items-center gap-3 p-3 hover:bg-gray-50 rounded cursor-pointer border"
+                      >
+                        <Checkbox
+                          checked={tempExcludedIds.includes(activity.activity_id)}
+                          onCheckedChange={() => toggleExcludedActivity(activity.activity_id)}
+                        />
+                        <div className="flex-1">
+                          <div className="text-sm font-medium">{activity.title}</div>
+                          <div className="text-xs text-gray-500">ID: {activity.activity_id}</div>
+                        </div>
+                      </label>
+                    ))
+                  )}
+                </div>
+              </div>
+              <DrawerFooter>
+                <Button onClick={handleSaveSettings}>Save Changes</Button>
+                <DrawerClose asChild>
+                  <Button variant="outline">Cancel</Button>
+                </DrawerClose>
+              </DrawerFooter>
+            </DrawerContent>
+          </Drawer>
         </div>
       </div>
 
