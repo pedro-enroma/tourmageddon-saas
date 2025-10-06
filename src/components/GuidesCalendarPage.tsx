@@ -83,6 +83,7 @@ export default function GuidesCalendarPage() {
 
   const fetchExcludedActivities = async () => {
     try {
+      console.log('Fetching excluded activities from DB...')
       const { data, error } = await supabase
         .from('guide_calendar_settings')
         .select('setting_value')
@@ -96,6 +97,7 @@ export default function GuidesCalendarPage() {
         return
       }
 
+      console.log('Loaded excluded activities from DB:', data?.setting_value)
       if (data?.setting_value) {
         setExcludedActivityIds(data.setting_value as string[])
       }
@@ -177,9 +179,12 @@ export default function GuidesCalendarPage() {
       console.log('After grouping by activity/date/time:', filteredAvails.length)
 
       // Exclude activity IDs based on settings
+      console.log('🔍 Current excludedActivityIds:', excludedActivityIds)
+      console.log('🔍 Sample activity IDs before filter:', filteredAvails.slice(0, 5).map(a => a.activity_id))
       const withoutExcluded = filteredAvails.filter(avail => !excludedActivityIds.includes(avail.activity_id))
 
       console.log('After excluding specific activity IDs:', withoutExcluded.length)
+      console.log('🔍 Sample activity IDs after filter:', withoutExcluded.slice(0, 5).map(a => a.activity_id))
 
       // Fetch activity details
       const activityIds = [...new Set(withoutExcluded?.map(a => a.activity_id) || [])]
@@ -427,7 +432,7 @@ export default function GuidesCalendarPage() {
 
   const handleSaveSettings = async () => {
     try {
-      console.log('Attempting to save settings:', tempExcludedIds)
+      console.log('🔵 Step 1: Attempting to save settings:', tempExcludedIds)
 
       const { data, error } = await supabase
         .from('guide_calendar_settings')
@@ -441,21 +446,23 @@ export default function GuidesCalendarPage() {
         .select()
 
       if (error) {
-        console.error('Error saving settings:', error)
+        console.error('❌ Error saving settings:', error)
         throw error
       }
 
-      console.log('Settings saved successfully to DB:', data)
-      console.log('Updating local state with:', tempExcludedIds)
+      console.log('✅ Step 2: Settings saved successfully to DB:', data)
 
-      setExcludedActivityIds([...tempExcludedIds])
+      // Reload from database to ensure consistency
+      console.log('🔵 Step 3: Reloading settings from database...')
+      await fetchExcludedActivities()
+
+      console.log('🔵 Step 4: Closing drawer')
       setSettingsOpen(false)
       setSettingsSearchText('')
 
-      // Force refresh the calendar data
-      await fetchData()
+      console.log('✅ Save complete!')
     } catch (err) {
-      console.error('Error saving settings:', err)
+      console.error('❌ Error saving settings:', err)
       setError('Failed to save settings')
     }
   }
