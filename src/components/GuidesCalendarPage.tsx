@@ -181,10 +181,10 @@ export default function GuidesCalendarPage() {
         query = query.not('activity_id', 'in', `(${excludedActivityIds.join(',')})`)
       }
 
-      // CRITICAL: Order by date FIRST to ensure we get all 7 days before time
-      // If we order by date,time,activity - we might hit limit mid-week
+      // Order by date and time to show services chronologically
       const { data: avails, error: availError } = await query
         .order('local_date', { ascending: true })
+        .order('local_time', { ascending: true })
         .limit(100000) // Very high limit
 
       if (availError) {
@@ -479,7 +479,7 @@ export default function GuidesCalendarPage() {
         const { error: deleteError } = await supabase
           .from('guide_assignments')
           .delete()
-          .eq('activity_availability_id', selectedSlot.id)
+          .eq('availability_id', selectedSlot.id)
           .in('guide_id', guidesToRemove)
 
         if (deleteError) throw deleteError
@@ -489,7 +489,7 @@ export default function GuidesCalendarPage() {
       if (guidesToAdd.length > 0) {
         const newAssignments = guidesToAdd.map(guideId => ({
           guide_id: guideId,
-          activity_availability_id: selectedSlot.id,
+          availability_id: selectedSlot.id,
           notes: assignmentNotes || null
         }))
 
