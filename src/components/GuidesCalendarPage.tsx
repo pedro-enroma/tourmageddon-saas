@@ -7,7 +7,7 @@ import { format, addMonths, addWeeks, startOfMonth, endOfMonth, startOfWeek, end
 import { Button } from '@/components/ui/button'
 import { Checkbox } from '@/components/ui/checkbox'
 
-type ViewMode = 'monthly' | 'weekly'
+type ViewMode = 'weekly' | 'daily'
 
 interface ActivityAvailability {
   id: number
@@ -43,7 +43,7 @@ interface Guide {
 }
 
 export default function GuidesCalendarPage() {
-  const [viewMode, setViewMode] = useState<ViewMode>('monthly')
+  const [viewMode, setViewMode] = useState<ViewMode>('daily')
   const [currentDate, setCurrentDate] = useState(new Date())
   const [availabilities, setAvailabilities] = useState<ActivityAvailability[]>([])
   const [guides, setGuides] = useState<Guide[]>([])
@@ -103,6 +103,11 @@ export default function GuidesCalendarPage() {
         throw availError
       }
 
+      console.log('📊 Calendar Data Debug:')
+      console.log('Date range:', startStr, 'to', endStr)
+      console.log('Raw availabilities fetched:', avails?.length || 0)
+      console.log('Sample availability:', avails?.[0])
+
       // Fetch availability details to filter by supplier
       const availabilityIds = [...new Set(avails?.map(a => a.availability_id).filter(Boolean) || [])]
 
@@ -131,6 +136,9 @@ export default function GuidesCalendarPage() {
       const filteredAvails = (avails || []).filter(avail =>
         enromaAvailabilityIds.size === 0 || enromaAvailabilityIds.has(avail.availability_id)
       )
+
+      console.log('EnRoma availability IDs:', enromaAvailabilityIds.size)
+      console.log('After EnRoma filter:', filteredAvails.length)
 
       // Fetch activity details
       const activityIds = [...new Set(filteredAvails?.map(a => a.activity_id) || [])]
@@ -164,6 +172,9 @@ export default function GuidesCalendarPage() {
         .filter((avail) => avail !== null)
         .map((avail) => avail!) as unknown as ActivityAvailability[]
 
+      console.log('After Traslados filter:', enrichedData.length)
+      console.log('Final slots to display:', enrichedData)
+
       setAvailabilities(enrichedData)
 
       // Fetch all active guides
@@ -184,30 +195,31 @@ export default function GuidesCalendarPage() {
   }
 
   const getDateRange = () => {
-    if (viewMode === 'monthly') {
-      const start = startOfWeek(startOfMonth(currentDate))
-      const end = endOfWeek(endOfMonth(currentDate))
-      return { start, end }
-    } else {
+    if (viewMode === 'weekly') {
       const start = startOfWeek(currentDate)
       const end = endOfWeek(currentDate)
+      return { start, end }
+    } else {
+      // Daily view - just the current day
+      const start = new Date(currentDate.getFullYear(), currentDate.getMonth(), currentDate.getDate(), 0, 0, 0, 0)
+      const end = new Date(currentDate.getFullYear(), currentDate.getMonth(), currentDate.getDate(), 23, 59, 59, 999)
       return { start, end }
     }
   }
 
   const goToPrevious = () => {
-    if (viewMode === 'monthly') {
-      setCurrentDate(prev => addMonths(prev, -1))
-    } else {
+    if (viewMode === 'weekly') {
       setCurrentDate(prev => addWeeks(prev, -1))
+    } else {
+      setCurrentDate(prev => new Date(prev.getFullYear(), prev.getMonth(), prev.getDate() - 1))
     }
   }
 
   const goToNext = () => {
-    if (viewMode === 'monthly') {
-      setCurrentDate(prev => addMonths(prev, 1))
-    } else {
+    if (viewMode === 'weekly') {
       setCurrentDate(prev => addWeeks(prev, 1))
+    } else {
+      setCurrentDate(prev => new Date(prev.getFullYear(), prev.getMonth(), prev.getDate() + 1))
     }
   }
 
@@ -216,6 +228,9 @@ export default function GuidesCalendarPage() {
   }
 
   const getCalendarDays = () => {
+    if (viewMode === 'daily') {
+      return [currentDate]
+    }
     const { start, end } = getDateRange()
     return eachDayOfInterval({ start, end })
   }
@@ -317,16 +332,16 @@ export default function GuidesCalendarPage() {
         <h1 className="text-2xl font-bold">Guides Calendar</h1>
         <div className="flex gap-2">
           <Button
-            onClick={() => setViewMode('monthly')}
-            variant={viewMode === 'monthly' ? 'default' : 'outline'}
-          >
-            Monthly
-          </Button>
-          <Button
             onClick={() => setViewMode('weekly')}
             variant={viewMode === 'weekly' ? 'default' : 'outline'}
           >
             Weekly
+          </Button>
+          <Button
+            onClick={() => setViewMode('daily')}
+            variant={viewMode === 'daily' ? 'default' : 'outline'}
+          >
+            Daily
           </Button>
         </div>
       </div>
@@ -346,9 +361,9 @@ export default function GuidesCalendarPage() {
               <div className="flex items-center gap-2">
                 <CalendarIcon className="w-5 h-5 text-gray-500" />
                 <span className="text-xl font-semibold">
-                  {viewMode === 'monthly'
-                    ? format(currentDate, 'MMMM yyyy')
-                    : `Week of ${format(startOfWeek(currentDate), 'MMM d, yyyy')}`
+                  {viewMode === 'weekly'
+                    ? `Week of ${format(startOfWeek(currentDate), 'MMM d, yyyy')}`
+                    : format(currentDate, 'EEEE, MMMM d, yyyy')
                   }
                 </span>
               </div>
@@ -385,16 +400,18 @@ export default function GuidesCalendarPage() {
       ) : (
         <div className="bg-white rounded-lg shadow overflow-hidden">
           {/* Day Headers */}
-          <div className="grid grid-cols-7 gap-px bg-gray-200">
-            {['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'].map(day => (
-              <div key={day} className="bg-gray-50 p-3 text-center font-semibold text-sm text-gray-700">
-                {day}
-              </div>
-            ))}
-          </div>
+          {viewMode === 'weekly' && (
+            <div className="grid grid-cols-7 gap-px bg-gray-200">
+              {['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'].map(day => (
+                <div key={day} className="bg-gray-50 p-3 text-center font-semibold text-sm text-gray-700">
+                  {day}
+                </div>
+              ))}
+            </div>
+          )}
 
           {/* Calendar Days */}
-          <div className="grid grid-cols-7 gap-px bg-gray-200">
+          <div className={viewMode === 'daily' ? 'grid grid-cols-1' : 'grid grid-cols-7 gap-px bg-gray-200'}>
             {calendarDays.map(day => {
               const dayAvailabilities = getAvailabilitiesForDay(day)
               const isCurrentMonth = viewMode === 'monthly' ? isSameMonth(day, currentDate) : true
