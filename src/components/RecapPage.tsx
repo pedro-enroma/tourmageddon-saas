@@ -230,10 +230,10 @@ export default function RecapPage() {
     const { data: availabilitiesRaw } = await availabilityQuery
 
     // Transform the data to match our interface (Supabase returns activities as array)
-    const availabilities = availabilitiesRaw?.map((avail: any) => ({
+    const availabilities = availabilitiesRaw?.map((avail) => ({
       ...avail,
       activities: Array.isArray(avail.activities) ? avail.activities[0] : avail.activities
-    }))
+    })) as Availability[]
 
     // Query per le assegnazioni delle guide
     const { data: guideAssignments } = await supabase
