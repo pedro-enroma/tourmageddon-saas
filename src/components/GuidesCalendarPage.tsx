@@ -65,51 +65,49 @@ export default function GuidesCalendarPage() {
   const [activitySearchOpen, setActivitySearchOpen] = useState(false)
   const [activitySearchText, setActivitySearchText] = useState('')
 
-  // Settings states
-  const [includedActivityIds, setIncludedActivityIds] = useState<string[]>([])
+  // Settings states - CHANGED: now we track EXCLUDED activities instead of included
+  const [excludedActivityIds, setExcludedActivityIds] = useState<string[]>([])
   const [activityGroups, setActivityGroups] = useState<{ name: string; activity_ids: string[] }[]>([])
   const [settingsOpen, setSettingsOpen] = useState(false)
-  const [tempIncludedIds, setTempIncludedIds] = useState<string[]>([])
+  const [tempExcludedIds, setTempExcludedIds] = useState<string[]>([])
   const [settingsSearchText, setSettingsSearchText] = useState('')
   const [newGroupName, setNewGroupName] = useState('')
   const [showGroupForm, setShowGroupForm] = useState(false)
 
   useEffect(() => {
-    fetchIncludedActivities()
+    fetchExcludedActivities()
     fetchActivityGroups()
     fetchAllActivitiesList()
   }, [])
 
   useEffect(() => {
-    if (includedActivityIds.length >= 0) {
-      fetchData()
-    }
+    fetchData()
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [currentDate, viewMode, includedActivityIds])
+  }, [currentDate, viewMode, excludedActivityIds])
 
-  const fetchIncludedActivities = async () => {
+  const fetchExcludedActivities = async () => {
     try {
-      console.log('Fetching included activities from DB...')
+      console.log('Fetching excluded activities from DB...')
       const { data, error } = await supabase
         .from('guide_calendar_settings')
         .select('setting_value')
-        .eq('setting_key', 'included_activity_ids')
+        .eq('setting_key', 'excluded_activity_ids')
         .single()
 
       if (error) {
-        console.error('Error fetching included activities:', error)
-        // If not found, show all activities (empty array means show all)
-        setIncludedActivityIds([])
+        console.log('No excluded activities found, showing all')
+        // Empty array means show all activities (nothing excluded)
+        setExcludedActivityIds([])
         return
       }
 
-      console.log('Loaded included activities from DB:', data?.setting_value)
+      console.log('Loaded excluded activities from DB:', data?.setting_value)
       if (data?.setting_value) {
-        setIncludedActivityIds(data.setting_value as string[])
+        setExcludedActivityIds(data.setting_value as string[])
       }
     } catch (err) {
       console.error('Error fetching settings:', err)
-      setIncludedActivityIds([])
+      setExcludedActivityIds([])
     }
   }
 
@@ -177,9 +175,9 @@ export default function GuidesCalendarPage() {
         .gte('local_date', startStr)
         .lte('local_date', endStr)
 
-      // Apply activity filter at the database level if specific activities are selected
-      if (includedActivityIds.length > 0) {
-        query = query.in('activity_id', includedActivityIds)
+      // Apply activity filter - EXCLUDE activities that user wants to hide
+      if (excludedActivityIds.length > 0) {
+        query = query.not('activity_id', 'in', `(${excludedActivityIds.join(',')})`)
       }
 
       // CRITICAL: Order by date FIRST to ensure we get all 7 days before time
@@ -236,7 +234,7 @@ export default function GuidesCalendarPage() {
       }))
 
       console.log('Total availabilities with guides:', availsWithGuides?.length || 0)
-      console.log('🔍 Current includedActivityIds:', includedActivityIds)
+      console.log('🔍 Current excludedActivityIds:', excludedActivityIds)
 
       // Activity filtering is now done at the database level
       const filtered = availsWithGuides || []
@@ -529,19 +527,19 @@ export default function GuidesCalendarPage() {
 
   const handleOpenSettings = () => {
     // Start with current selection, not saved selection
-    setTempIncludedIds([...includedActivityIds])
+    setTempExcludedIds([...excludedActivityIds])
     setSettingsOpen(true)
   }
 
   const handleSaveSettings = async () => {
     try {
-      console.log('🔵 Step 1: Attempting to save settings:', tempIncludedIds)
+      console.log('🔵 Step 1: Attempting to save settings:', tempExcludedIds)
 
       const { data, error } = await supabase
         .from('guide_calendar_settings')
         .upsert({
-          setting_key: 'included_activity_ids',
-          setting_value: tempIncludedIds,
+          setting_key: 'excluded_activity_ids',
+          setting_value: tempExcludedIds,
           updated_at: new Date().toISOString()
         }, {
           onConflict: 'setting_key'
@@ -557,7 +555,7 @@ export default function GuidesCalendarPage() {
 
       // Reload from database to ensure consistency
       console.log('🔵 Step 3: Reloading settings from database...')
-      await fetchIncludedActivities()
+      await fetchExcludedActivities()
 
       console.log('🔵 Step 4: Closing drawer')
       setSettingsOpen(false)
@@ -570,8 +568,8 @@ export default function GuidesCalendarPage() {
     }
   }
 
-  const toggleIncludedActivity = (activityId: string) => {
-    setTempIncludedIds(prev =>
+  const toggleExcludedActivity = (activityId: string) => {
+    setTempExcludedIds(prev =>
       prev.includes(activityId)
         ? prev.filter(id => id !== activityId)
         : [...prev, activityId]
@@ -579,22 +577,24 @@ export default function GuidesCalendarPage() {
   }
 
   const selectAllActivities = () => {
-    setTempIncludedIds(allActivities.map(a => a.activity_id))
+    // For exclude logic: Select All means EXCLUDE all activities
+    setTempExcludedIds(allActivities.map(a => a.activity_id))
   }
 
   const clearAllActivities = () => {
-    setTempIncludedIds([])
+    // For exclude logic: Clear All means EXCLUDE none (show all)
+    setTempExcludedIds([])
   }
 
   const saveCurrentAsGroup = async () => {
-    if (!newGroupName.trim() || tempIncludedIds.length === 0) {
+    if (!newGroupName.trim() || tempExcludedIds.length === 0) {
       setError('Please enter a group name and select at least one activity')
       return
     }
 
     const newGroup = {
       name: newGroupName.trim(),
-      activity_ids: tempIncludedIds
+      activity_ids: tempExcludedIds
     }
 
     const updatedGroups = [...activityGroups, newGroup]
@@ -622,7 +622,7 @@ export default function GuidesCalendarPage() {
   }
 
   const loadGroup = (group: { name: string; activity_ids: string[] }) => {
-    setTempIncludedIds(group.activity_ids)
+    setTempExcludedIds(group.activity_ids)
   }
 
   const deleteGroup = async (groupName: string) => {
@@ -745,12 +745,12 @@ export default function GuidesCalendarPage() {
                 {/* Selected Count */}
                 <div className="mb-2 p-2 bg-blue-50 border border-blue-200 rounded text-sm">
                   <div className="font-medium text-blue-900">
-                    {tempIncludedIds.length === 0 ? '✓ All activities will be shown' : `✓ ${tempIncludedIds.length} activities selected`}
+                    {tempExcludedIds.length === 0 ? '✓ All activities will be shown' : `🚫 ${tempExcludedIds.length} activities excluded`}
                   </div>
                   <div className="text-xs text-blue-700 mt-1">
-                    {tempIncludedIds.length === 0
-                      ? 'Select specific activities to filter, or leave empty to show all'
-                      : 'Check/uncheck activities to add or remove from your selection'}
+                    {tempExcludedIds.length === 0
+                      ? 'Check activities below to exclude them from the calendar'
+                      : 'Checked activities will be hidden from the calendar'}
                   </div>
                 </div>
 
@@ -784,8 +784,8 @@ export default function GuidesCalendarPage() {
                           className="flex items-center gap-3 p-3 hover:bg-gray-50 rounded cursor-pointer border"
                         >
                           <Checkbox
-                            checked={tempIncludedIds.includes(activity.activity_id)}
-                            onCheckedChange={() => toggleIncludedActivity(activity.activity_id)}
+                            checked={tempExcludedIds.includes(activity.activity_id)}
+                            onCheckedChange={() => toggleExcludedActivity(activity.activity_id)}
                           />
                           <div className="flex-1">
                             <div className="text-sm font-medium">{activity.title}</div>
