@@ -74,7 +74,7 @@ export default function GuideReportsPage() {
         .select(`
           assignment_id,
           guide_id,
-          availability_id
+          activity_availability_id
         `)
         .in('guide_id', selectedGuides)
 
@@ -85,7 +85,7 @@ export default function GuideReportsPage() {
         return
       }
 
-      const availabilityIds = assignmentsData.map(a => a.availability_id)
+      const availabilityIds = assignmentsData.map(a => a.activity_availability_id)
 
       // Fetch availability details with activity info
       const { data: availabilitiesData, error: availError } = await supabase
@@ -126,7 +126,7 @@ export default function GuideReportsPage() {
       // Transform data into report format
       const reportData: AssignmentReport[] = assignmentsData
         .map((assignment) => {
-          const availability = availabilitiesMap.get(assignment.availability_id)
+          const availability = availabilitiesMap.get(assignment.activity_availability_id)
           const guide = guidesMap.get(assignment.guide_id)
 
           if (!availability) return null // Filter out assignments outside date range

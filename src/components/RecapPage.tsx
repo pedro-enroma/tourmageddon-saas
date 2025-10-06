@@ -233,19 +233,19 @@ export default function RecapPage() {
       .from('guide_assignments')
       .select(`
         assignment_id,
-        availability_id,
+        activity_availability_id,
         guide:guides (
           first_name,
           last_name
         )
       `)
 
-    // Crea mappe per contare e memorizzare i nomi delle guide per availability_id
+    // Crea mappe per contare e memorizzare i nomi delle guide per activity_availability_id
     const guideCountMap = new Map<string, number>()
     const guideNamesMap = new Map<string, string[]>()
 
     guideAssignments?.forEach((assignment) => {
-      const availId = assignment.availability_id
+      const availId = assignment.activity_availability_id
       guideCountMap.set(availId, (guideCountMap.get(availId) || 0) + 1)
 
       // Supabase returns guide as an array
