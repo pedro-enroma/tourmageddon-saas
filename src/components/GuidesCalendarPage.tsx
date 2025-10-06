@@ -160,8 +160,8 @@ export default function GuidesCalendarPage() {
       const startStr = format(start, 'yyyy-MM-dd')
       const endStr = format(end, 'yyyy-MM-dd')
 
-      // Fetch ALL activity availabilities with assignments (no filters except date range)
-      const { data: avails, error: availError } = await supabase
+      // Build the query
+      let query = supabase
         .from('activity_availability')
         .select(`
           id,
@@ -185,9 +185,18 @@ export default function GuidesCalendarPage() {
         `)
         .gte('local_date', startStr)
         .lte('local_date', endStr)
+
+      // Apply activity filter at the database level if specific activities are selected
+      if (includedActivityIds.length > 0) {
+        query = query.in('activity_id', includedActivityIds)
+      }
+
+      // Order and limit results
+      const { data: avails, error: availError } = await query
         .order('local_date', { ascending: true })
         .order('local_time', { ascending: true })
         .order('activity_id', { ascending: true })
+        .limit(5000) // Increase limit to ensure we get all data for the date range
 
       if (availError) {
         console.error('Error fetching availabilities:', availError)
@@ -222,17 +231,11 @@ export default function GuidesCalendarPage() {
 
       console.log('Total raw availabilities:', avails?.length || 0)
       console.log('After grouping by activity/date/time:', filteredAvails.length)
-
-      // Include only selected activity IDs (if any are selected)
       console.log('🔍 Current includedActivityIds:', includedActivityIds)
-      console.log('🔍 Sample activity IDs before filter:', filteredAvails.slice(0, 5).map(a => a.activity_id))
+      console.log('🔍 Sample activity IDs in results:', filteredAvails.slice(0, 5).map(a => a.activity_id))
 
-      const filtered = includedActivityIds.length === 0
-        ? filteredAvails // Show all if nothing selected
-        : filteredAvails.filter(avail => includedActivityIds.includes(avail.activity_id))
-
-      console.log('After filtering to included activity IDs:', filtered.length)
-      console.log('🔍 Sample activity IDs after filter:', filtered.slice(0, 5).map(a => a.activity_id))
+      // Activity filtering is now done at the database level
+      const filtered = filteredAvails
 
       // Fetch activity details
       const activityIds = [...new Set(filtered?.map(a => a.activity_id) || [])]
