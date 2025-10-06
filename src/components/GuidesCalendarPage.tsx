@@ -68,7 +68,7 @@ export default function GuidesCalendarPage() {
       const startStr = format(start, 'yyyy-MM-dd')
       const endStr = format(end, 'yyyy-MM-dd')
 
-      // Fetch activity availabilities with assignments
+      // Fetch ALL activity availabilities with assignments (no filters except date range)
       const { data: avails, error: availError } = await supabase
         .from('activity_availability')
         .select(`
@@ -92,11 +92,9 @@ export default function GuidesCalendarPage() {
         `)
         .gte('local_date', startStr)
         .lte('local_date', endStr)
-        .gt('vacancy_available', 0)
-        .gt('vacancy_sold', 0)
-        .neq('local_time', '00:00:00')
         .order('local_date', { ascending: true })
         .order('local_time', { ascending: true })
+        .order('activity_id', { ascending: true })
 
       if (availError) {
         console.error('Error fetching availabilities:', availError)
@@ -108,11 +106,29 @@ export default function GuidesCalendarPage() {
       console.log('Raw availabilities fetched:', avails?.length || 0)
       console.log('Sample availability:', avails?.[0])
 
-      // Skip supplier filter for now - using all availabilities
-      const filteredAvails = avails || []
+      // Group by activity_id, local_date, local_time to combine duplicate slots
+      const groupedMap = new Map<string, typeof avails[0]>()
 
-      console.log('Skipping supplier filter - showing all tours')
-      console.log('Total availabilities after basic filters:', filteredAvails.length)
+      avails?.forEach(avail => {
+        const key = `${avail.activity_id}_${avail.local_date}_${avail.local_time}`
+        if (!groupedMap.has(key)) {
+          groupedMap.set(key, avail)
+        } else {
+          // Merge guide assignments if there are duplicates
+          const existing = groupedMap.get(key)!
+          if (avail.guide_assignments && avail.guide_assignments.length > 0) {
+            existing.guide_assignments = [
+              ...(existing.guide_assignments || []),
+              ...avail.guide_assignments
+            ]
+          }
+        }
+      })
+
+      const filteredAvails = Array.from(groupedMap.values())
+
+      console.log('Total raw availabilities:', avails?.length || 0)
+      console.log('After grouping by activity/date/time:', filteredAvails.length)
 
       // Fetch activity details
       const activityIds = [...new Set(filteredAvails?.map(a => a.activity_id) || [])]
@@ -129,24 +145,27 @@ export default function GuidesCalendarPage() {
         return acc
       }, {})
 
-      // Filter out Traslados availabilities
+      // Don't filter anything - show all availabilities
       const enrichedData = (filteredAvails || [])
         .map((avail) => {
           const activity = activitiesMap[avail.activity_id]
-          if (!activity) return null
-
-          // Skip Traslados activities
-          if (activity.title.toLowerCase().includes('traslado')) return null
+          if (!activity) {
+            return {
+              ...avail,
+              activity: {
+                activity_id: avail.activity_id,
+                title: 'Unknown Activity'
+              }
+            }
+          }
 
           return {
             ...avail,
             activity
           }
-        })
-        .filter((avail) => avail !== null)
-        .map((avail) => avail!) as unknown as ActivityAvailability[]
+        }) as unknown as ActivityAvailability[]
 
-      console.log('After Traslados filter:', enrichedData.length)
+      console.log('Final enriched slots:', enrichedData.length)
       console.log('Final slots to display:', enrichedData)
       console.log('📅 Today\'s date for debugging:', format(new Date(), 'yyyy-MM-dd'))
 
