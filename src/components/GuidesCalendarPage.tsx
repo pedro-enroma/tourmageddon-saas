@@ -78,7 +78,6 @@ export default function GuidesCalendarPage() {
     fetchIncludedActivities()
     fetchActivityGroups()
     fetchAllActivitiesList()
-    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [])
 
   useEffect(() => {

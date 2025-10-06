@@ -97,7 +97,7 @@ export default function GuideReportsPage() {
       if (error) throw error
 
       // Transform data into report format
-      const reportData: AssignmentReport[] = (data || []).map((assignment: any) => ({
+      const reportData: AssignmentReport[] = (data || []).map((assignment) => ({
         assignment_id: assignment.assignment_id,
         local_date: assignment.availability?.local_date || '',
         local_time: assignment.availability?.local_time || '',
