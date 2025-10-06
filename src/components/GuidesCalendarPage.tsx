@@ -456,6 +456,7 @@ export default function GuidesCalendarPage() {
   )
 
   const handleOpenSettings = () => {
+    // Start with current selection, not saved selection
     setTempIncludedIds([...includedActivityIds])
     setSettingsOpen(true)
   }
@@ -670,8 +671,15 @@ export default function GuidesCalendarPage() {
                 )}
 
                 {/* Selected Count */}
-                <div className="mb-2 text-sm text-gray-600">
-                  {tempIncludedIds.length === 0 ? 'All activities selected' : `${tempIncludedIds.length} activities selected`}
+                <div className="mb-2 p-2 bg-blue-50 border border-blue-200 rounded text-sm">
+                  <div className="font-medium text-blue-900">
+                    {tempIncludedIds.length === 0 ? '✓ All activities will be shown' : `✓ ${tempIncludedIds.length} activities selected`}
+                  </div>
+                  <div className="text-xs text-blue-700 mt-1">
+                    {tempIncludedIds.length === 0
+                      ? 'Select specific activities to filter, or leave empty to show all'
+                      : 'Check/uncheck activities to add or remove from your selection'}
+                  </div>
                 </div>
 
                 {/* Search */}
