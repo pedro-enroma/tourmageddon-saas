@@ -307,8 +307,8 @@ export default function GuidesCalendarPage() {
 
   const getDateRange = () => {
     if (viewMode === 'weekly') {
-      const start = startOfWeek(currentDate)
-      const end = endOfWeek(currentDate)
+      const start = startOfWeek(currentDate, { weekStartsOn: 0 }) // 0 = Sunday
+      const end = endOfWeek(currentDate, { weekStartsOn: 0 })
       return { start, end }
     } else {
       // Daily view - just the current day
@@ -893,7 +893,7 @@ export default function GuidesCalendarPage() {
                 <CalendarIcon className="w-5 h-5 text-gray-500" />
                 <span className="text-xl font-semibold">
                   {viewMode === 'weekly'
-                    ? `Week of ${format(startOfWeek(currentDate), 'MMM d, yyyy')}`
+                    ? `Week of ${format(startOfWeek(currentDate, { weekStartsOn: 0 }), 'MMM d, yyyy')}`
                     : format(currentDate, 'EEEE, MMMM d, yyyy')
                   }
                 </span>
