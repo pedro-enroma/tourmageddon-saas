@@ -107,14 +107,14 @@ export default function GuidesCalendarPage() {
       const availabilityIds = [...new Set(avails?.map(a => a.availability_id) || [])]
       const { data: availabilities, error: availError2 } = await supabase
         .from('availabilities')
-        .select('id, supplier_name')
-        .in('id', availabilityIds)
+        .select('availability_id, supplier_name')
+        .in('availability_id', availabilityIds)
         .eq('supplier_name', 'EnRoma')
 
       if (availError2) throw availError2
 
       // Create set of EnRoma availability IDs
-      const enromaAvailabilityIds = new Set(availabilities?.map(a => a.id) || [])
+      const enromaAvailabilityIds = new Set(availabilities?.map(a => a.availability_id) || [])
 
       // Filter to only EnRoma availabilities
       const filteredAvails = (avails || []).filter(avail =>

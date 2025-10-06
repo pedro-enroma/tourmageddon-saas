@@ -94,13 +94,13 @@ export default function UpcomingServicesPage() {
       const availabilityIds = [...new Set(dataWithAvail.map(d => d.availability_id))]
       const { data: availabilities, error: availError } = await supabase
         .from('availabilities')
-        .select('id, supplier_name')
-        .in('id', availabilityIds)
+        .select('availability_id, supplier_name')
+        .in('availability_id', availabilityIds)
         .eq('supplier_name', 'EnRoma')
 
       if (availError) throw availError
 
-      const enromaAvailabilityIds = new Set(availabilities?.map(a => a.id) || [])
+      const enromaAvailabilityIds = new Set(availabilities?.map(a => a.availability_id) || [])
       const filteredData = (data || []).filter(d => {
         const avail = Array.isArray(d.activity_availability) ? d.activity_availability[0] : d.activity_availability
         return enromaAvailabilityIds.has(avail?.availability_id)
