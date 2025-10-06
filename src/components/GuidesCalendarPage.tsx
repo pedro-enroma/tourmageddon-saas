@@ -433,10 +433,16 @@ export default function GuidesCalendarPage() {
           setting_key: 'excluded_activity_ids',
           setting_value: tempExcludedIds,
           updated_at: new Date().toISOString()
+        }, {
+          onConflict: 'setting_key'
         })
 
-      if (error) throw error
+      if (error) {
+        console.error('Error saving settings:', error)
+        throw error
+      }
 
+      console.log('Settings saved successfully:', tempExcludedIds)
       setExcludedActivityIds(tempExcludedIds)
       setSettingsOpen(false)
       setSettingsSearchText('')
