@@ -2,7 +2,7 @@
 
 import { useState, useEffect } from 'react'
 import { supabase } from '@/lib/supabase'
-import { Calendar as CalendarIcon, ChevronLeft, ChevronRight, Clock, Users, MapPin, X, Settings } from 'lucide-react'
+import { Calendar as CalendarIcon, ChevronLeft, ChevronRight, Clock, Users, MapPin, X, Settings, GripVertical } from 'lucide-react'
 import { format, addWeeks, startOfWeek, endOfWeek, eachDayOfInterval, isSameDay } from 'date-fns'
 import { Button } from '@/components/ui/button'
 import { Checkbox } from '@/components/ui/checkbox'
@@ -56,6 +56,7 @@ export default function GuidesCalendarPage() {
   const [selectedGuides, setSelectedGuides] = useState<string[]>([])
   const [assignmentNotes, setAssignmentNotes] = useState('')
   const [showModal, setShowModal] = useState(false)
+  const [draggedGuideIndex, setDraggedGuideIndex] = useState<number | null>(null)
 
   // Filter states
   const [selectedActivityIds, setSelectedActivityIds] = useState<string[]>([])
@@ -367,19 +368,12 @@ export default function GuidesCalendarPage() {
     return filtered
   }
 
-  const getStatusColor = (status: string) => {
-    switch (status.toLowerCase()) {
-      case 'available':
-        return 'bg-green-100 border-green-300 text-green-800'
-      case 'booked':
-        return 'bg-blue-100 border-blue-300 text-blue-800'
-      case 'cancelled':
-        return 'bg-red-100 border-red-300 text-red-800'
-      case 'full':
-        return 'bg-orange-100 border-orange-300 text-orange-800'
-      default:
-        return 'bg-gray-100 border-gray-300 text-gray-800'
+  const getStatusColor = (availability: ActivityAvailability) => {
+    // Green if there are bookings, gray if no bookings
+    if ((availability.vacancy_sold || 0) > 0) {
+      return 'bg-green-100 border-green-300 text-green-800'
     }
+    return 'bg-gray-100 border-gray-300 text-gray-800'
   }
 
   const handleSlotClick = (availability: ActivityAvailability) => {
@@ -403,6 +397,36 @@ export default function GuidesCalendarPage() {
         ? prev.filter(id => id !== guideId)
         : [...prev, guideId]
     )
+  }
+
+  const handleDragStart = (e: React.DragEvent, index: number) => {
+    setDraggedGuideIndex(index)
+    e.dataTransfer.effectAllowed = 'move'
+  }
+
+  const handleDragOver = (e: React.DragEvent) => {
+    e.preventDefault()
+    e.dataTransfer.dropEffect = 'move'
+  }
+
+  const handleDrop = (e: React.DragEvent, dropIndex: number) => {
+    e.preventDefault()
+    if (draggedGuideIndex === null || draggedGuideIndex === dropIndex) {
+      setDraggedGuideIndex(null)
+      return
+    }
+
+    const newGuides = [...guides]
+    const draggedGuide = newGuides[draggedGuideIndex]
+    newGuides.splice(draggedGuideIndex, 1)
+    newGuides.splice(dropIndex, 0, draggedGuide)
+
+    setGuides(newGuides)
+    setDraggedGuideIndex(null)
+  }
+
+  const handleDragEnd = () => {
+    setDraggedGuideIndex(null)
   }
 
   const handleSaveAssignments = async () => {
@@ -931,7 +955,7 @@ export default function GuidesCalendarPage() {
                       <button
                         key={avail.id}
                         onClick={() => handleSlotClick(avail)}
-                        className={`w-full text-left p-2 rounded border text-xs hover:shadow-md transition-shadow ${getStatusColor(avail.status)}`}
+                        className={`w-full text-left p-2 rounded border text-xs hover:shadow-md transition-shadow ${getStatusColor(avail)}`}
                       >
                         <div className="font-medium truncate">{avail.local_time.substring(0, 5)}</div>
                         <div className="truncate">{avail.activity.title}</div>
@@ -996,33 +1020,57 @@ export default function GuidesCalendarPage() {
 
               <div className="mb-4">
                 <h3 className="font-medium mb-3">Select Guides</h3>
-                <div className="space-y-2 max-h-64 overflow-y-auto border rounded-lg p-3">
-                  {guides.length === 0 ? (
-                    <p className="text-sm text-gray-500">No active guides available</p>
-                  ) : (
-                    guides.map(guide => (
-                      <label key={guide.guide_id} className="flex items-start gap-3 p-2 hover:bg-gray-50 rounded cursor-pointer">
-                        <Checkbox
-                          checked={selectedGuides.includes(guide.guide_id)}
-                          onCheckedChange={() => toggleGuide(guide.guide_id)}
-                        />
-                        <div className="flex-1">
-                          <div className="font-medium text-sm">
-                            {guide.first_name} {guide.last_name}
+                {guides.length === 0 ? (
+                  <p className="text-sm text-gray-500 p-4 border rounded">No active guides available</p>
+                ) : (
+                  <div className="border rounded-lg overflow-hidden">
+                    {/* Table Header */}
+                    <div className="bg-gray-50 border-b grid grid-cols-[auto_1fr_auto] gap-4 px-4 py-2 text-sm font-medium text-gray-700">
+                      <div className="w-6"></div>
+                      <div>Name</div>
+                      <div>Language</div>
+                    </div>
+                    {/* Table Body */}
+                    <div className="max-h-64 overflow-y-auto">
+                      {guides.map((guide, index) => (
+                        <div
+                          key={guide.guide_id}
+                          draggable
+                          onDragStart={(e) => handleDragStart(e, index)}
+                          onDragOver={handleDragOver}
+                          onDrop={(e) => handleDrop(e, index)}
+                          onDragEnd={handleDragEnd}
+                          className={`grid grid-cols-[auto_1fr_auto] gap-4 px-4 py-3 hover:bg-gray-50 cursor-move border-b last:border-b-0 ${
+                            selectedGuides.includes(guide.guide_id) ? 'bg-blue-50' : ''
+                          } ${draggedGuideIndex === index ? 'opacity-50' : ''}`}
+                        >
+                          <div className="flex items-center gap-2">
+                            <GripVertical className="w-4 h-4 text-gray-400 cursor-grab active:cursor-grabbing" />
+                            <Checkbox
+                              checked={selectedGuides.includes(guide.guide_id)}
+                              onCheckedChange={() => toggleGuide(guide.guide_id)}
+                            />
                           </div>
-                          <div className="text-xs text-gray-600">{guide.email}</div>
-                          <div className="flex gap-1 mt-1 flex-wrap">
+                          <div className="flex items-center">
+                            <span className="text-sm font-medium">
+                              {guide.first_name} {guide.last_name}
+                            </span>
+                          </div>
+                          <div className="flex items-center gap-1">
                             {guide.languages.map(lang => (
-                              <span key={lang} className="px-2 py-0.5 text-xs bg-purple-100 text-purple-800 rounded-full">
+                              <span
+                                key={lang}
+                                className="px-2 py-1 text-xs bg-purple-100 text-purple-800 rounded"
+                              >
                                 {lang}
                               </span>
                             ))}
                           </div>
                         </div>
-                      </label>
-                    ))
-                  )}
-                </div>
+                      ))}
+                    </div>
+                  </div>
+                )}
               </div>
 
               <div className="mb-4">
