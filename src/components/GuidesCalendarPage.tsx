@@ -174,6 +174,20 @@ export default function GuidesCalendarPage() {
 
       console.log('After Traslados filter:', enrichedData.length)
       console.log('Final slots to display:', enrichedData)
+      console.log('📅 Today\'s date for debugging:', format(new Date(), 'yyyy-MM-dd'))
+
+      // Show detailed info for each slot
+      enrichedData.forEach((slot, index) => {
+        console.log(`Slot ${index + 1}:`, {
+          date: slot.local_date,
+          time: slot.local_time,
+          activity: slot.activity.title,
+          capacity: `${slot.vacancy_sold}/${slot.vacancy_available}`,
+          status: slot.status,
+          availability_id: slot.availability_id,
+          guides_assigned: slot.guide_assignments?.length || 0
+        })
+      })
 
       setAvailabilities(enrichedData)
 
