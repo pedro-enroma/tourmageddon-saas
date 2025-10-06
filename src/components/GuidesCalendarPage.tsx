@@ -60,6 +60,7 @@ export default function GuidesCalendarPage() {
   const [showOnlyWithBookings, setShowOnlyWithBookings] = useState(false)
   const [showOnlyUnassigned, setShowOnlyUnassigned] = useState(false)
   const [activitySearchOpen, setActivitySearchOpen] = useState(false)
+  const [activitySearchText, setActivitySearchText] = useState('')
 
   useEffect(() => {
     fetchData()
@@ -374,6 +375,10 @@ export default function GuidesCalendarPage() {
     )
   }
 
+  const filteredActivities = allActivities.filter(activity =>
+    activity.title.toLowerCase().includes(activitySearchText.toLowerCase())
+  )
+
   return (
     <div className="p-6 max-w-7xl mx-auto">
       <div className="flex justify-between items-center mb-6">
@@ -413,19 +418,35 @@ export default function GuidesCalendarPage() {
                 <ChevronRight className={`w-4 h-4 transition-transform ${activitySearchOpen ? 'rotate-90' : ''}`} />
               </button>
               {activitySearchOpen && (
-                <div className="absolute z-10 mt-1 w-full bg-white border border-gray-300 rounded-md shadow-lg max-h-60 overflow-y-auto">
-                  {allActivities.map(activity => (
-                    <label
-                      key={activity.activity_id}
-                      className="flex items-center gap-2 px-3 py-2 hover:bg-gray-50 cursor-pointer"
-                    >
-                      <Checkbox
-                        checked={selectedActivityIds.includes(activity.activity_id)}
-                        onCheckedChange={() => toggleActivity(activity.activity_id)}
-                      />
-                      <span className="text-sm">{activity.title}</span>
-                    </label>
-                  ))}
+                <div className="absolute z-10 mt-1 w-full bg-white border border-gray-300 rounded-md shadow-lg overflow-hidden">
+                  <div className="p-2 border-b sticky top-0 bg-white">
+                    <input
+                      type="text"
+                      placeholder="Search activities..."
+                      value={activitySearchText}
+                      onChange={(e) => setActivitySearchText(e.target.value)}
+                      className="w-full px-3 py-2 border border-gray-300 rounded-md text-sm focus:outline-none focus:ring-2 focus:ring-blue-500"
+                      onClick={(e) => e.stopPropagation()}
+                    />
+                  </div>
+                  <div className="max-h-60 overflow-y-auto">
+                    {filteredActivities.length === 0 ? (
+                      <div className="px-3 py-2 text-sm text-gray-500">No activities found</div>
+                    ) : (
+                      filteredActivities.map(activity => (
+                        <label
+                          key={activity.activity_id}
+                          className="flex items-center gap-2 px-3 py-2 hover:bg-gray-50 cursor-pointer"
+                        >
+                          <Checkbox
+                            checked={selectedActivityIds.includes(activity.activity_id)}
+                            onCheckedChange={() => toggleActivity(activity.activity_id)}
+                          />
+                          <span className="text-sm">{activity.title}</span>
+                        </label>
+                      ))
+                    )}
+                  </div>
                 </div>
               )}
             </div>
