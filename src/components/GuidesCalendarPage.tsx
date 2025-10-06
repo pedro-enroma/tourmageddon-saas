@@ -75,7 +75,7 @@ export default function GuidesCalendarPage() {
   }, [])
 
   useEffect(() => {
-    if (excludedActivityIds.length > 0) {
+    if (excludedActivityIds.length >= 0) {
       fetchData()
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -427,7 +427,9 @@ export default function GuidesCalendarPage() {
 
   const handleSaveSettings = async () => {
     try {
-      const { error } = await supabase
+      console.log('Attempting to save settings:', tempExcludedIds)
+
+      const { data, error } = await supabase
         .from('guide_calendar_settings')
         .upsert({
           setting_key: 'excluded_activity_ids',
@@ -436,16 +438,22 @@ export default function GuidesCalendarPage() {
         }, {
           onConflict: 'setting_key'
         })
+        .select()
 
       if (error) {
         console.error('Error saving settings:', error)
         throw error
       }
 
-      console.log('Settings saved successfully:', tempExcludedIds)
-      setExcludedActivityIds(tempExcludedIds)
+      console.log('Settings saved successfully to DB:', data)
+      console.log('Updating local state with:', tempExcludedIds)
+
+      setExcludedActivityIds([...tempExcludedIds])
       setSettingsOpen(false)
       setSettingsSearchText('')
+
+      // Force refresh the calendar data
+      await fetchData()
     } catch (err) {
       console.error('Error saving settings:', err)
       setError('Failed to save settings')
