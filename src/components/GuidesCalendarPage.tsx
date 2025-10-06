@@ -195,7 +195,7 @@ export default function GuidesCalendarPage() {
         .order('local_date', { ascending: true })
         .order('local_time', { ascending: true })
         .order('activity_id', { ascending: true })
-        .limit(5000) // Increase limit to ensure we get all data for the date range
+        .limit(10000) // High limit to ensure we get all data for the date range
 
       if (availError) {
         console.error('Error fetching availabilities:', availError)
