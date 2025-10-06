@@ -273,6 +273,10 @@ export default function GuidesCalendarPage() {
       console.log('Final slots to display:', enrichedData)
       console.log('📅 Today\'s date for debugging:', format(new Date(), 'yyyy-MM-dd'))
 
+      // Show unique dates in the fetched data
+      const uniqueDates = [...new Set(enrichedData.map(slot => slot.local_date))].sort()
+      console.log('📅 Unique dates in fetched data:', uniqueDates)
+
       // Show detailed info for each slot
       enrichedData.forEach((slot, index) => {
         console.log(`Slot ${index + 1}:`, {
@@ -352,23 +356,31 @@ export default function GuidesCalendarPage() {
 
   const getAvailabilitiesForDay = (day: Date) => {
     const dayStr = format(day, 'yyyy-MM-dd')
+    console.log(`🔍 Getting availabilities for ${dayStr}`)
+    console.log(`   Total availabilities in state: ${availabilities.length}`)
+
     let filtered = availabilities.filter(avail => avail.local_date === dayStr)
+    console.log(`   Matching date ${dayStr}: ${filtered.length}`)
 
     // Apply activity filter
     if (selectedActivityIds.length > 0) {
       filtered = filtered.filter(avail => selectedActivityIds.includes(avail.activity_id))
+      console.log(`   After activity filter: ${filtered.length}`)
     }
 
     // Apply bookings filter
     if (showOnlyWithBookings) {
       filtered = filtered.filter(avail => (avail.vacancy_sold || 0) > 0)
+      console.log(`   After bookings filter: ${filtered.length}`)
     }
 
     // Apply unassigned filter
     if (showOnlyUnassigned) {
       filtered = filtered.filter(avail => !avail.guide_assignments || avail.guide_assignments.length === 0)
+      console.log(`   After unassigned filter: ${filtered.length}`)
     }
 
+    console.log(`   Final count for ${dayStr}: ${filtered.length}`)
     return filtered
   }
 
