@@ -434,8 +434,7 @@ export default function PaxNamesPage() {
           .update({
             passenger_first_name: participant.passenger_first_name,
             passenger_last_name: participant.passenger_last_name,
-            passenger_date_of_birth: participant.passenger_date_of_birth,
-            updated_at: new Date().toISOString()
+            passenger_date_of_birth: participant.passenger_date_of_birth
           })
           .eq('pricing_category_booking_id', participant.pricing_category_booking_id)
 
