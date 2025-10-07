@@ -458,7 +458,7 @@ export default function PaxNamesPage() {
 
       alert('Participants updated successfully!')
       setUpdateModalOpen(false)
-      loadData() // Refresh the main data
+      fetchData() // Refresh the main data
     } catch (error) {
       console.error('Error saving participants:', error)
       alert('Error saving participants')
