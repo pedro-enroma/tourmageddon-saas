@@ -2,7 +2,7 @@
 'use client'
 import { useState, useEffect, useRef } from 'react'
 import { supabase } from '@/lib/supabase'
-import { RefreshCw, Download, ChevronDown, Search, X } from 'lucide-react'
+import { RefreshCw, Download, ChevronDown, Search, X, Edit } from 'lucide-react'
 import * as XLSX from 'xlsx'
 import {
   Table,
@@ -17,6 +17,14 @@ import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
 import { Label } from "@/components/ui/label"
 import { Switch } from "@/components/ui/switch"
+import {
+  Dialog,
+  DialogContent,
+  DialogDescription,
+  DialogHeader,
+  DialogTitle,
+  DialogFooter,
+} from "@/components/ui/dialog"
 
 interface PaxData {
   activity_title: string
@@ -39,6 +47,14 @@ interface PaxData {
   }
 }
 
+interface ParticipantEdit {
+  pricing_category_booking_id: number
+  booked_title: string
+  passenger_first_name: string | null
+  passenger_last_name: string | null
+  passenger_date_of_birth: string | null
+}
+
 export default function PaxNamesPage() {
   const [data, setData] = useState<PaxData[]>([])
   const [loading, setLoading] = useState(false)
@@ -52,6 +68,13 @@ export default function PaxNamesPage() {
     start: new Date().toISOString().split('T')[0],
     end: new Date(Date.now() + 30 * 24 * 60 * 60 * 1000).toISOString().split('T')[0]
   })
+
+  // Update modal states
+  const [updateModalOpen, setUpdateModalOpen] = useState(false)
+  const [selectedActivityBookingId, setSelectedActivityBookingId] = useState<number | null>(null)
+  const [participantsToEdit, setParticipantsToEdit] = useState<ParticipantEdit[]>([])
+  const [loadingParticipants, setLoadingParticipants] = useState(false)
+  const [saving, setSaving] = useState(false)
 
   useEffect(() => {
     loadActivities()
@@ -361,10 +384,87 @@ export default function PaxNamesPage() {
     const sheetName = showMainContactOnly ? 'Contatti Principali' : 'Nominativi Passeggeri'
     XLSX.utils.book_append_sheet(wb, ws, sheetName)
     
-    const fileName = showMainContactOnly 
+    const fileName = showMainContactOnly
       ? `main_contacts_${new Date().toISOString().split('T')[0]}.xlsx`
       : `pax_names_${new Date().toISOString().split('T')[0]}.xlsx`
     XLSX.writeFile(wb, fileName)
+  }
+
+  // Load participants for editing
+  const loadParticipantsForEdit = async (activityBookingId: number) => {
+    setLoadingParticipants(true)
+    setSelectedActivityBookingId(activityBookingId)
+    setUpdateModalOpen(true)
+
+    try {
+      const { data: participants, error } = await supabase
+        .from('pricing_category_bookings')
+        .select('pricing_category_booking_id, booked_title, passenger_first_name, passenger_last_name, passenger_date_of_birth')
+        .eq('activity_booking_id', activityBookingId)
+        .order('pricing_category_booking_id')
+
+      if (error) throw error
+
+      setParticipantsToEdit(participants || [])
+    } catch (error) {
+      console.error('Error loading participants:', error)
+      alert('Error loading participants')
+    } finally {
+      setLoadingParticipants(false)
+    }
+  }
+
+  // Update participant field
+  const updateParticipantField = (index: number, field: keyof ParticipantEdit, value: string) => {
+    const updated = [...participantsToEdit]
+    updated[index] = { ...updated[index], [field]: value || null }
+    setParticipantsToEdit(updated)
+  }
+
+  // Save all participants
+  const saveParticipants = async () => {
+    if (!selectedActivityBookingId) return
+
+    setSaving(true)
+    try {
+      // Update each participant
+      for (const participant of participantsToEdit) {
+        const { error } = await supabase
+          .from('pricing_category_bookings')
+          .update({
+            passenger_first_name: participant.passenger_first_name,
+            passenger_last_name: participant.passenger_last_name,
+            passenger_date_of_birth: participant.passenger_date_of_birth,
+            updated_at: new Date().toISOString()
+          })
+          .eq('pricing_category_booking_id', participant.pricing_category_booking_id)
+
+        if (error) throw error
+
+        // Log the manual update
+        await supabase
+          .from('manual_participant_updates')
+          .insert({
+            activity_booking_id: selectedActivityBookingId,
+            pricing_category_booking_id: participant.pricing_category_booking_id,
+            booked_title: participant.booked_title,
+            passenger_first_name: participant.passenger_first_name,
+            passenger_last_name: participant.passenger_last_name,
+            passenger_date_of_birth: participant.passenger_date_of_birth,
+            updated_by: 'dashboard_user',
+            updated_at: new Date().toISOString()
+          })
+      }
+
+      alert('Participants updated successfully!')
+      setUpdateModalOpen(false)
+      loadData() // Refresh the main data
+    } catch (error) {
+      console.error('Error saving participants:', error)
+      alert('Error saving participants')
+    } finally {
+      setSaving(false)
+    }
   }
 
   return (
@@ -602,6 +702,7 @@ export default function PaxNamesPage() {
               <TableHead>Booking ID</TableHead>
               <TableHead>Activity Booking ID</TableHead>
               <TableHead>Totale Partecipanti</TableHead>
+              <TableHead>Actions</TableHead>
               {showMainContactOnly ? (
                 <>
                   <TableHead>Nome</TableHead>
@@ -641,6 +742,17 @@ export default function PaxNamesPage() {
                   <TableCell>
                     {booking.participants_detail}
                   </TableCell>
+                  <TableCell>
+                    <Button
+                      onClick={() => loadParticipantsForEdit(booking.activity_booking_id)}
+                      variant="outline"
+                      size="sm"
+                      className="flex items-center gap-2"
+                    >
+                      <Edit className="h-4 w-4" />
+                      Update
+                    </Button>
+                  </TableCell>
                   <TableCell>{booking.customer?.first_name || '-'}</TableCell>
                   <TableCell>{booking.customer?.last_name || '-'}</TableCell>
                   <TableCell>{booking.customer?.phone_number || '-'}</TableCell>
@@ -671,13 +783,24 @@ export default function PaxNamesPage() {
                         <TableCell rowSpan={booking.passengers.length}>
                           {booking.participants_detail}
                         </TableCell>
+                        <TableCell rowSpan={booking.passengers.length}>
+                          <Button
+                            onClick={() => loadParticipantsForEdit(booking.activity_booking_id)}
+                            variant="outline"
+                            size="sm"
+                            className="flex items-center gap-2"
+                          >
+                            <Edit className="h-4 w-4" />
+                            Update
+                          </Button>
+                        </TableCell>
                       </>
                     ) : null}
                     <TableCell>{pax.booked_title}</TableCell>
                     <TableCell>{pax.first_name || '-'}</TableCell>
                     <TableCell>{pax.last_name || '-'}</TableCell>
                     <TableCell>
-                      {pax.date_of_birth 
+                      {pax.date_of_birth
                         ? new Date(pax.date_of_birth).toLocaleDateString('it-IT')
                         : '-'
                       }
@@ -689,6 +812,82 @@ export default function PaxNamesPage() {
           </TableBody>
         </Table>
       </div>
+
+      {/* Update Participants Modal */}
+      <Dialog open={updateModalOpen} onOpenChange={setUpdateModalOpen}>
+        <DialogContent className="max-w-4xl max-h-[80vh] overflow-y-auto">
+          <DialogHeader>
+            <DialogTitle>Update Participants - Activity Booking ID: {selectedActivityBookingId}</DialogTitle>
+            <DialogDescription>
+              Edit participant details below and click Save to update the database.
+            </DialogDescription>
+          </DialogHeader>
+
+          {loadingParticipants ? (
+            <div className="flex items-center justify-center py-8">
+              <RefreshCw className="h-6 w-6 animate-spin" />
+              <span className="ml-2">Loading participants...</span>
+            </div>
+          ) : (
+            <div className="space-y-4 py-4">
+              {participantsToEdit.map((participant, index) => (
+                <div key={participant.pricing_category_booking_id} className="p-4 border rounded-lg bg-gray-50">
+                  <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                    <div>
+                      <Label>Category</Label>
+                      <Input value={participant.booked_title} disabled className="bg-gray-100" />
+                    </div>
+                    <div>
+                      <Label>Booking ID</Label>
+                      <Input value={participant.pricing_category_booking_id} disabled className="bg-gray-100" />
+                    </div>
+                    <div>
+                      <Label>First Name</Label>
+                      <Input
+                        value={participant.passenger_first_name || ''}
+                        onChange={(e) => updateParticipantField(index, 'passenger_first_name', e.target.value)}
+                        placeholder="First name"
+                      />
+                    </div>
+                    <div>
+                      <Label>Last Name</Label>
+                      <Input
+                        value={participant.passenger_last_name || ''}
+                        onChange={(e) => updateParticipantField(index, 'passenger_last_name', e.target.value)}
+                        placeholder="Last name"
+                      />
+                    </div>
+                    <div>
+                      <Label>Date of Birth</Label>
+                      <Input
+                        type="date"
+                        value={participant.passenger_date_of_birth || ''}
+                        onChange={(e) => updateParticipantField(index, 'passenger_date_of_birth', e.target.value)}
+                      />
+                    </div>
+                  </div>
+                </div>
+              ))}
+            </div>
+          )}
+
+          <DialogFooter>
+            <Button variant="outline" onClick={() => setUpdateModalOpen(false)}>
+              Cancel
+            </Button>
+            <Button onClick={saveParticipants} disabled={saving || loadingParticipants}>
+              {saving ? (
+                <>
+                  <RefreshCw className="h-4 w-4 animate-spin mr-2" />
+                  Saving...
+                </>
+              ) : (
+                'Save Changes'
+              )}
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
     </div>
   )
 }
