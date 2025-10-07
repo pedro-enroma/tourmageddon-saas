@@ -702,7 +702,7 @@ export default function PaxNamesPage() {
               <TableHead>Booking ID</TableHead>
               <TableHead>Activity Booking ID</TableHead>
               <TableHead>Totale Partecipanti</TableHead>
-              <TableHead>Actions</TableHead>
+              <TableHead></TableHead>
               {showMainContactOnly ? (
                 <>
                   <TableHead>Nome</TableHead>
@@ -745,12 +745,11 @@ export default function PaxNamesPage() {
                   <TableCell>
                     <Button
                       onClick={() => loadParticipantsForEdit(booking.activity_booking_id)}
-                      variant="outline"
+                      variant="ghost"
                       size="sm"
-                      className="flex items-center gap-2"
+                      className="h-8 w-8 p-0"
                     >
                       <Edit className="h-4 w-4" />
-                      Update
                     </Button>
                   </TableCell>
                   <TableCell>{booking.customer?.first_name || '-'}</TableCell>
@@ -786,12 +785,11 @@ export default function PaxNamesPage() {
                         <TableCell rowSpan={booking.passengers.length}>
                           <Button
                             onClick={() => loadParticipantsForEdit(booking.activity_booking_id)}
-                            variant="outline"
+                            variant="ghost"
                             size="sm"
-                            className="flex items-center gap-2"
+                            className="h-8 w-8 p-0"
                           >
                             <Edit className="h-4 w-4" />
-                            Update
                           </Button>
                         </TableCell>
                       </>
