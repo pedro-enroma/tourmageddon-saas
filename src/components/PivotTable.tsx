@@ -108,6 +108,7 @@ export default function PivotTable() {
       .not('status', 'in', '(CANCELLED)')  // Include IMPORTED and all other statuses
       .gte('start_date_time', `${dateRange.start}T00:00:00`)
       .lte('start_date_time', `${dateRange.end}T23:59:59`)
+      .limit(10000) // Increase limit to handle large date ranges
 
     if (selectedProduct && selectedProduct !== '') {
       bookingsQuery = bookingsQuery.eq('activity_id', selectedProduct)
@@ -128,6 +129,7 @@ export default function PivotTable() {
       .gte('local_date', dateRange.start)
       .lte('local_date', dateRange.end)
       .order('local_date_time', { ascending: true })
+      .limit(10000) // Increase limit to handle large date ranges
 
     if (selectedProduct && selectedProduct !== '') {
       availabilityQuery = availabilityQuery.eq('activity_id', selectedProduct)
