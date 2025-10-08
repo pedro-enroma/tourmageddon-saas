@@ -232,23 +232,21 @@ export default function PaxNamesPage() {
         booking.pricing_category_bookings?.forEach((pax: any) => {
           const quantity = pax.quantity || 1
           totalParticipants += quantity
-          
+
           // Conta per tipo di partecipante
           if (participantTypes[pax.booked_title]) {
             participantTypes[pax.booked_title] += quantity
           } else {
             participantTypes[pax.booked_title] = quantity
           }
-          
-          // Aggiungi una riga per ogni passeggero
-          for (let i = 0; i < quantity; i++) {
-            passengers.push({
-              booked_title: pax.booked_title,
-              first_name: pax.passenger_first_name,
-              last_name: pax.passenger_last_name,
-              date_of_birth: pax.passenger_date_of_birth
-            })
-          }
+
+          // Add one passenger row per pricing_category_booking entry (no duplication)
+          passengers.push({
+            booked_title: pax.booked_title,
+            first_name: pax.passenger_first_name,
+            last_name: pax.passenger_last_name,
+            date_of_birth: pax.passenger_date_of_birth
+          })
         })
 
         // Costruisci la stringa dei dettagli partecipanti
