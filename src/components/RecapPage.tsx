@@ -167,7 +167,7 @@ export default function RecapPage() {
       tourIds = [selectedFilter]
     }
     
-    // Query per le prenotazioni - CORREZIONE: solo activity_bookings.status
+    // Query per le prenotazioni - Filter both activity_bookings and parent bookings status
     let bookingsQuery = supabase
       .from('activity_bookings')
       .select(`
@@ -192,7 +192,8 @@ export default function RecapPage() {
           passenger_last_name
         )
       `)
-      .not('status', 'in', '(CANCELLED)')  // Include IMPORTED and all other statuses
+      .not('status', 'in', '(CANCELLED)')  // Filter activity_bookings.status
+      .not('bookings.status', 'in', '(CANCELLED)')  // Filter parent bookings.status
       .gte('start_date_time', `${dateRange.start}T00:00:00`)
       .lte('start_date_time', `${dateRange.end}T23:59:59`)
 
