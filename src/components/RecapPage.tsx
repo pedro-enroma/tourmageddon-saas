@@ -192,8 +192,7 @@ export default function RecapPage() {
           passenger_last_name
         )
       `)
-      .not('status', 'in', '(CANCELLED)')  // Filter activity_bookings.status
-      .not('bookings.status', 'in', '(CANCELLED)')  // Filter parent bookings.status
+      .not('status', 'in', '(CANCELLED)')  // Filter only activity_bookings.status
       .gte('start_date_time', `${dateRange.start}T00:00:00`)
       .lte('start_date_time', `${dateRange.end}T23:59:59`)
 
