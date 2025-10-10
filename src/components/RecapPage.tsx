@@ -370,6 +370,18 @@ export default function RecapPage() {
     }
   }, [selectedFilter, dateRange, tours, viewMode, loadData])
 
+  // Auto-refresh data every hour
+  useEffect(() => {
+    const intervalId = setInterval(() => {
+      console.log('Auto-refreshing Recap page data...')
+      if (tours.length > 0) {
+        loadData()
+      }
+    }, 60 * 60 * 1000) // 60 minutes
+
+    return () => clearInterval(intervalId)
+  }, [tours, loadData])
+
   const loadTours = async () => {
     try {
       const { data: activities, error } = await supabase

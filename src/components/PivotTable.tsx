@@ -32,6 +32,16 @@ export default function PivotTable() {
     fetchData()
   }, [selectedProduct, dateRange])
 
+  // Auto-refresh data every hour
+  useEffect(() => {
+    const intervalId = setInterval(() => {
+      console.log('Auto-refreshing Consumed page data...')
+      fetchData()
+    }, 60 * 60 * 1000) // 60 minutes
+
+    return () => clearInterval(intervalId)
+  }, [selectedProduct, dateRange])
+
   // Focus search input when dropdown opens
   useEffect(() => {
     if (isDropdownOpen && searchInputRef.current) {

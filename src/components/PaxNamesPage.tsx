@@ -80,6 +80,16 @@ export default function PaxNamesPage() {
     loadActivities()
   }, [])
 
+  // Auto-refresh data every hour
+  useEffect(() => {
+    const intervalId = setInterval(() => {
+      console.log('Auto-refreshing Pax Names data...')
+      fetchData()
+    }, 60 * 60 * 1000) // 60 minutes
+
+    return () => clearInterval(intervalId)
+  }, [dateRange, selectedActivities])
+
   // Focus search input when dropdown opens
   useEffect(() => {
     if (isDropdownOpen && searchInputRef.current) {
