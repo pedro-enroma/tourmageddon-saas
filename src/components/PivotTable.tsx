@@ -387,7 +387,7 @@ export default function PivotTable() {
         'Week Day': days[date.getDay()], // Solo giorno della settimana
         'Date': date.toLocaleDateString('it-IT', { day: '2-digit', month: '2-digit', year: 'numeric' }), // Solo data
         'Start Time': row.time,
-        'Total Amount': row.total_amount > 0 ? row.total_amount : 0,
+        'Total Amount': row.total_amount > 0 ? row.total_amount.toFixed(2).replace('.', ',') : '0',
         'Booking Count': row.bookings.length,
         'Total Participants': row.totalParticipants || 0  // AGGIUNTO
       }
