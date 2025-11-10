@@ -85,6 +85,14 @@ interface TourGroup {
   isExpanded: boolean
 }
 
+interface SavedTourGroup {
+  id: string
+  name: string
+  tour_ids: string[]
+  created_at?: string
+  updated_at?: string
+}
+
 export default function DailyListPage() {
   const [data, setData] = useState<PaxData[]>([])
   const [groupedTours, setGroupedTours] = useState<TourGroup[]>([])
@@ -105,6 +113,14 @@ export default function DailyListPage() {
   const [selectedActivityBookingId, setSelectedActivityBookingId] = useState<number | null>(null)
   const [participantsToEdit, setParticipantsToEdit] = useState<ParticipantEdit[]>([])
   const [loadingParticipants, setLoadingParticipants] = useState(false)
+
+  // Tour groups states
+  const [tourGroups, setTourGroups] = useState<SavedTourGroup[]>([])
+  const [showGroupModal, setShowGroupModal] = useState(false)
+  const [editingGroup, setEditingGroup] = useState<SavedTourGroup | null>(null)
+  const [newGroupName, setNewGroupName] = useState('')
+  const [selectedToursForGroup, setSelectedToursForGroup] = useState<string[]>([])
+  const [groupSearchTerm, setGroupSearchTerm] = useState('')
   const [saving, setSaving] = useState(false)
 
   // Drag and drop sensors
@@ -117,6 +133,7 @@ export default function DailyListPage() {
 
   useEffect(() => {
     loadActivitiesAndFetchData()
+    loadTourGroups()
   }, [])
 
   const loadActivitiesAndFetchData = async () => {
@@ -135,6 +152,126 @@ export default function DailyListPage() {
       // Fetch data with all activities pre-selected
       await fetchDataWithActivities(allActivityIds)
     }
+  }
+
+  const loadTourGroups = async () => {
+    try {
+      const { data: groups, error } = await supabase
+        .from('tour_groups')
+        .select('*')
+        .order('name')
+
+      if (error) {
+        console.error('Error loading tour groups:', error)
+      } else if (groups) {
+        setTourGroups(groups as SavedTourGroup[])
+      }
+    } catch (error) {
+      console.error('Error loading tour groups:', error)
+    }
+  }
+
+  const saveTourGroup = async () => {
+    if (!newGroupName.trim()) {
+      alert('Please enter a group name')
+      return
+    }
+
+    if (selectedToursForGroup.length === 0) {
+      alert('Please select at least one tour')
+      return
+    }
+
+    setSaving(true)
+
+    try {
+      if (editingGroup) {
+        // Update existing group
+        const { error } = await supabase
+          .from('tour_groups')
+          .update({
+            name: newGroupName,
+            tour_ids: selectedToursForGroup,
+            updated_at: new Date().toISOString()
+          })
+          .eq('id', editingGroup.id)
+
+        if (error) throw error
+      } else {
+        // Create new group
+        const { error } = await supabase
+          .from('tour_groups')
+          .insert({
+            name: newGroupName,
+            tour_ids: selectedToursForGroup
+          })
+
+        if (error) throw error
+      }
+
+      await loadTourGroups()
+      setShowGroupModal(false)
+      setEditingGroup(null)
+      setNewGroupName('')
+      setSelectedToursForGroup([])
+    } catch (error) {
+      console.error('Error saving tour group:', error)
+      alert('Error saving tour group. Please try again.')
+    } finally {
+      setSaving(false)
+    }
+  }
+
+  const deleteTourGroup = async (groupId: string) => {
+    if (!confirm('Are you sure you want to delete this group?')) {
+      return
+    }
+
+    try {
+      const { error } = await supabase
+        .from('tour_groups')
+        .delete()
+        .eq('id', groupId)
+
+      if (error) throw error
+
+      await loadTourGroups()
+
+      // If this group was selected, reset to all tours
+      if (selectedActivities.length > 0) {
+        const group = tourGroups.find(g => g.id === groupId)
+        if (group) {
+          const groupTourIds = group.tour_ids
+          const isGroupSelected = groupTourIds.every(id => selectedActivities.includes(id)) &&
+                                  selectedActivities.every(id => groupTourIds.includes(id))
+
+          if (isGroupSelected) {
+            // Reset to all tours
+            const allActivityIds = activities.map(a => a.activity_id)
+            setSelectedActivities(allActivityIds)
+            setTempSelectedActivities(allActivityIds)
+            await fetchDataWithActivities(allActivityIds)
+          }
+        }
+      }
+    } catch (error) {
+      console.error('Error deleting tour group:', error)
+      alert('Error deleting tour group. Please try again.')
+    }
+  }
+
+  const openGroupModal = (group?: SavedTourGroup) => {
+    if (group) {
+      setEditingGroup(group)
+      setNewGroupName(group.name)
+      setSelectedToursForGroup(group.tour_ids)
+    } else {
+      setEditingGroup(null)
+      setNewGroupName('')
+      setSelectedToursForGroup([])
+    }
+    setGroupSearchTerm('')
+    setShowGroupModal(true)
   }
 
   const fetchData = async () => {
@@ -552,6 +689,179 @@ export default function DailyListPage() {
     return counts
   }
 
+  const exportSingleTour = async (tour: TourGroup) => {
+    let fileCount = 0
+
+    // Get the activity_id from the first booking in the tour
+    const firstBooking = tour.timeSlots[0]?.bookings[0]
+    if (!firstBooking) {
+      alert('No bookings found for this tour')
+      return
+    }
+
+    // Get ALL historical participant categories for this activity
+    const participantCategories = await getAllParticipantCategoriesForActivity(firstBooking.activity_id)
+
+    for (const timeSlot of tour.timeSlots) {
+      const firstBooking = timeSlot.bookings[0]
+      if (!firstBooking) continue
+
+      const bookingDate = new Date(firstBooking.booking_date).toLocaleDateString('it-IT')
+      const excelData: any[][] = []
+
+      // Row 1: Tour Title (merged)
+      const titleHeader = `${tour.tourTitle} - ${bookingDate} - ${timeSlot.time}`
+      excelData.push([titleHeader])
+
+      // Row 2: Column Headers
+      const headers = ['Data', 'Ora', ...participantCategories, 'Nome e Cognome', 'Telefono']
+      excelData.push(headers)
+
+      // Initialize totals
+      const totals: { [key: string]: number } = {}
+      participantCategories.forEach(cat => totals[cat] = 0)
+
+      // Rows 3-N: Data rows
+      timeSlot.bookings.forEach(booking => {
+        const fullName = `${booking.customer?.first_name || ''} ${booking.customer?.last_name || ''}`.trim()
+        const participantCounts = getParticipantCounts(booking)
+
+        const row: any[] = [
+          new Date(booking.booking_date).toLocaleDateString('it-IT'),
+          booking.start_time
+        ]
+
+        participantCategories.forEach(category => {
+          const count = participantCounts[category] || 0
+          row.push(count)
+          totals[category] += count
+        })
+
+        row.push(fullName)
+        row.push(booking.customer?.phone_number || '')
+        excelData.push(row)
+      })
+
+      // First Total Row: Participants
+      const participantsRow: any[] = ['', 'Participants']
+      participantCategories.forEach(category => {
+        participantsRow.push(totals[category])
+      })
+      participantsRow.push('', '')
+      excelData.push(participantsRow)
+
+      // Second Total Row: TOTAL PAX
+      const totalParticipants = participantCategories.reduce((sum, cat) => sum + totals[cat], 0)
+      const totalPaxRow: any[] = ['', 'TOTAL PAX', totalParticipants]
+      for (let i = 0; i < participantCategories.length - 1 + 2; i++) {
+        totalPaxRow.push('')
+      }
+      excelData.push(totalPaxRow)
+
+      // Create workbook
+      const wb = XLSX.utils.book_new()
+      const ws = XLSX.utils.aoa_to_sheet(excelData)
+
+      // Merge title cells
+      if (!ws['!merges']) ws['!merges'] = []
+      ws['!merges'].push({
+        s: { r: 0, c: 0 },
+        e: { r: 0, c: participantCategories.length + 3 }
+      })
+
+      const totalCols = participantCategories.length + 4
+
+      // Apply styles (same as main export)
+      for (let col = 0; col < totalCols; col++) {
+        const cellAddress = XLSX.utils.encode_cell({ r: 0, c: col })
+        if (!ws[cellAddress]) ws[cellAddress] = { t: 's', v: '' }
+        ws[cellAddress].s = {
+          font: { bold: true, sz: 18, color: { rgb: "FFFFFF" } },
+          fill: { fgColor: { rgb: "4472C4" } },
+          alignment: { horizontal: "center", vertical: "center" }
+        }
+      }
+
+      for (let col = 0; col < totalCols; col++) {
+        const cellAddress = XLSX.utils.encode_cell({ r: 1, c: col })
+        const cell = ws[cellAddress]
+        if (cell) {
+          cell.s = {
+            font: { bold: true, sz: 13 },
+            fill: { fgColor: { rgb: "D9D9D9" } },
+            alignment: { horizontal: "center", vertical: "center" }
+          }
+        }
+      }
+
+      const participantsRowIndex = 2 + timeSlot.bookings.length
+      const totalPaxRowIndex = participantsRowIndex + 1
+
+      for (let col = 0; col < totalCols; col++) {
+        const cellAddress = XLSX.utils.encode_cell({ r: participantsRowIndex, c: col })
+        const cell = ws[cellAddress]
+        if (cell) {
+          cell.s = {
+            font: { bold: true, sz: 13 },
+            fill: { fgColor: { rgb: "D9D9D9" } },
+            alignment: { horizontal: "center", vertical: "center" }
+          }
+        }
+      }
+
+      for (let col = 0; col < totalCols; col++) {
+        const cellAddress = XLSX.utils.encode_cell({ r: totalPaxRowIndex, c: col })
+        if (!ws[cellAddress]) ws[cellAddress] = { t: 's', v: '' }
+        ws[cellAddress].s = {
+          font: { bold: true, sz: 13, color: { rgb: "FFFFFF" } },
+          fill: { fgColor: { rgb: "4472C4" } },
+          alignment: { horizontal: "center", vertical: "center" }
+        }
+      }
+
+      for (let row = 2; row < 2 + timeSlot.bookings.length; row++) {
+        for (let col = 0; col < totalCols; col++) {
+          const cellAddress = XLSX.utils.encode_cell({ r: row, c: col })
+          const cell = ws[cellAddress]
+          if (cell) {
+            cell.s = {
+              font: { sz: 13 },
+              alignment: { horizontal: "center", vertical: "center" }
+            }
+          }
+        }
+      }
+
+      if (!ws['!rows']) ws['!rows'] = []
+      ws['!rows'][0] = { hpt: 30 }
+      ws['!rows'][1] = { hpt: 20 }
+
+      const colWidths = [
+        { wch: 12 },
+        { wch: 8 },
+        ...participantCategories.map(() => ({ wch: 15 })),
+        { wch: 25 },
+        { wch: 20 },
+      ]
+      ws['!cols'] = colWidths
+
+      XLSX.utils.book_append_sheet(wb, ws, 'Lista')
+
+      const cleanTourTitle = tour.tourTitle.replace(/[/\\?%*:|"<>]/g, '-')
+      const cleanTime = timeSlot.time.replace(/:/g, '.')
+      const fileName = `${cleanTourTitle} + ${bookingDate} + ${cleanTime}.xlsx`
+
+      XLSX.writeFile(wb, fileName)
+      fileCount++
+
+      if (fileCount < tour.timeSlots.length) {
+        await new Promise(resolve => setTimeout(resolve, 500))
+      }
+    }
+
+    console.log(`Exported ${fileCount} file(s) for tour: ${tour.tourTitle}`)
+  }
+
   const exportToExcel = async () => {
     let fileCount = 0
 
@@ -848,16 +1158,6 @@ export default function DailyListPage() {
         <TableCell>{new Date(booking.booking_date).toLocaleDateString('it-IT')}</TableCell>
         <TableCell>{booking.start_time}</TableCell>
         <TableCell>{booking.participants_detail}</TableCell>
-        <TableCell>
-          <Button
-            onClick={() => loadParticipantsForEdit(booking.activity_booking_id)}
-            variant="ghost"
-            size="sm"
-            className="h-8 w-8 p-0"
-          >
-            <Edit className="h-4 w-4" />
-          </Button>
-        </TableCell>
         <TableCell>{booking.customer?.first_name || '-'}</TableCell>
         <TableCell>{booking.customer?.last_name || '-'}</TableCell>
         <TableCell>{booking.customer?.phone_number || '-'}</TableCell>
@@ -1075,11 +1375,13 @@ export default function DailyListPage() {
             <div key={tour.tourTitle} className="border rounded-lg bg-white shadow-sm">
               {/* Tour Header */}
               <div
-                className="p-4 bg-blue-50 border-b cursor-pointer hover:bg-blue-100 transition-colors"
-                onClick={() => toggleTourExpansion(tour.tourTitle)}
+                className="p-4 bg-blue-50 border-b hover:bg-blue-100 transition-colors"
               >
                 <div className="flex items-center justify-between">
-                  <div className="flex items-center space-x-2">
+                  <div
+                    className="flex items-center space-x-2 flex-1 cursor-pointer"
+                    onClick={() => toggleTourExpansion(tour.tourTitle)}
+                  >
                     <ChevronRight
                       className={`h-5 w-5 transition-transform ${
                         tour.isExpanded ? 'rotate-90' : ''
@@ -1087,8 +1389,22 @@ export default function DailyListPage() {
                     />
                     <h3 className="text-lg font-bold">{tour.tourTitle}</h3>
                   </div>
-                  <div className="text-sm font-semibold text-blue-700">
-                    Orari: {tour.timeSlots.length} | Total: {tour.totalParticipants} participants
+                  <div className="flex items-center gap-3">
+                    <div className="text-sm font-semibold text-blue-700">
+                      Orari: {tour.timeSlots.length} | Total: {tour.totalParticipants} participants
+                    </div>
+                    <Button
+                      onClick={(e) => {
+                        e.stopPropagation()
+                        exportSingleTour(tour)
+                      }}
+                      variant="outline"
+                      size="sm"
+                      className="h-8"
+                    >
+                      <Download className="h-4 w-4 mr-1" />
+                      Export
+                    </Button>
                   </div>
                 </div>
               </div>
@@ -1122,7 +1438,6 @@ export default function DailyListPage() {
                               <TableHead>Data</TableHead>
                               <TableHead>Ora</TableHead>
                               <TableHead>Totale Partecipanti</TableHead>
-                              <TableHead></TableHead>
                               <TableHead>Nome</TableHead>
                               <TableHead>Cognome</TableHead>
                               <TableHead>Telefono</TableHead>
