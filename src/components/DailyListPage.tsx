@@ -2,7 +2,7 @@
 'use client'
 import { useState, useEffect, useRef } from 'react'
 import { supabase } from '@/lib/supabase'
-import { RefreshCw, Download, ChevronDown, Search, X, Edit, GripVertical, ChevronRight, Plus, Settings, Edit2, Trash2 } from 'lucide-react'
+import { RefreshCw, Download, ChevronDown, Search, X, GripVertical, ChevronRight } from 'lucide-react'
 import * as XLSX from 'xlsx-js-style'
 import {
   DndContext,
@@ -32,14 +32,6 @@ import {
 import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
 import { Label } from "@/components/ui/label"
-import {
-  Dialog,
-  DialogContent,
-  DialogDescription,
-  DialogHeader,
-  DialogTitle,
-  DialogFooter,
-} from "@/components/ui/dialog"
 
 interface PaxData {
   activity_id: string
@@ -62,14 +54,6 @@ interface PaxData {
     last_name: string | null
     phone_number: string | null
   }
-}
-
-interface ParticipantEdit {
-  pricing_category_booking_id: number
-  booked_title: string
-  passenger_first_name: string | null
-  passenger_last_name: string | null
-  passenger_date_of_birth: string | null
 }
 
 interface TimeSlotGroup {
@@ -108,19 +92,11 @@ export default function DailyListPage() {
     end: new Date().toISOString().split('T')[0]
   })
 
-  // Update modal states
-  const [updateModalOpen, setUpdateModalOpen] = useState(false)
-  const [selectedActivityBookingId, setSelectedActivityBookingId] = useState<number | null>(null)
-  const [participantsToEdit, setParticipantsToEdit] = useState<ParticipantEdit[]>([])
-  const [loadingParticipants, setLoadingParticipants] = useState(false)
-
-  // Tour groups states
+  // Tour groups states (for future implementation)
   const [tourGroups, setTourGroups] = useState<SavedTourGroup[]>([])
-  const [showGroupModal, setShowGroupModal] = useState(false)
   const [editingGroup, setEditingGroup] = useState<SavedTourGroup | null>(null)
   const [newGroupName, setNewGroupName] = useState('')
   const [selectedToursForGroup, setSelectedToursForGroup] = useState<string[]>([])
-  const [groupSearchTerm, setGroupSearchTerm] = useState('')
   const [saving, setSaving] = useState(false)
 
   // Drag and drop sensors
@@ -171,6 +147,9 @@ export default function DailyListPage() {
     }
   }
 
+  // Tour group management functions (ready for UI implementation)
+  // Uncomment when adding UI
+  /*
   const saveTourGroup = async () => {
     if (!newGroupName.trim()) {
       alert('Please enter a group name')
@@ -186,7 +165,6 @@ export default function DailyListPage() {
 
     try {
       if (editingGroup) {
-        // Update existing group
         const { error } = await supabase
           .from('tour_groups')
           .update({
@@ -198,7 +176,6 @@ export default function DailyListPage() {
 
         if (error) throw error
       } else {
-        // Create new group
         const { error } = await supabase
           .from('tour_groups')
           .insert({
@@ -210,7 +187,6 @@ export default function DailyListPage() {
       }
 
       await loadTourGroups()
-      setShowGroupModal(false)
       setEditingGroup(null)
       setNewGroupName('')
       setSelectedToursForGroup([])
@@ -237,7 +213,6 @@ export default function DailyListPage() {
 
       await loadTourGroups()
 
-      // If this group was selected, reset to all tours
       if (selectedActivities.length > 0) {
         const group = tourGroups.find(g => g.id === groupId)
         if (group) {
@@ -246,7 +221,6 @@ export default function DailyListPage() {
                                   selectedActivities.every(id => groupTourIds.includes(id))
 
           if (isGroupSelected) {
-            // Reset to all tours
             const allActivityIds = activities.map(a => a.activity_id)
             setSelectedActivities(allActivityIds)
             setTempSelectedActivities(allActivityIds)
@@ -259,20 +233,7 @@ export default function DailyListPage() {
       alert('Error deleting tour group. Please try again.')
     }
   }
-
-  const openGroupModal = (group?: SavedTourGroup) => {
-    if (group) {
-      setEditingGroup(group)
-      setNewGroupName(group.name)
-      setSelectedToursForGroup(group.tour_ids)
-    } else {
-      setEditingGroup(null)
-      setNewGroupName('')
-      setSelectedToursForGroup([])
-    }
-    setGroupSearchTerm('')
-    setShowGroupModal(true)
-  }
+  */
 
   const fetchData = async () => {
     await fetchDataWithActivities(selectedActivities, dateRange)
@@ -1054,82 +1015,6 @@ export default function DailyListPage() {
     console.log(`Exported ${fileCount} file(s)`)
   }
 
-  // Load participants for editing
-  const loadParticipantsForEdit = async (activityBookingId: number) => {
-    setLoadingParticipants(true)
-    setSelectedActivityBookingId(activityBookingId)
-    setUpdateModalOpen(true)
-
-    try {
-      const { data: participants, error } = await supabase
-        .from('pricing_category_bookings')
-        .select('pricing_category_booking_id, booked_title, passenger_first_name, passenger_last_name, passenger_date_of_birth')
-        .eq('activity_booking_id', activityBookingId)
-        .order('pricing_category_booking_id')
-
-      if (error) throw error
-
-      setParticipantsToEdit(participants || [])
-    } catch (error) {
-      console.error('Error loading participants:', error)
-      alert('Error loading participants')
-    } finally {
-      setLoadingParticipants(false)
-    }
-  }
-
-  // Update participant field
-  const updateParticipantField = (index: number, field: keyof ParticipantEdit, value: string) => {
-    const updated = [...participantsToEdit]
-    updated[index] = { ...updated[index], [field]: value || null }
-    setParticipantsToEdit(updated)
-  }
-
-  // Save all participants
-  const saveParticipants = async () => {
-    if (!selectedActivityBookingId) return
-
-    setSaving(true)
-    try {
-      // Update each participant
-      for (const participant of participantsToEdit) {
-        const { error } = await supabase
-          .from('pricing_category_bookings')
-          .update({
-            passenger_first_name: participant.passenger_first_name,
-            passenger_last_name: participant.passenger_last_name,
-            passenger_date_of_birth: participant.passenger_date_of_birth
-          })
-          .eq('pricing_category_booking_id', participant.pricing_category_booking_id)
-
-        if (error) throw error
-
-        // Log the manual update
-        await supabase
-          .from('manual_participant_updates')
-          .insert({
-            activity_booking_id: selectedActivityBookingId,
-            pricing_category_booking_id: participant.pricing_category_booking_id,
-            booked_title: participant.booked_title,
-            passenger_first_name: participant.passenger_first_name,
-            passenger_last_name: participant.passenger_last_name,
-            passenger_date_of_birth: participant.passenger_date_of_birth,
-            updated_by: 'dashboard_user',
-            updated_at: new Date().toISOString()
-          })
-      }
-
-      alert('Participants updated successfully!')
-      setUpdateModalOpen(false)
-      fetchData() // Refresh the main data
-    } catch (error) {
-      console.error('Error saving participants:', error)
-      alert('Error saving participants')
-    } finally {
-      setSaving(false)
-    }
-  }
-
   // Sortable row component for drag & drop
   const SortableBookingRow = ({ booking }: { booking: PaxData }) => {
     const {
@@ -1469,81 +1354,6 @@ export default function DailyListPage() {
         )}
       </div>
 
-      {/* Update Participants Modal */}
-      <Dialog open={updateModalOpen} onOpenChange={setUpdateModalOpen}>
-        <DialogContent className="max-w-4xl max-h-[80vh] overflow-y-auto">
-          <DialogHeader>
-            <DialogTitle>Update Participants - Activity Booking ID: {selectedActivityBookingId}</DialogTitle>
-            <DialogDescription>
-              Edit participant details below and click Save to update the database.
-            </DialogDescription>
-          </DialogHeader>
-
-          {loadingParticipants ? (
-            <div className="flex items-center justify-center py-8">
-              <RefreshCw className="h-6 w-6 animate-spin" />
-              <span className="ml-2">Loading participants...</span>
-            </div>
-          ) : (
-            <div className="space-y-4 py-4">
-              {participantsToEdit.map((participant, index) => (
-                <div key={participant.pricing_category_booking_id} className="p-4 border rounded-lg bg-gray-50">
-                  <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-                    <div>
-                      <Label>Category</Label>
-                      <Input value={participant.booked_title} disabled className="bg-gray-100" />
-                    </div>
-                    <div>
-                      <Label>Booking ID</Label>
-                      <Input value={participant.pricing_category_booking_id} disabled className="bg-gray-100" />
-                    </div>
-                    <div>
-                      <Label>First Name</Label>
-                      <Input
-                        value={participant.passenger_first_name || ''}
-                        onChange={(e) => updateParticipantField(index, 'passenger_first_name', e.target.value)}
-                        placeholder="First name"
-                      />
-                    </div>
-                    <div>
-                      <Label>Last Name</Label>
-                      <Input
-                        value={participant.passenger_last_name || ''}
-                        onChange={(e) => updateParticipantField(index, 'passenger_last_name', e.target.value)}
-                        placeholder="Last name"
-                      />
-                    </div>
-                    <div>
-                      <Label>Date of Birth</Label>
-                      <Input
-                        type="date"
-                        value={participant.passenger_date_of_birth || ''}
-                        onChange={(e) => updateParticipantField(index, 'passenger_date_of_birth', e.target.value)}
-                      />
-                    </div>
-                  </div>
-                </div>
-              ))}
-            </div>
-          )}
-
-          <DialogFooter>
-            <Button variant="outline" onClick={() => setUpdateModalOpen(false)}>
-              Cancel
-            </Button>
-            <Button onClick={saveParticipants} disabled={saving || loadingParticipants}>
-              {saving ? (
-                <>
-                  <RefreshCw className="h-4 w-4 animate-spin mr-2" />
-                  Saving...
-                </>
-              ) : (
-                'Save Changes'
-              )}
-            </Button>
-          </DialogFooter>
-        </DialogContent>
-      </Dialog>
     </div>
   )
 }
