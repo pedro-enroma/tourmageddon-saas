@@ -24,7 +24,6 @@ import { CSS } from '@dnd-kit/utilities'
 import {
   Table,
   TableBody,
-  TableCaption,
   TableCell,
   TableHead,
   TableHeader,
@@ -89,7 +88,6 @@ interface TourGroup {
 export default function DailyListPage() {
   const [data, setData] = useState<PaxData[]>([])
   const [groupedTours, setGroupedTours] = useState<TourGroup[]>([])
-  const [loading, setLoading] = useState(false)
   const [activities, setActivities] = useState<any[]>([])
   const [selectedActivities, setSelectedActivities] = useState<string[]>([])
   const [tempSelectedActivities, setTempSelectedActivities] = useState<string[]>([])
@@ -144,7 +142,6 @@ export default function DailyListPage() {
   }
 
   const fetchDataWithActivities = async (activityIds: string[], customDateRange?: { start: string; end: string }) => {
-    setLoading(true)
 
     // Use custom date range if provided, otherwise use state
     const queryDateRange = customDateRange || dateRange
@@ -313,8 +310,6 @@ export default function DailyListPage() {
       groupDataByTour(transformedData)
     } catch (error) {
       console.error('Errore:', error)
-    } finally {
-      setLoading(false)
     }
   }
 
@@ -366,17 +361,6 @@ export default function DailyListPage() {
     setDateRange(newDateRange)
     // Auto-refresh data with new date range
     fetchDataWithActivities(selectedActivities, newDateRange)
-  }
-
-  const loadActivities = async () => {
-    const { data: allActivities, error } = await supabase
-      .from('activities')
-      .select('activity_id, title')
-      .order('title')
-
-    if (!error && allActivities) {
-      setActivities(allActivities)
-    }
   }
 
   // Group data by tour and time slot
