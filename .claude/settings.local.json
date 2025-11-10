@@ -31,7 +31,8 @@
       "Bash(xargs -r kill -9)",
       "Bash(node:*)",
       "Bash(pkill:*)",
-      "Bash(git restore:*)"
+      "Bash(git restore:*)",
+      "Bash(git show:*)"
     ],
     "deny": [],
     "ask": []

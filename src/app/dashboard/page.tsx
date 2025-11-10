@@ -8,6 +8,7 @@ import { Sidebar, SidebarContent, SidebarGroup, SidebarHeader, SidebarMenu, Side
 import RecapPage from '@/components/RecapPage'
 import ConsumedPage from '@/components/ConsumedPage'
 import PaxNamesPage from '@/components/PaxNamesPage'
+import DailyListPage from '@/components/DailyListPage'
 import MarketingExportPage from '@/components/MarketingExportPage'
 import FinanceOverviewPageV2 from '@/components/FinanceOverviewPageV2'
 import AvailabilitySyncPage from '@/components/AvailabilitySyncPage'
@@ -49,6 +50,11 @@ function AppSidebar({ currentView, onNavigate }: {
           title: "Pax Names",
           icon: Users,
           view: "pax-names",
+        },
+        {
+          title: "Daily List",
+          icon: FileSpreadsheet,
+          view: "daily-list",
         },
         {
           title: "Sync Now",
@@ -180,6 +186,8 @@ export default function DashboardLayout() {
         return <ConsumedPage />
       case 'pax-names':
         return <PaxNamesPage />
+      case 'daily-list':
+        return <DailyListPage />
       case 'guides-list':
         return <GuidesListPage />
       case 'upcoming-services':
@@ -211,6 +219,8 @@ export default function DashboardLayout() {
         return 'Service Consumed'
       case 'pax-names':
         return 'Pax Names'
+      case 'daily-list':
+        return 'Daily List'
       case 'guides-list':
         return 'Guides List'
       case 'upcoming-services':
@@ -235,7 +245,7 @@ export default function DashboardLayout() {
   }
 
   const getBreadcrumbSection = () => {
-    if (['recap', 'consumed', 'pax-names', 'availability-sync'].includes(currentView)) {
+    if (['recap', 'consumed', 'pax-names', 'daily-list', 'availability-sync'].includes(currentView)) {
       return 'Operations'
     }
     if (['guides-list', 'upcoming-services', 'guides-calendar', 'guide-reports'].includes(currentView)) {
