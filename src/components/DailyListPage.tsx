@@ -2,7 +2,7 @@
 'use client'
 import { useState, useEffect, useRef } from 'react'
 import { supabase } from '@/lib/supabase'
-import { RefreshCw, Download, ChevronDown, Search, X, GripVertical, ChevronRight } from 'lucide-react'
+import { Download, ChevronDown, Search, X, GripVertical, ChevronRight } from 'lucide-react'
 import * as XLSX from 'xlsx-js-style'
 import {
   DndContext,
@@ -92,13 +92,6 @@ export default function DailyListPage() {
     end: new Date().toISOString().split('T')[0]
   })
 
-  // Tour groups states (for future implementation)
-  const [tourGroups, setTourGroups] = useState<SavedTourGroup[]>([])
-  const [editingGroup, setEditingGroup] = useState<SavedTourGroup | null>(null)
-  const [newGroupName, setNewGroupName] = useState('')
-  const [selectedToursForGroup, setSelectedToursForGroup] = useState<string[]>([])
-  const [saving, setSaving] = useState(false)
-
   // Drag and drop sensors
   const sensors = useSensors(
     useSensor(PointerSensor),
@@ -109,7 +102,6 @@ export default function DailyListPage() {
 
   useEffect(() => {
     loadActivitiesAndFetchData()
-    loadTourGroups()
   }, [])
 
   const loadActivitiesAndFetchData = async () => {
