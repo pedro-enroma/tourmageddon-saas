@@ -69,14 +69,6 @@ interface TourGroup {
   isExpanded: boolean
 }
 
-interface SavedTourGroup {
-  id: string
-  name: string
-  tour_ids: string[]
-  created_at?: string
-  updated_at?: string
-}
-
 export default function DailyListPage() {
   const [data, setData] = useState<PaxData[]>([])
   const [groupedTours, setGroupedTours] = useState<TourGroup[]>([])
@@ -119,23 +111,6 @@ export default function DailyListPage() {
 
       // Fetch data with all activities pre-selected
       await fetchDataWithActivities(allActivityIds)
-    }
-  }
-
-  const loadTourGroups = async () => {
-    try {
-      const { data: groups, error } = await supabase
-        .from('tour_groups')
-        .select('*')
-        .order('name')
-
-      if (error) {
-        console.error('Error loading tour groups:', error)
-      } else if (groups) {
-        setTourGroups(groups as SavedTourGroup[])
-      }
-    } catch (error) {
-      console.error('Error loading tour groups:', error)
     }
   }
 
