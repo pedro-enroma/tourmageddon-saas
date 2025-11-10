@@ -2,7 +2,7 @@
 'use client'
 import { useState, useEffect, useRef } from 'react'
 import { supabase } from '@/lib/supabase'
-import { RefreshCw, Download, ChevronDown, Search, X, Edit, GripVertical, ChevronRight } from 'lucide-react'
+import { RefreshCw, Download, ChevronDown, Search, X, Edit, GripVertical, ChevronRight, Plus, Settings, Edit2, Trash2 } from 'lucide-react'
 import * as XLSX from 'xlsx-js-style'
 import {
   DndContext,
