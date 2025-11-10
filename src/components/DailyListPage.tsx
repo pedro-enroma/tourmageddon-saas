@@ -611,7 +611,7 @@ export default function DailyListPage() {
         })
 
         // First Total Row: Participants - Show breakdown by category
-        const participantsRow = ['', 'Participants']
+        const participantsRow: any[] = ['', 'Participants']
         participantCategories.forEach(category => {
           participantsRow.push(totals[category])
         })
@@ -620,7 +620,7 @@ export default function DailyListPage() {
 
         // Second Total Row: TOTAL PAX - Show single sum
         const totalParticipants = participantCategories.reduce((sum, cat) => sum + totals[cat], 0)
-        const totalPaxRow = ['', 'TOTAL PAX', totalParticipants]
+        const totalPaxRow: any[] = ['', 'TOTAL PAX', totalParticipants]
         // Fill remaining cells with empty values
         for (let i = 0; i < participantCategories.length - 1 + 2; i++) {
           totalPaxRow.push('')
