@@ -4,6 +4,19 @@ import { useState, useEffect, useRef } from 'react'
 import { supabase } from '@/lib/supabase'
 import { Download, ChevronDown, Search, X, GripVertical, ChevronRight } from 'lucide-react'
 import * as XLSX from 'xlsx-js-style'
+
+// Excluded pricing categories for specific activities
+const EXCLUDED_PRICING_CATEGORIES: Record<string, string[]> = {
+  '217949': ['6 a 12 años', '13 a 17 años'],
+  '216954': ['6 a 12 años', '13 a 17 años'],
+  '220107': ['6 a 12 años', '13 a 17 años']
+}
+
+// Helper function to check if a pricing category should be excluded
+const shouldExcludePricingCategory = (activityId: string, categoryTitle: string): boolean => {
+  const excludedCategories = EXCLUDED_PRICING_CATEGORIES[activityId]
+  return excludedCategories ? excludedCategories.includes(categoryTitle) : false
+}
 import {
   DndContext,
   closestCenter,
@@ -313,6 +326,12 @@ export default function DailyListPage() {
 
         booking.pricing_category_bookings?.forEach((pax: any) => {
           const quantity = pax.quantity || 1
+
+          // Skip excluded pricing categories for specific activities
+          if (shouldExcludePricingCategory(booking.activity_id, pax.booked_title)) {
+            return
+          }
+
           totalParticipants += quantity
 
           if (participantTypes[pax.booked_title]) {
@@ -569,7 +588,7 @@ export default function DailyListPage() {
     // Extract all unique categories from historical bookings
     historicalBookings?.forEach(booking => {
       booking.pricing_category_bookings?.forEach((pcb: any) => {
-        if (pcb.booked_title) {
+        if (pcb.booked_title && !shouldExcludePricingCategory(activityId, pcb.booked_title)) {
           allCategories.add(pcb.booked_title)
         }
       })
@@ -611,6 +630,12 @@ export default function DailyListPage() {
 
     booking.passengers.forEach(passenger => {
       const category = passenger.booked_title || 'Unknown'
+
+      // Skip excluded pricing categories for specific activities
+      if (shouldExcludePricingCategory(booking.activity_id, category)) {
+        return
+      }
+
       counts[category] = (counts[category] || 0) + passenger.quantity
     })
 
