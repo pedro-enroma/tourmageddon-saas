@@ -7,6 +7,20 @@ import { Switch } from "@/components/ui/switch"
 import { Drawer, DrawerClose, DrawerContent, DrawerDescription, DrawerFooter, DrawerHeader, DrawerTitle, DrawerTrigger } from "@/components/ui/drawer"
 import { Button } from "@/components/ui/button"
 import * as XLSX from 'xlsx'
+import { sanitizeDataForExcel } from '@/lib/security/sanitize'
+
+// Excluded pricing categories for specific activities
+const EXCLUDED_PRICING_CATEGORIES: Record<string, string[]> = {
+  '217949': ['6 a 12 años', '13 a 17 años'],
+  '216954': ['6 a 12 años', '13 a 17 años'],
+  '220107': ['6 a 12 años', '13 a 17 años']
+}
+
+// Helper function to check if a pricing category should be excluded
+const shouldExcludePricingCategory = (activityId: string, categoryTitle: string): boolean => {
+  const excludedCategories = EXCLUDED_PRICING_CATEGORIES[activityId]
+  return excludedCategories ? excludedCategories.includes(categoryTitle) : false
+}
 
 // Definizione dei tipi
 interface Tour {
@@ -275,7 +289,7 @@ export default function RecapPage() {
       historicalBookings?.forEach(booking => {
         if ('pricing_category_bookings' in booking && Array.isArray(booking.pricing_category_bookings)) {
           booking.pricing_category_bookings.forEach((pcb: { booked_title?: string }) => {
-            if (pcb.booked_title) {
+            if (pcb.booked_title && !shouldExcludePricingCategory(tourIds[0], pcb.booked_title)) {
               historicalCategoriesSet.add(pcb.booked_title)
             }
           })
@@ -538,7 +552,12 @@ export default function RecapPage() {
       booking.pricing_category_bookings?.forEach((pcb: Participant) => {
         const category = pcb.booked_title || 'Unknown'
         const quantity = pcb.quantity || 1
-        
+
+        // Skip excluded pricing categories for specific activities
+        if (shouldExcludePricingCategory(booking.activity_id, category)) {
+          return
+        }
+
         if (!slot.participants[category]) {
           slot.participants[category] = 0
         }
@@ -569,11 +588,11 @@ export default function RecapPage() {
     
     // Estrai TUTTE le categorie partecipanti uniche dinamicamente
     const allCategories = new Set<string>()
-    
-    // Prima aggiungi le categorie storiche passate come parametro
+
+    // Prima aggiungi le categorie storiche passate come parametro (already filtered)
     historicalCategories.forEach(cat => allCategories.add(cat))
-    
-    // Poi aggiungi tutte le categorie trovate nei dati correnti
+
+    // Poi aggiungi tutte le categorie trovate nei dati correnti (already filtered during processing)
     Array.from(allSlots.values()).forEach(row => {
       Object.keys(row.participants).forEach(cat => allCategories.add(cat))
     })
@@ -949,9 +968,12 @@ export default function RecapPage() {
 
       return rowData
     })
-    
+
+    // Sanitize data to prevent formula injection attacks
+    const sanitizedData = sanitizeDataForExcel(exportData)
+
     const wb = XLSX.utils.book_new()
-    const ws = XLSX.utils.json_to_sheet(exportData)
+    const ws = XLSX.utils.json_to_sheet(sanitizedData)
     XLSX.utils.book_append_sheet(wb, ws, 'Recap')
     
     const fileName = `recap_${new Date().toISOString().split('T')[0]}.xlsx`

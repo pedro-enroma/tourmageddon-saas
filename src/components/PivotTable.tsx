@@ -6,9 +6,23 @@ import { useState, useEffect, useRef } from 'react'
 import { supabase } from '@/lib/supabase'
 import { RefreshCw, Download, ChevronDown, Search, X, Check } from 'lucide-react'
 import * as XLSX from 'xlsx'
+import { sanitizeDataForExcel } from '@/lib/security/sanitize'
 import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
 import { Label } from "@/components/ui/label"
+
+// Excluded pricing categories for specific activities
+const EXCLUDED_PRICING_CATEGORIES: Record<string, string[]> = {
+  '217949': ['6 a 12 años', '13 a 17 años'],
+  '216954': ['6 a 12 años', '13 a 17 años'],
+  '220107': ['6 a 12 años', '13 a 17 años']
+}
+
+// Helper function to check if a pricing category should be excluded
+const shouldExcludePricingCategory = (activityId: string, categoryTitle: string): boolean => {
+  const excludedCategories = EXCLUDED_PRICING_CATEGORIES[activityId]
+  return excludedCategories ? excludedCategories.includes(categoryTitle) : false
+}
 
 export default function PivotTable() {
   const [data, setData] = useState<any[]>([])
@@ -233,6 +247,12 @@ export default function PivotTable() {
       let totalParticipants = 0
       booking.pricing_category_bookings?.forEach((pax: any) => {
         const category = pax.booked_title || 'Unknown'
+
+        // Skip excluded pricing categories for specific activities
+        if (shouldExcludePricingCategory(booking.activity_id, category)) {
+          return
+        }
+
         if (!slot.participants[category]) {
           slot.participants[category] = 0
         }
@@ -292,7 +312,7 @@ export default function PivotTable() {
       // Estrai tutte le categorie uniche dalle prenotazioni storiche
       historicalBookings?.forEach(booking => {
         booking.pricing_category_bookings?.forEach((pcb: any) => {
-          if (pcb.booked_title) {
+          if (pcb.booked_title && !shouldExcludePricingCategory(selectedProduct, pcb.booked_title)) {
             allCategories.add(pcb.booked_title)
           }
         })
@@ -408,9 +428,12 @@ export default function PivotTable() {
       return rowData
     })
 
+    // Sanitize data to prevent formula injection attacks
+    const sanitizedData = sanitizeDataForExcel(exportData)
+
     // Crea un nuovo workbook
     const wb = XLSX.utils.book_new()
-    const ws = XLSX.utils.json_to_sheet(exportData)
+    const ws = XLSX.utils.json_to_sheet(sanitizedData)
 
     // Aggiungi il foglio al workbook
     XLSX.utils.book_append_sheet(wb, ws, 'Prenotazioni')
