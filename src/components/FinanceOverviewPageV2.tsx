@@ -12,6 +12,7 @@ import { Checkbox } from '@/components/ui/checkbox'
 import { BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer, Legend } from 'recharts'
 import { format, subDays, subMonths, subYears, startOfYear, startOfWeek, endOfWeek, startOfMonth, endOfMonth } from 'date-fns'
 import * as XLSX from 'xlsx'
+import { sanitizeDataForExcel } from '@/lib/security/sanitize'
 
 // Constants
 const ENROMA_SELLER = 'EnRoma.com' as const
@@ -505,8 +506,11 @@ export default function FinanceOverviewPage() {
       })
     })
 
+    // Sanitize data to prevent formula injection attacks
+    const sanitizedData = sanitizeDataForExcel(exportData)
+
     const wb = XLSX.utils.book_new()
-    const ws = XLSX.utils.json_to_sheet(exportData)
+    const ws = XLSX.utils.json_to_sheet(sanitizedData)
     XLSX.utils.book_append_sheet(wb, ws, 'Finance Data')
 
     const fileName = `finance_export_${format(new Date(), 'yyyy-MM-dd')}.xlsx`

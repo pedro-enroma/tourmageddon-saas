@@ -18,8 +18,20 @@ const EXCLUDED_PRICING_CATEGORIES: Record<string, string[]> = {
   '220107': ['6 a 12 años', '13 a 17 años']
 }
 
+// Activities where ONLY specific pricing category IDs are allowed (by pricing_category_id)
+const ALLOWED_ONLY_PRICING_CATEGORY_IDS: Record<string, string[]> = {
+  '901961': ['780302', '815525', '281494']
+}
+
 // Helper function to check if a pricing category should be excluded
-const shouldExcludePricingCategory = (activityId: string, categoryTitle: string): boolean => {
+const shouldExcludePricingCategory = (activityId: string, categoryTitle: string, pricingCategoryId?: string): boolean => {
+  // First check if this activity has an "allowed only" list by pricing_category_id
+  const allowedOnlyIds = ALLOWED_ONLY_PRICING_CATEGORY_IDS[activityId]
+  if (allowedOnlyIds && pricingCategoryId) {
+    return !allowedOnlyIds.includes(pricingCategoryId)
+  }
+
+  // Then check the exclusion list by category title
   const excludedCategories = EXCLUDED_PRICING_CATEGORIES[activityId]
   return excludedCategories ? excludedCategories.includes(categoryTitle) : false
 }
@@ -122,6 +134,7 @@ export default function PivotTable() {
           creation_date
         ),
         pricing_category_bookings (
+          pricing_category_id,
           booked_title,
           quantity,
           age,
@@ -247,9 +260,10 @@ export default function PivotTable() {
       let totalParticipants = 0
       booking.pricing_category_bookings?.forEach((pax: any) => {
         const category = pax.booked_title || 'Unknown'
+        const pricingCategoryId = pax.pricing_category_id?.toString()
 
         // Skip excluded pricing categories for specific activities
-        if (shouldExcludePricingCategory(booking.activity_id, category)) {
+        if (shouldExcludePricingCategory(booking.activity_id, category, pricingCategoryId)) {
           return
         }
 
@@ -303,16 +317,18 @@ export default function PivotTable() {
         .from('activity_bookings')
         .select(`
           pricing_category_bookings (
+            pricing_category_id,
             booked_title
           )
         `)
         .eq('activity_id', selectedProduct)
         .not('pricing_category_bookings.booked_title', 'is', null)
-      
+
       // Estrai tutte le categorie uniche dalle prenotazioni storiche
       historicalBookings?.forEach(booking => {
         booking.pricing_category_bookings?.forEach((pcb: any) => {
-          if (pcb.booked_title && !shouldExcludePricingCategory(selectedProduct, pcb.booked_title)) {
+          const pricingCategoryId = pcb.pricing_category_id?.toString()
+          if (pcb.booked_title && !shouldExcludePricingCategory(selectedProduct, pcb.booked_title, pricingCategoryId)) {
             allCategories.add(pcb.booked_title)
           }
         })

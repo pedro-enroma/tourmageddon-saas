@@ -7,6 +7,7 @@ import { Button } from "@/components/ui/button"
 import { Label } from "@/components/ui/label"
 import { Input } from "@/components/ui/input"
 import { Progress } from "@/components/ui/progress"
+import { sanitizeSearchTerm } from '@/lib/security/validation'
 
 interface Product {
   activity_id: string
@@ -76,7 +77,8 @@ export default function AvailabilitySyncPage() {
         })
       }, 100)
 
-      const response = await fetch('https://booking-webhook-system-production.up.railway.app/api/sync/availability', {
+      // Use secure server-side API route instead of direct external call
+      const response = await fetch('/api/sync/availability', {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
@@ -113,9 +115,10 @@ export default function AvailabilitySyncPage() {
     }
   }
 
-  const filteredProducts = products.filter(p =>
-    p.title.toLowerCase().includes(searchTerm.toLowerCase())
-  )
+  const filteredProducts = products.filter(p => {
+    const sanitizedSearch = sanitizeSearchTerm(searchTerm).toLowerCase()
+    return p.title.toLowerCase().includes(sanitizedSearch)
+  })
 
   return (
     <div className="p-4 max-w-4xl mx-auto">

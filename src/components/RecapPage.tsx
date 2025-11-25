@@ -16,8 +16,20 @@ const EXCLUDED_PRICING_CATEGORIES: Record<string, string[]> = {
   '220107': ['6 a 12 años', '13 a 17 años']
 }
 
+// Activities where ONLY specific pricing category IDs are allowed (by pricing_category_id)
+const ALLOWED_ONLY_PRICING_CATEGORY_IDS: Record<string, string[]> = {
+  '901961': ['780302', '815525', '281494']
+}
+
 // Helper function to check if a pricing category should be excluded
-const shouldExcludePricingCategory = (activityId: string, categoryTitle: string): boolean => {
+const shouldExcludePricingCategory = (activityId: string, categoryTitle: string, pricingCategoryId?: string): boolean => {
+  // First check if this activity has an "allowed only" list by pricing_category_id
+  const allowedOnlyIds = ALLOWED_ONLY_PRICING_CATEGORY_IDS[activityId]
+  if (allowedOnlyIds && pricingCategoryId) {
+    return !allowedOnlyIds.includes(pricingCategoryId)
+  }
+
+  // Then check the exclusion list by category title
   const excludedCategories = EXCLUDED_PRICING_CATEGORIES[activityId]
   return excludedCategories ? excludedCategories.includes(categoryTitle) : false
 }
@@ -37,6 +49,7 @@ interface TourGroup {
 }
 
 interface Participant {
+  pricing_category_id?: string | number
   booked_title?: string
   quantity?: number
   age?: number
@@ -199,6 +212,7 @@ export default function RecapPage() {
           creation_date
         ),
         pricing_category_bookings (
+          pricing_category_id,
           booked_title,
           quantity,
           age,
@@ -279,6 +293,7 @@ export default function RecapPage() {
         .from('activity_bookings')
         .select(`
           pricing_category_bookings (
+            pricing_category_id,
             booked_title
           )
         `)
@@ -288,8 +303,9 @@ export default function RecapPage() {
       const historicalCategoriesSet = new Set<string>()
       historicalBookings?.forEach(booking => {
         if ('pricing_category_bookings' in booking && Array.isArray(booking.pricing_category_bookings)) {
-          booking.pricing_category_bookings.forEach((pcb: { booked_title?: string }) => {
-            if (pcb.booked_title && !shouldExcludePricingCategory(tourIds[0], pcb.booked_title)) {
+          booking.pricing_category_bookings.forEach((pcb: { pricing_category_id?: string | number; booked_title?: string }) => {
+            const pricingCategoryId = pcb.pricing_category_id?.toString()
+            if (pcb.booked_title && !shouldExcludePricingCategory(tourIds[0], pcb.booked_title, pricingCategoryId)) {
               historicalCategoriesSet.add(pcb.booked_title)
             }
           })
@@ -552,9 +568,10 @@ export default function RecapPage() {
       booking.pricing_category_bookings?.forEach((pcb: Participant) => {
         const category = pcb.booked_title || 'Unknown'
         const quantity = pcb.quantity || 1
+        const pricingCategoryId = pcb.pricing_category_id?.toString()
 
         // Skip excluded pricing categories for specific activities
-        if (shouldExcludePricingCategory(booking.activity_id, category)) {
+        if (shouldExcludePricingCategory(booking.activity_id, category, pricingCategoryId)) {
           return
         }
 

@@ -4,6 +4,8 @@ import { useState, useEffect, useRef } from 'react'
 import { supabase } from '@/lib/supabase'
 import { RefreshCw, Download, ChevronDown, Search, X, Edit } from 'lucide-react'
 import * as XLSX from 'xlsx'
+import { sanitizeDataForExcel } from '@/lib/security/sanitize'
+import { securityLogger } from '@/lib/security/logger'
 import {
   Table,
   TableBody,
@@ -26,7 +28,33 @@ import {
   DialogFooter,
 } from "@/components/ui/dialog"
 
+// Excluded pricing categories for specific activities
+const EXCLUDED_PRICING_CATEGORIES: Record<string, string[]> = {
+  '217949': ['6 a 12 años', '13 a 17 años'],
+  '216954': ['6 a 12 años', '13 a 17 años'],
+  '220107': ['6 a 12 años', '13 a 17 años']
+}
+
+// Activities where ONLY specific pricing category IDs are allowed (by pricing_category_id)
+const ALLOWED_ONLY_PRICING_CATEGORY_IDS: Record<string, string[]> = {
+  '901961': ['780302', '815525', '281494']
+}
+
+// Helper function to check if a pricing category should be excluded
+const shouldExcludePricingCategory = (activityId: string, categoryTitle: string, pricingCategoryId?: string): boolean => {
+  // First check if this activity has an "allowed only" list by pricing_category_id
+  const allowedOnlyIds = ALLOWED_ONLY_PRICING_CATEGORY_IDS[activityId]
+  if (allowedOnlyIds && pricingCategoryId) {
+    return !allowedOnlyIds.includes(pricingCategoryId)
+  }
+
+  // Then check the exclusion list by category title
+  const excludedCategories = EXCLUDED_PRICING_CATEGORIES[activityId]
+  return excludedCategories ? excludedCategories.includes(categoryTitle) : false
+}
+
 interface PaxData {
+  activity_id: string
   activity_title: string
   booking_date: string
   start_time: string
@@ -35,6 +63,7 @@ interface PaxData {
   total_participants: number
   participants_detail: string
   passengers: {
+    pricing_category_id?: string
     booked_title: string
     first_name: string | null
     last_name: string | null
@@ -76,8 +105,19 @@ export default function PaxNamesPage() {
   const [loadingParticipants, setLoadingParticipants] = useState(false)
   const [saving, setSaving] = useState(false)
 
+  // Current user for audit logging
+  const [currentUser, setCurrentUser] = useState<{ id: string; email: string } | null>(null)
+
   useEffect(() => {
     loadActivities()
+    // Get current user for audit logging
+    const getUser = async () => {
+      const { data: { user } } = await supabase.auth.getUser()
+      if (user) {
+        setCurrentUser({ id: user.id, email: user.email || 'unknown' })
+      }
+    }
+    getUser()
   }, [])
 
   // Auto-refresh data every hour
@@ -158,6 +198,7 @@ export default function PaxNamesPage() {
             status
           ),
           pricing_category_bookings (
+            pricing_category_id,
             booked_title,
             passenger_first_name,
             passenger_last_name,
@@ -229,30 +270,40 @@ export default function PaxNamesPage() {
 
       // Trasforma i dati nel formato richiesto
       const transformedData: PaxData[] = []
-      
+
       bookings?.forEach((booking: any) => {
         const bookingDate = new Date(booking.start_date_time)
         const dateStr = bookingDate.toISOString().split('T')[0]
-        
+        const activityId = booking.activity_id
+
         // Calcola il totale partecipanti e dettagli
         let totalParticipants = 0
         const passengers: any[] = []
         const participantTypes: { [key: string]: number } = {}
-        
+
         booking.pricing_category_bookings?.forEach((pax: any) => {
+          const pricingCategoryId = pax.pricing_category_id?.toString()
+          const bookedTitle = pax.booked_title || 'Unknown'
+
+          // Skip excluded pricing categories for specific activities
+          if (shouldExcludePricingCategory(activityId, bookedTitle, pricingCategoryId)) {
+            return
+          }
+
           const quantity = pax.quantity || 1
           totalParticipants += quantity
 
           // Conta per tipo di partecipante
-          if (participantTypes[pax.booked_title]) {
-            participantTypes[pax.booked_title] += quantity
+          if (participantTypes[bookedTitle]) {
+            participantTypes[bookedTitle] += quantity
           } else {
-            participantTypes[pax.booked_title] = quantity
+            participantTypes[bookedTitle] = quantity
           }
 
           // Add one passenger row per pricing_category_booking entry (no duplication)
           passengers.push({
-            booked_title: pax.booked_title,
+            pricing_category_id: pricingCategoryId,
+            booked_title: bookedTitle,
             first_name: pax.passenger_first_name,
             last_name: pax.passenger_last_name,
             date_of_birth: pax.passenger_date_of_birth
@@ -271,12 +322,13 @@ export default function PaxNamesPage() {
         }
 
         // Ottieni il titolo dell'attività dalla mappa
-        const activityTitle = activitiesMap.get(booking.activity_id) || 'N/A'
+        const activityTitle = activitiesMap.get(activityId) || 'N/A'
 
         // Ottieni i dati del cliente dalla mappa - booking_id come stringa
         const customerData = customerDataMap.get(String(booking.booking_id))
 
         transformedData.push({
+          activity_id: activityId,
           activity_title: activityTitle,
           booking_date: dateStr,
           start_time: booking.start_time || '',
@@ -361,9 +413,12 @@ export default function PaxNamesPage() {
       })
     }
 
+    // Sanitize data to prevent formula injection attacks
+    const sanitizedData = sanitizeDataForExcel(exportData)
+
     // Crea workbook e worksheet
     const wb = XLSX.utils.book_new()
-    const ws = XLSX.utils.json_to_sheet(exportData)
+    const ws = XLSX.utils.json_to_sheet(sanitizedData)
 
     // Imposta larghezza colonne basata sul tipo di vista
     const colWidths = showMainContactOnly ? [
@@ -448,7 +503,7 @@ export default function PaxNamesPage() {
 
         if (error) throw error
 
-        // Log the manual update
+        // Log the manual update with actual user ID
         await supabase
           .from('manual_participant_updates')
           .insert({
@@ -458,9 +513,17 @@ export default function PaxNamesPage() {
             passenger_first_name: participant.passenger_first_name,
             passenger_last_name: participant.passenger_last_name,
             passenger_date_of_birth: participant.passenger_date_of_birth,
-            updated_by: 'dashboard_user',
+            updated_by: currentUser?.email || currentUser?.id || 'unknown',
             updated_at: new Date().toISOString()
           })
+
+        // Security logging
+        securityLogger.dataModification(
+          currentUser?.id || 'unknown',
+          'pricing_category_bookings',
+          'update',
+          participant.pricing_category_booking_id
+        )
       }
 
       alert('Participants updated successfully!')

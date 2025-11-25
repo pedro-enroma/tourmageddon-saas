@@ -4,6 +4,7 @@ import { useState, useEffect, useRef } from 'react'
 import { supabase } from '@/lib/supabase'
 import { RefreshCw, Download, ChevronDown, ChevronUp, Search, Tags, X, Plus, Trash2 } from 'lucide-react'
 import * as XLSX from 'xlsx'
+import { sanitizeDataForExcel } from '@/lib/security/sanitize'
 
 // Tipi per le categorie
 interface TourCategory {
@@ -777,8 +778,11 @@ export default function MarketingExport() {
       })
     })
 
+    // Sanitize data to prevent formula injection attacks
+    const sanitizedData = sanitizeDataForExcel(exportData)
+
     const wb = XLSX.utils.book_new()
-    const ws = XLSX.utils.json_to_sheet(exportData)
+    const ws = XLSX.utils.json_to_sheet(sanitizedData)
     XLSX.utils.book_append_sheet(wb, ws, 'Marketing Export')
     const fileName = `marketing_export_${new Date().toISOString().split('T')[0]}.xlsx`
     XLSX.writeFile(wb, fileName)

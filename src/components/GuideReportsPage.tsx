@@ -5,6 +5,7 @@ import { supabase } from '@/lib/supabase'
 import { format } from 'date-fns'
 import { Download, Calendar as CalendarIcon, Users, FileSpreadsheet } from 'lucide-react'
 import * as XLSX from 'xlsx'
+import { sanitizeDataForExcel } from '@/lib/security/sanitize'
 
 interface Guide {
   guide_id: string
@@ -188,9 +189,12 @@ export default function GuideReportsPage() {
       'Status': assignment.status
     }))
 
+    // Sanitize data to prevent formula injection attacks
+    const sanitizedData = sanitizeDataForExcel(exportData)
+
     // Create workbook and worksheet
     const wb = XLSX.utils.book_new()
-    const ws = XLSX.utils.json_to_sheet(exportData)
+    const ws = XLSX.utils.json_to_sheet(sanitizedData)
 
     // Set column widths
     const colWidths = [

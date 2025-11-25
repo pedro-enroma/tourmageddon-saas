@@ -12,8 +12,20 @@ const EXCLUDED_PRICING_CATEGORIES: Record<string, string[]> = {
   '220107': ['6 a 12 años', '13 a 17 años']
 }
 
+// Activities where ONLY specific pricing category IDs are allowed (by pricing_category_id)
+const ALLOWED_ONLY_PRICING_CATEGORY_IDS: Record<string, string[]> = {
+  '901961': ['780302', '815525', '281494']
+}
+
 // Helper function to check if a pricing category should be excluded
-const shouldExcludePricingCategory = (activityId: string, categoryTitle: string): boolean => {
+const shouldExcludePricingCategory = (activityId: string, categoryTitle: string, pricingCategoryId?: string): boolean => {
+  // First check if this activity has an "allowed only" list by pricing_category_id
+  const allowedOnlyIds = ALLOWED_ONLY_PRICING_CATEGORY_IDS[activityId]
+  if (allowedOnlyIds && pricingCategoryId) {
+    return !allowedOnlyIds.includes(pricingCategoryId)
+  }
+
+  // Then check the exclusion list by category title
   const excludedCategories = EXCLUDED_PRICING_CATEGORIES[activityId]
   return excludedCategories ? excludedCategories.includes(categoryTitle) : false
 }
@@ -56,6 +68,7 @@ interface PaxData {
   total_participants: number
   participants_detail: string
   passengers: {
+    pricing_category_id?: string
     booked_title: string
     first_name: string | null
     last_name: string | null
@@ -250,6 +263,7 @@ export default function DailyListPage() {
             status
           ),
           pricing_category_bookings (
+            pricing_category_id,
             booked_title,
             passenger_first_name,
             passenger_last_name,
@@ -326,9 +340,10 @@ export default function DailyListPage() {
 
         booking.pricing_category_bookings?.forEach((pax: any) => {
           const quantity = pax.quantity || 1
+          const pricingCategoryId = pax.pricing_category_id?.toString()
 
           // Skip excluded pricing categories for specific activities
-          if (shouldExcludePricingCategory(booking.activity_id, pax.booked_title)) {
+          if (shouldExcludePricingCategory(booking.activity_id, pax.booked_title, pricingCategoryId)) {
             return
           }
 
@@ -341,6 +356,7 @@ export default function DailyListPage() {
           }
 
           passengers.push({
+            pricing_category_id: pricingCategoryId,
             booked_title: pax.booked_title,
             first_name: pax.passenger_first_name,
             last_name: pax.passenger_last_name,
@@ -579,6 +595,7 @@ export default function DailyListPage() {
       .from('activity_bookings')
       .select(`
         pricing_category_bookings (
+          pricing_category_id,
           booked_title
         )
       `)
@@ -588,7 +605,8 @@ export default function DailyListPage() {
     // Extract all unique categories from historical bookings
     historicalBookings?.forEach(booking => {
       booking.pricing_category_bookings?.forEach((pcb: any) => {
-        if (pcb.booked_title && !shouldExcludePricingCategory(activityId, pcb.booked_title)) {
+        const pricingCategoryId = pcb.pricing_category_id?.toString()
+        if (pcb.booked_title && !shouldExcludePricingCategory(activityId, pcb.booked_title, pricingCategoryId)) {
           allCategories.add(pcb.booked_title)
         }
       })
@@ -630,9 +648,10 @@ export default function DailyListPage() {
 
     booking.passengers.forEach(passenger => {
       const category = passenger.booked_title || 'Unknown'
+      const pricingCategoryId = passenger.pricing_category_id
 
       // Skip excluded pricing categories for specific activities
-      if (shouldExcludePricingCategory(booking.activity_id, category)) {
+      if (shouldExcludePricingCategory(booking.activity_id, category, pricingCategoryId)) {
         return
       }
 
