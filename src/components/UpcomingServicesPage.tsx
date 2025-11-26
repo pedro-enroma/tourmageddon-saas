@@ -1,14 +1,23 @@
 'use client'
 
-import { useState, useEffect } from 'react'
+import { useState, useEffect, useRef } from 'react'
 import { supabase } from '@/lib/supabase'
-import { Calendar, ChevronLeft, ChevronRight, User, Clock, Users, UserCheck } from 'lucide-react'
+import { Calendar, ChevronLeft, ChevronRight, User, Clock, Users, UserCheck, Paperclip, Upload, X, Mail, FileText, Send, Loader2 } from 'lucide-react'
 import { format, addDays, startOfDay } from 'date-fns'
+import { Button } from '@/components/ui/button'
 
 interface Person {
   id: string
   first_name: string
   last_name: string
+  email?: string
+}
+
+interface Attachment {
+  id: string
+  file_name: string
+  file_path: string
+  file_size?: number
 }
 
 interface ServiceSlot {
@@ -21,6 +30,7 @@ interface ServiceSlot {
   vacancy_opening: number
   guides: Person[]
   escorts: Person[]
+  attachments: Attachment[]
 }
 
 export default function UpcomingServicesPage() {
@@ -29,6 +39,20 @@ export default function UpcomingServicesPage() {
   const [error, setError] = useState<string | null>(null)
   const [selectedDate, setSelectedDate] = useState(new Date())
   const [excludedActivityIds, setExcludedActivityIds] = useState<string[]>([])
+
+  // Attachment upload states
+  const [uploadingFor, setUploadingFor] = useState<number | null>(null)
+  const fileInputRef = useRef<HTMLInputElement>(null)
+
+  // Email modal states
+  const [showEmailModal, setShowEmailModal] = useState(false)
+  const [emailService, setEmailService] = useState<ServiceSlot | null>(null)
+  const [emailSubject, setEmailSubject] = useState('')
+  const [emailBody, setEmailBody] = useState('')
+  const [selectedRecipients, setSelectedRecipients] = useState<string[]>([])
+  const [includeAttachments, setIncludeAttachments] = useState(true)
+  const [sendingEmail, setSendingEmail] = useState(false)
+  const [emailSuccess, setEmailSuccess] = useState<string | null>(null)
 
   useEffect(() => {
     fetchExcludedActivities()
@@ -110,7 +134,7 @@ export default function UpcomingServicesPage() {
         return acc
       }, {})
 
-      // Fetch guide assignments
+      // Fetch guide assignments with email
       const { data: guideAssignments, error: guideError } = await supabase
         .from('guide_assignments')
         .select(`
@@ -118,14 +142,15 @@ export default function UpcomingServicesPage() {
           guide:guides (
             guide_id,
             first_name,
-            last_name
+            last_name,
+            email
           )
         `)
         .in('activity_availability_id', availabilityIds)
 
       if (guideError) throw guideError
 
-      // Fetch escort assignments
+      // Fetch escort assignments with email
       const { data: escortAssignments, error: escortError } = await supabase
         .from('escort_assignments')
         .select(`
@@ -133,12 +158,32 @@ export default function UpcomingServicesPage() {
           escort:escorts (
             escort_id,
             first_name,
-            last_name
+            last_name,
+            email
           )
         `)
         .in('activity_availability_id', availabilityIds)
 
       if (escortError) throw escortError
+
+      // Fetch attachments for these availabilities
+      const { data: attachmentsData } = await supabase
+        .from('service_attachments')
+        .select('id, activity_availability_id, file_name, file_path, file_size')
+        .in('activity_availability_id', availabilityIds)
+
+      // Group attachments by availability id
+      const attachmentsByAvailability = new Map<number, Attachment[]>()
+      attachmentsData?.forEach(att => {
+        const existing = attachmentsByAvailability.get(att.activity_availability_id) || []
+        existing.push({
+          id: att.id,
+          file_name: att.file_name,
+          file_path: att.file_path,
+          file_size: att.file_size
+        })
+        attachmentsByAvailability.set(att.activity_availability_id, existing)
+      })
 
       // Group assignments by availability id
       const guidesByAvailability = new Map<number, Person[]>()
@@ -149,7 +194,8 @@ export default function UpcomingServicesPage() {
         existing.push({
           id: guide.guide_id,
           first_name: guide.first_name,
-          last_name: guide.last_name
+          last_name: guide.last_name,
+          email: guide.email
         })
         guidesByAvailability.set(ga.activity_availability_id, existing)
       })
@@ -162,7 +208,8 @@ export default function UpcomingServicesPage() {
         existing.push({
           id: escort.escort_id,
           first_name: escort.first_name,
-          last_name: escort.last_name
+          last_name: escort.last_name,
+          email: escort.email
         })
         escortsByAvailability.set(ea.activity_availability_id, existing)
       })
@@ -172,6 +219,7 @@ export default function UpcomingServicesPage() {
         .map(avail => {
           const guides = guidesByAvailability.get(avail.id) || []
           const escorts = escortsByAvailability.get(avail.id) || []
+          const attachments = attachmentsByAvailability.get(avail.id) || []
 
           // Only include if there's at least one assignment
           if (guides.length === 0 && escorts.length === 0) return null
@@ -185,7 +233,8 @@ export default function UpcomingServicesPage() {
             vacancy_sold: avail.vacancy_sold || 0,
             vacancy_opening: avail.vacancy_opening || 0,
             guides,
-            escorts
+            escorts,
+            attachments
           }
         })
         .filter((s): s is ServiceSlot => s !== null)
@@ -211,6 +260,216 @@ export default function UpcomingServicesPage() {
     setSelectedDate(startOfDay(new Date()))
   }
 
+  // Handle file upload
+  const handleFileUpload = async (event: React.ChangeEvent<HTMLInputElement>, serviceId: number) => {
+    const files = event.target.files
+    if (!files || files.length === 0) return
+
+    setUploadingFor(serviceId)
+
+    try {
+      for (const file of Array.from(files)) {
+        // Only allow PDFs
+        if (file.type !== 'application/pdf') {
+          setError('Only PDF files are allowed')
+          continue
+        }
+
+        // Upload to Supabase Storage
+        const fileName = `${serviceId}/${Date.now()}_${file.name}`
+        const { error: uploadError } = await supabase.storage
+          .from('service-attachments')
+          .upload(fileName, file)
+
+        if (uploadError) {
+          console.error('Upload error:', uploadError)
+          setError('Failed to upload file')
+          continue
+        }
+
+        // Get public URL
+        const { data: urlData } = supabase.storage
+          .from('service-attachments')
+          .getPublicUrl(fileName)
+
+        // Save attachment record
+        const { error: dbError } = await supabase
+          .from('service_attachments')
+          .insert({
+            activity_availability_id: serviceId,
+            file_name: file.name,
+            file_path: urlData.publicUrl,
+            file_size: file.size
+          })
+
+        if (dbError) {
+          console.error('DB error:', dbError)
+          setError('Failed to save attachment record')
+        }
+      }
+
+      // Refresh services to show new attachments
+      await fetchServices()
+    } catch (err) {
+      console.error('Error uploading:', err)
+      setError('Failed to upload file')
+    } finally {
+      setUploadingFor(null)
+      if (fileInputRef.current) {
+        fileInputRef.current.value = ''
+      }
+    }
+  }
+
+  // Delete attachment
+  const handleDeleteAttachment = async (attachment: Attachment) => {
+    if (!confirm(`Delete ${attachment.file_name}?`)) return
+
+    try {
+      // Extract storage path from URL
+      const urlParts = attachment.file_path.split('/service-attachments/')
+      const storagePath = urlParts[1]
+
+      if (storagePath) {
+        await supabase.storage
+          .from('service-attachments')
+          .remove([storagePath])
+      }
+
+      // Delete from database
+      await supabase
+        .from('service_attachments')
+        .delete()
+        .eq('id', attachment.id)
+
+      // Refresh services
+      await fetchServices()
+    } catch (err) {
+      console.error('Error deleting attachment:', err)
+      setError('Failed to delete attachment')
+    }
+  }
+
+  // Open email modal
+  const openEmailModal = (service: ServiceSlot) => {
+    setEmailService(service)
+    setEmailSubject(`Service Assignment: ${service.activity_title} - ${format(new Date(service.local_date), 'MMM d, yyyy')} at ${service.local_time.substring(0, 5)}`)
+    setEmailBody(`Hello {{name}},
+
+You have been assigned to the following service:
+
+Activity: ${service.activity_title}
+Date: ${format(new Date(service.local_date), 'EEEE, MMMM d, yyyy')}
+Time: ${service.local_time.substring(0, 5)}
+Participants: ${service.vacancy_sold} pax
+
+${service.attachments.length > 0 ? 'Please find the attached documents for this service.\n' : ''}
+Best regards,
+Tourmageddon Team`)
+
+    // Pre-select all recipients with emails
+    const allRecipients: string[] = []
+    service.guides.forEach(g => {
+      if (g.email) allRecipients.push(`guide:${g.id}`)
+    })
+    service.escorts.forEach(e => {
+      if (e.email) allRecipients.push(`escort:${e.id}`)
+    })
+    setSelectedRecipients(allRecipients)
+    setIncludeAttachments(true)
+    setEmailSuccess(null)
+    setShowEmailModal(true)
+  }
+
+  // Toggle recipient selection
+  const toggleRecipient = (recipientKey: string) => {
+    setSelectedRecipients(prev =>
+      prev.includes(recipientKey)
+        ? prev.filter(r => r !== recipientKey)
+        : [...prev, recipientKey]
+    )
+  }
+
+  // Send email
+  const handleSendEmail = async () => {
+    if (!emailService || selectedRecipients.length === 0) return
+
+    setSendingEmail(true)
+    setError(null)
+
+    try {
+      // Build recipients list
+      const recipients: { email: string; name: string; type: 'guide' | 'escort'; id: string }[] = []
+
+      selectedRecipients.forEach(key => {
+        const [type, id] = key.split(':')
+        if (type === 'guide') {
+          const guide = emailService.guides.find(g => g.id === id)
+          if (guide?.email) {
+            recipients.push({
+              email: guide.email,
+              name: `${guide.first_name} ${guide.last_name}`,
+              type: 'guide',
+              id: guide.id
+            })
+          }
+        } else if (type === 'escort') {
+          const escort = emailService.escorts.find(e => e.id === id)
+          if (escort?.email) {
+            recipients.push({
+              email: escort.email,
+              name: `${escort.first_name} ${escort.last_name}`,
+              type: 'escort',
+              id: escort.id
+            })
+          }
+        }
+      })
+
+      if (recipients.length === 0) {
+        setError('No valid recipients with email addresses')
+        return
+      }
+
+      // Get attachment URLs if including attachments
+      const attachmentUrls = includeAttachments
+        ? emailService.attachments.map(a => a.file_path)
+        : []
+
+      // Send email via API
+      const response = await fetch('/api/email/send', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          recipients,
+          subject: emailSubject,
+          body: emailBody,
+          activityAvailabilityId: emailService.id,
+          attachmentUrls
+        })
+      })
+
+      const result = await response.json()
+
+      if (!response.ok) {
+        throw new Error(result.error || 'Failed to send emails')
+      }
+
+      setEmailSuccess(`Successfully sent ${result.sent} email(s)${result.failed > 0 ? `, ${result.failed} failed` : ''}`)
+
+      // Close modal after 2 seconds on success
+      setTimeout(() => {
+        setShowEmailModal(false)
+        setEmailService(null)
+      }, 2000)
+    } catch (err) {
+      console.error('Error sending email:', err)
+      setError(err instanceof Error ? err.message : 'Failed to send emails')
+    } finally {
+      setSendingEmail(false)
+    }
+  }
+
   // Group services by time
   const groupedByTime = services.reduce((acc, service) => {
     const time = service.local_time
@@ -228,6 +487,20 @@ export default function UpcomingServicesPage() {
       <div className="flex justify-between items-center mb-6">
         <h1 className="text-2xl font-bold">Upcoming Services</h1>
       </div>
+
+      {/* Hidden file input */}
+      <input
+        type="file"
+        ref={fileInputRef}
+        className="hidden"
+        accept=".pdf"
+        multiple
+        onChange={(e) => {
+          if (uploadingFor) {
+            handleFileUpload(e, uploadingFor)
+          }
+        }}
+      />
 
       {/* Date Navigation */}
       <div className="bg-white rounded-lg shadow p-4 mb-6">
@@ -269,6 +542,7 @@ export default function UpcomingServicesPage() {
       {error && (
         <div className="bg-red-50 border border-red-200 rounded-lg p-4 mb-4">
           <p className="text-sm text-red-700">{error}</p>
+          <button onClick={() => setError(null)} className="text-xs text-red-600 underline mt-1">Dismiss</button>
         </div>
       )}
 
@@ -333,11 +607,225 @@ export default function UpcomingServicesPage() {
                         )}
                       </div>
                     </div>
+
+                    {/* Attachments Section */}
+                    <div className="mt-3 pt-3 border-t">
+                      <div className="flex items-center justify-between">
+                        <div className="flex items-center gap-2">
+                          <Paperclip className="w-4 h-4 text-gray-400" />
+                          <span className="text-xs text-gray-500">
+                            {service.attachments.length} attachment{service.attachments.length !== 1 ? 's' : ''}
+                          </span>
+                        </div>
+                        <div className="flex gap-2">
+                          <Button
+                            variant="outline"
+                            size="sm"
+                            onClick={() => {
+                              setUploadingFor(service.id)
+                              fileInputRef.current?.click()
+                            }}
+                            disabled={uploadingFor === service.id}
+                            className="h-7 text-xs"
+                          >
+                            {uploadingFor === service.id ? (
+                              <Loader2 className="w-3 h-3 mr-1 animate-spin" />
+                            ) : (
+                              <Upload className="w-3 h-3 mr-1" />
+                            )}
+                            Add PDF
+                          </Button>
+                          <Button
+                            variant="outline"
+                            size="sm"
+                            onClick={() => openEmailModal(service)}
+                            className="h-7 text-xs"
+                          >
+                            <Mail className="w-3 h-3 mr-1" />
+                            Send Email
+                          </Button>
+                        </div>
+                      </div>
+
+                      {/* Attachment List */}
+                      {service.attachments.length > 0 && (
+                        <div className="mt-2 space-y-1">
+                          {service.attachments.map(att => (
+                            <div key={att.id} className="flex items-center justify-between bg-gray-50 rounded px-2 py-1">
+                              <a
+                                href={att.file_path}
+                                target="_blank"
+                                rel="noopener noreferrer"
+                                className="flex items-center gap-2 text-xs text-blue-600 hover:underline truncate"
+                              >
+                                <FileText className="w-3 h-3" />
+                                {att.file_name}
+                              </a>
+                              <button
+                                onClick={() => handleDeleteAttachment(att)}
+                                className="text-gray-400 hover:text-red-600 p-1"
+                              >
+                                <X className="w-3 h-3" />
+                              </button>
+                            </div>
+                          ))}
+                        </div>
+                      )}
+                    </div>
                   </div>
                 ))}
               </div>
             </div>
           ))}
+        </div>
+      )}
+
+      {/* Email Modal */}
+      {showEmailModal && emailService && (
+        <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50 p-4">
+          <div className="bg-white rounded-lg shadow-xl max-w-2xl w-full max-h-[90vh] overflow-y-auto">
+            <div className="p-6 border-b flex justify-between items-start">
+              <div>
+                <h2 className="text-xl font-semibold">Send Email</h2>
+                <p className="text-sm text-gray-500 mt-1">
+                  {emailService.activity_title} - {emailService.local_time.substring(0, 5)}
+                </p>
+              </div>
+              <button onClick={() => setShowEmailModal(false)} className="text-gray-500 hover:text-gray-700">
+                <X className="w-6 h-6" />
+              </button>
+            </div>
+
+            <div className="p-6 space-y-4">
+              {/* Success Message */}
+              {emailSuccess && (
+                <div className="bg-green-50 border border-green-200 rounded-lg p-4">
+                  <p className="text-sm text-green-700">{emailSuccess}</p>
+                </div>
+              )}
+
+              {/* Error Message */}
+              {error && (
+                <div className="bg-red-50 border border-red-200 rounded-lg p-4">
+                  <p className="text-sm text-red-700">{error}</p>
+                </div>
+              )}
+
+              {/* Recipients */}
+              <div>
+                <label className="block text-sm font-medium mb-2">Recipients</label>
+                <div className="border rounded-lg p-3 space-y-2">
+                  {emailService.guides.length > 0 && (
+                    <div>
+                      <span className="text-xs text-purple-600 font-medium">Guides</span>
+                      <div className="mt-1 space-y-1">
+                        {emailService.guides.map(guide => (
+                          <label key={guide.id} className="flex items-center gap-2 text-sm">
+                            <input
+                              type="checkbox"
+                              checked={selectedRecipients.includes(`guide:${guide.id}`)}
+                              onChange={() => toggleRecipient(`guide:${guide.id}`)}
+                              disabled={!guide.email}
+                              className="rounded"
+                            />
+                            <span className={!guide.email ? 'text-gray-400' : ''}>
+                              {guide.first_name} {guide.last_name}
+                              {guide.email ? ` (${guide.email})` : ' (no email)'}
+                            </span>
+                          </label>
+                        ))}
+                      </div>
+                    </div>
+                  )}
+                  {emailService.escorts.length > 0 && (
+                    <div className={emailService.guides.length > 0 ? 'pt-2 border-t' : ''}>
+                      <span className="text-xs text-green-600 font-medium">Escorts</span>
+                      <div className="mt-1 space-y-1">
+                        {emailService.escorts.map(escort => (
+                          <label key={escort.id} className="flex items-center gap-2 text-sm">
+                            <input
+                              type="checkbox"
+                              checked={selectedRecipients.includes(`escort:${escort.id}`)}
+                              onChange={() => toggleRecipient(`escort:${escort.id}`)}
+                              disabled={!escort.email}
+                              className="rounded"
+                            />
+                            <span className={!escort.email ? 'text-gray-400' : ''}>
+                              {escort.first_name} {escort.last_name}
+                              {escort.email ? ` (${escort.email})` : ' (no email)'}
+                            </span>
+                          </label>
+                        ))}
+                      </div>
+                    </div>
+                  )}
+                </div>
+              </div>
+
+              {/* Subject */}
+              <div>
+                <label className="block text-sm font-medium mb-2">Subject</label>
+                <input
+                  type="text"
+                  value={emailSubject}
+                  onChange={(e) => setEmailSubject(e.target.value)}
+                  className="w-full px-3 py-2 border rounded-md text-sm"
+                />
+              </div>
+
+              {/* Body */}
+              <div>
+                <label className="block text-sm font-medium mb-2">Message</label>
+                <textarea
+                  value={emailBody}
+                  onChange={(e) => setEmailBody(e.target.value)}
+                  rows={8}
+                  className="w-full px-3 py-2 border rounded-md text-sm font-mono"
+                />
+                <p className="text-xs text-gray-500 mt-1">
+                  Use {"{{name}}"} to insert recipient&apos;s name
+                </p>
+              </div>
+
+              {/* Attachments option */}
+              {emailService.attachments.length > 0 && (
+                <div>
+                  <label className="flex items-center gap-2 text-sm">
+                    <input
+                      type="checkbox"
+                      checked={includeAttachments}
+                      onChange={(e) => setIncludeAttachments(e.target.checked)}
+                      className="rounded"
+                    />
+                    Include {emailService.attachments.length} PDF attachment{emailService.attachments.length !== 1 ? 's' : ''}
+                  </label>
+                </div>
+              )}
+
+              {/* Actions */}
+              <div className="flex justify-end gap-3 pt-4 border-t">
+                <Button variant="outline" onClick={() => setShowEmailModal(false)}>
+                  Cancel
+                </Button>
+                <Button
+                  onClick={handleSendEmail}
+                  disabled={sendingEmail || selectedRecipients.length === 0}
+                >
+                  {sendingEmail ? (
+                    <>
+                      <Loader2 className="w-4 h-4 mr-2 animate-spin" />
+                      Sending...
+                    </>
+                  ) : (
+                    <>
+                      <Send className="w-4 h-4 mr-2" />
+                      Send Email
+                    </>
+                  )}
+                </Button>
+              </div>
+            </div>
+          </div>
         </div>
       )}
     </div>
