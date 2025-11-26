@@ -21,6 +21,7 @@ interface ActivityAvailability {
   vacancy_available: number
   vacancy_sold: number
   vacancy_opening: number
+  actual_booking_count: number // Actual number of bookings from activity_bookings
   activity: {
     activity_id: string
     title: string
@@ -248,11 +249,33 @@ export default function StaffCalendarPage() {
         escortAssignmentsMap.set(assignment.activity_availability_id, [...existing, assignment])
       })
 
-      const availsWithStaff = avails?.map(avail => ({
-        ...avail,
-        guide_assignments: guideAssignmentsMap.get(avail.id) || [],
-        escort_assignments: escortAssignmentsMap.get(avail.id) || []
-      }))
+      // Fetch actual bookings from activity_bookings for accurate counts
+      const { data: bookingsData } = await supabase
+        .from('activity_bookings')
+        .select('activity_id, start_time')
+        .gte('start_date_time', `${startStr}T00:00:00`)
+        .lt('start_date_time', `${endStr}T23:59:59`)
+
+      // Count bookings by activity_id + start_time
+      const bookingCountsMap = new Map<string, number>()
+      bookingsData?.forEach(booking => {
+        // Normalize time: "10:00" -> "10:00:00"
+        const normalizedTime = booking.start_time.length === 5 ? `${booking.start_time}:00` : booking.start_time
+        const key = `${booking.activity_id}_${normalizedTime}`
+        bookingCountsMap.set(key, (bookingCountsMap.get(key) || 0) + 1)
+      })
+
+      const availsWithStaff = avails?.map(avail => {
+        // Match bookings by activity_id and local_time
+        const key = `${avail.activity_id}_${avail.local_time}`
+        const actualBookingCount = bookingCountsMap.get(key) || 0
+        return {
+          ...avail,
+          actual_booking_count: actualBookingCount,
+          guide_assignments: guideAssignmentsMap.get(avail.id) || [],
+          escort_assignments: escortAssignmentsMap.get(avail.id) || []
+        }
+      })
 
       const filtered = availsWithStaff || []
 
@@ -356,7 +379,7 @@ export default function StaffCalendarPage() {
     }
 
     if (showOnlyWithBookings) {
-      filtered = filtered.filter(avail => (avail.vacancy_sold || 0) > 0)
+      filtered = filtered.filter(avail => (avail.actual_booking_count || 0) > 0)
     }
 
     if (showOnlyUnassigned) {
@@ -370,7 +393,7 @@ export default function StaffCalendarPage() {
   }
 
   const getStatusColor = (availability: ActivityAvailability) => {
-    const hasBookings = (availability.vacancy_sold || 0) > 0
+    const hasBookings = (availability.actual_booking_count || 0) > 0
     const hasGuides = availability.guide_assignments && availability.guide_assignments.length > 0
     const hasEscorts = availability.escort_assignments && availability.escort_assignments.length > 0
     const hasStaff = hasGuides || hasEscorts
@@ -1066,7 +1089,7 @@ export default function StaffCalendarPage() {
                         <div className="truncate">{avail.activity.title}</div>
                         <div className="flex items-center gap-1 mt-1">
                           <Users className="w-3 h-3" />
-                          <span>{avail.vacancy_sold || 0}/{avail.vacancy_opening || 0}</span>
+                          <span>{avail.actual_booking_count || 0} bookings</span>
                         </div>
                         {(avail.guide_assignments?.length > 0 || avail.escort_assignments?.length > 0) && (
                           <div className="flex gap-2 text-xs mt-1">
@@ -1116,7 +1139,7 @@ export default function StaffCalendarPage() {
                   </div>
                   <div className="flex items-center gap-2">
                     <Users className="w-4 h-4" />
-                    <span>{selectedSlot.vacancy_sold || 0} / {selectedSlot.vacancy_opening || 0} participants</span>
+                    <span>{selectedSlot.actual_booking_count || 0} bookings</span>
                   </div>
                 </div>
               </div>

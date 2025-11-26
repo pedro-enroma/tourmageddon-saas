@@ -86,7 +86,7 @@ The daily list with all bookings is also attached.
 {{/if}}
 
 Best regards,
-Tourmageddon Team',
+EnRoma.com Team',
     true
 ) ON CONFLICT DO NOTHING;
 

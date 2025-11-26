@@ -38,7 +38,9 @@
       "Bash(git remote set-url:*)",
       "Bash(ssh-keyscan:*)",
       "Bash(~/.ssh/known_hosts)",
-      "Bash(npm audit:*)"
+      "Bash(npm audit:*)",
+      "Bash(npm ls:*)",
+      "Bash(PGPASSWORD='bqsj3VQN8R3nYNlT' psql:*)"
     ],
     "deny": [],
     "ask": []

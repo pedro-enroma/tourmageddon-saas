@@ -2,7 +2,8 @@
 'use client'
 import { useState, useEffect, useRef } from 'react'
 import { supabase } from '@/lib/supabase'
-import { Download, ChevronDown, Search, X, GripVertical, ChevronRight } from 'lucide-react'
+import { Download, ChevronDown, Search, X, GripVertical, ChevronRight, User, UserCheck, Paperclip, Upload, Mail, Send, Loader2 } from 'lucide-react'
+import { format } from 'date-fns'
 import * as XLSX from 'xlsx-js-style'
 
 // Excluded pricing categories for specific activities
@@ -95,6 +96,47 @@ interface TourGroup {
   isExpanded: boolean
 }
 
+interface Person {
+  id: string
+  first_name: string
+  last_name: string
+  email?: string
+}
+
+interface StaffAssignment {
+  activityAvailabilityId: number
+  activityId: string
+  localTime: string
+  guides: Person[]
+  escorts: Person[]
+}
+
+interface Attachment {
+  id: string
+  file_name: string
+  file_path: string
+  activity_availability_id: number
+}
+
+interface EmailTemplate {
+  id: string
+  name: string
+  subject: string
+  body: string
+  is_default: boolean
+}
+
+interface EmailLog {
+  id: string
+  recipient_email: string
+  recipient_name: string | null
+  recipient_type: 'guide' | 'escort' | null
+  subject: string
+  status: 'pending' | 'sent' | 'delivered' | 'read' | 'replied' | 'failed'
+  error_message: string | null
+  sent_at: string
+}
+
 export default function DailyListPage() {
   const [data, setData] = useState<PaxData[]>([])
   const [groupedTours, setGroupedTours] = useState<TourGroup[]>([])
@@ -110,6 +152,37 @@ export default function DailyListPage() {
     end: new Date().toISOString().split('T')[0]
   })
 
+  // Staff assignments and attachments
+  const [staffAssignments, setStaffAssignments] = useState<Map<number, StaffAssignment>>(new Map())
+  const [attachments, setAttachments] = useState<Attachment[]>([])
+
+  // Email modal state
+  const [showEmailModal, setShowEmailModal] = useState(false)
+  const [emailTimeSlot, setEmailTimeSlot] = useState<{ tourTitle: string; time: string; activityId: string; availabilityId: number } | null>(null)
+  const [emailTemplates, setEmailTemplates] = useState<EmailTemplate[]>([])
+  const [selectedTemplateId, setSelectedTemplateId] = useState<string>('')
+  const [emailSubject, setEmailSubject] = useState('')
+  const [emailBody, setEmailBody] = useState('')
+  const [selectedRecipients, setSelectedRecipients] = useState<string[]>([])
+  const [includeAttachments, setIncludeAttachments] = useState(true)
+  const [includeDailyList, setIncludeDailyList] = useState(true)
+  const [sendingEmail, setSendingEmail] = useState(false)
+  const [emailSuccess, setEmailSuccess] = useState<string | null>(null)
+  const [emailError, setEmailError] = useState<string | null>(null)
+
+  // Bulk email state
+  const [sendingBulkGuides, setSendingBulkGuides] = useState(false)
+  const [sendingBulkEscorts, setSendingBulkEscorts] = useState(false)
+  const [bulkEmailProgress, setBulkEmailProgress] = useState<{ sent: number; total: number } | null>(null)
+
+  // Email logs state
+  const [emailLogs, setEmailLogs] = useState<EmailLog[]>([])
+  const [loadingLogs, setLoadingLogs] = useState(false)
+
+  // File upload
+  const fileInputRef = useRef<HTMLInputElement>(null)
+  const [uploadingFor, setUploadingFor] = useState<number | null>(null)
+
   // Drag and drop sensors
   const sensors = useSensors(
     useSensor(PointerSensor),
@@ -120,7 +193,1075 @@ export default function DailyListPage() {
 
   useEffect(() => {
     loadActivitiesAndFetchData()
+    fetchEmailTemplates()
   }, [])
+
+  // Fetch email templates
+  const fetchEmailTemplates = async () => {
+    const { data, error } = await supabase
+      .from('email_templates')
+      .select('*')
+      .order('is_default', { ascending: false })
+      .order('name', { ascending: true })
+
+    if (!error && data) {
+      setEmailTemplates(data)
+    }
+  }
+
+  // Fetch email logs for the selected date
+  const fetchEmailLogs = async (dateStr: string) => {
+    setLoadingLogs(true)
+    try {
+      // Get start and end of the day in UTC
+      const startOfDay = `${dateStr}T00:00:00`
+      const endOfDay = `${dateStr}T23:59:59`
+
+      const { data, error } = await supabase
+        .from('email_logs')
+        .select('*')
+        .gte('sent_at', startOfDay)
+        .lte('sent_at', endOfDay)
+        .order('sent_at', { ascending: false })
+
+      if (!error && data) {
+        setEmailLogs(data)
+      }
+    } catch (err) {
+      console.error('Error fetching email logs:', err)
+    } finally {
+      setLoadingLogs(false)
+    }
+  }
+
+  // Fetch staff assignments for all activity availabilities on the selected date
+  const fetchStaffAndAttachments = async (dateStr: string, activityIds: string[]) => {
+    if (activityIds.length === 0) return
+
+    // Fetch activity availabilities for the date
+    const { data: availabilities } = await supabase
+      .from('activity_availability')
+      .select('id, activity_id, local_time')
+      .eq('local_date', dateStr)
+      .in('activity_id', activityIds)
+      .gt('vacancy_sold', 0)
+
+    if (!availabilities || availabilities.length === 0) {
+      setStaffAssignments(new Map())
+      setAttachments([])
+      return
+    }
+
+    const availabilityIds = availabilities.map(a => a.id)
+
+    // Fetch guide assignments
+    const { data: guideAssignments } = await supabase
+      .from('guide_assignments')
+      .select(`
+        activity_availability_id,
+        guide:guides (guide_id, first_name, last_name, email)
+      `)
+      .in('activity_availability_id', availabilityIds)
+
+    // Fetch escort assignments
+    const { data: escortAssignments } = await supabase
+      .from('escort_assignments')
+      .select(`
+        activity_availability_id,
+        escort:escorts (escort_id, first_name, last_name, email)
+      `)
+      .in('activity_availability_id', availabilityIds)
+
+    // Fetch attachments
+    const { data: attachmentsData } = await supabase
+      .from('service_attachments')
+      .select('id, activity_availability_id, file_name, file_path')
+      .in('activity_availability_id', availabilityIds)
+
+    setAttachments(attachmentsData || [])
+
+    // Build staff assignments map
+    const staffMap = new Map<number, StaffAssignment>()
+
+    availabilities.forEach(avail => {
+      staffMap.set(avail.id, {
+        activityAvailabilityId: avail.id,
+        activityId: avail.activity_id,
+        localTime: avail.local_time,
+        guides: [],
+        escorts: []
+      })
+    })
+
+    guideAssignments?.forEach(ga => {
+      const guide = Array.isArray(ga.guide) ? ga.guide[0] : ga.guide
+      if (guide && staffMap.has(ga.activity_availability_id)) {
+        staffMap.get(ga.activity_availability_id)!.guides.push({
+          id: guide.guide_id,
+          first_name: guide.first_name,
+          last_name: guide.last_name,
+          email: guide.email
+        })
+      }
+    })
+
+    escortAssignments?.forEach(ea => {
+      const escort = Array.isArray(ea.escort) ? ea.escort[0] : ea.escort
+      if (escort && staffMap.has(ea.activity_availability_id)) {
+        staffMap.get(ea.activity_availability_id)!.escorts.push({
+          id: escort.escort_id,
+          first_name: escort.first_name,
+          last_name: escort.last_name,
+          email: escort.email
+        })
+      }
+    })
+
+    setStaffAssignments(staffMap)
+  }
+
+  // Get availability ID for a time slot
+  const getAvailabilityId = async (activityId: string, dateStr: string, time: string): Promise<number | null> => {
+    const { data } = await supabase
+      .from('activity_availability')
+      .select('id')
+      .eq('activity_id', activityId)
+      .eq('local_date', dateStr)
+      .eq('local_time', time)
+      .single()
+
+    return data?.id || null
+  }
+
+  // Handle file upload
+  const handleFileUpload = async (event: React.ChangeEvent<HTMLInputElement>, availabilityId: number) => {
+    const files = event.target.files
+    if (!files || files.length === 0) return
+
+    setUploadingFor(availabilityId)
+
+    try {
+      for (const file of Array.from(files)) {
+        if (file.type !== 'application/pdf') continue
+
+        const fileName = `${availabilityId}/${Date.now()}_${file.name}`
+        const { error: uploadError } = await supabase.storage
+          .from('service-attachments')
+          .upload(fileName, file)
+
+        if (uploadError) {
+          console.error('Upload error:', uploadError)
+          continue
+        }
+
+        const { data: urlData } = supabase.storage
+          .from('service-attachments')
+          .getPublicUrl(fileName)
+
+        await supabase.from('service_attachments').insert({
+          activity_availability_id: availabilityId,
+          file_name: file.name,
+          file_path: urlData.publicUrl,
+          file_size: file.size
+        })
+      }
+
+      // Refresh attachments
+      await fetchStaffAndAttachments(selectedDate, selectedActivities)
+    } catch (err) {
+      console.error('Error uploading:', err)
+    } finally {
+      setUploadingFor(null)
+      if (fileInputRef.current) fileInputRef.current.value = ''
+    }
+  }
+
+  // Delete attachment
+  const handleDeleteAttachment = async (attachment: Attachment) => {
+    if (!confirm(`Delete ${attachment.file_name}?`)) return
+
+    const urlParts = attachment.file_path.split('/service-attachments/')
+    const storagePath = urlParts[1]
+
+    if (storagePath) {
+      await supabase.storage.from('service-attachments').remove([storagePath])
+    }
+
+    await supabase.from('service_attachments').delete().eq('id', attachment.id)
+    await fetchStaffAndAttachments(selectedDate, selectedActivities)
+  }
+
+  // Generate daily list Excel for email (identical styling to export button)
+  const generateDailyListExcel = async (tour: TourGroup, timeSlot: TimeSlotGroup, guideName?: string): Promise<{ data: string; fileName: string } | null> => {
+    try {
+      const firstBooking = timeSlot.bookings[0]
+      if (!firstBooking) return null
+
+      const participantCategories = await getAllParticipantCategoriesForActivity(firstBooking.activity_id)
+      const bookingDate = new Date(firstBooking.booking_date).toLocaleDateString('it-IT')
+
+      const excelData: any[][] = []
+      const titleHeader = `${tour.tourTitle} - ${bookingDate} - ${timeSlot.time}`
+      excelData.push([titleHeader])
+
+      const headers = ['Data', 'Ora', ...participantCategories, 'Nome e Cognome', 'Telefono']
+      excelData.push(headers)
+
+      const totals: { [key: string]: number } = {}
+      participantCategories.forEach(cat => totals[cat] = 0)
+
+      timeSlot.bookings.forEach(booking => {
+        const fullName = `${booking.customer?.first_name || ''} ${booking.customer?.last_name || ''}`.trim()
+        const participantCounts = getParticipantCounts(booking)
+
+        const row: any[] = [
+          new Date(booking.booking_date).toLocaleDateString('it-IT'),
+          booking.start_time
+        ]
+
+        participantCategories.forEach(category => {
+          const count = participantCounts[category] || 0
+          row.push(count)
+          totals[category] += count
+        })
+
+        row.push(fullName)
+        row.push(booking.customer?.phone_number || '')
+        excelData.push(row)
+      })
+
+      const participantsRow: any[] = ['', 'Participants']
+      participantCategories.forEach(category => participantsRow.push(totals[category]))
+      participantsRow.push('', '')
+      excelData.push(participantsRow)
+
+      const totalParticipants = participantCategories.reduce((sum, cat) => sum + totals[cat], 0)
+      const totalPaxRow: any[] = ['', 'TOTAL PAX', totalParticipants]
+      for (let i = 0; i < participantCategories.length - 1; i++) totalPaxRow.push('')
+      // Add guide label and name at the end
+      totalPaxRow.push('guide')
+      totalPaxRow.push(guideName || '')
+      excelData.push(totalPaxRow)
+
+      const wb = XLSX.utils.book_new()
+      const ws = XLSX.utils.aoa_to_sheet(excelData)
+
+      // Merge title cells
+      if (!ws['!merges']) ws['!merges'] = []
+      ws['!merges'].push({
+        s: { r: 0, c: 0 },
+        e: { r: 0, c: participantCategories.length + 3 }
+      })
+
+      // Style the cells (same as export button)
+      const totalCols = participantCategories.length + 4 // Data, Ora, categories, Nome, Telefono
+
+      // Apply style to title row (merged cell) - blue background, white text, 18pt
+      for (let col = 0; col < totalCols; col++) {
+        const cellAddress = XLSX.utils.encode_cell({ r: 0, c: col })
+        if (!ws[cellAddress]) ws[cellAddress] = { t: 's', v: '' }
+        ws[cellAddress].s = {
+          font: { bold: true, sz: 18, color: { rgb: "FFFFFF" } },
+          fill: { fgColor: { rgb: "4472C4" } },
+          alignment: { horizontal: "center", vertical: "center" }
+        }
+      }
+
+      // Style header row (Row 2) - bold and light gray background
+      for (let col = 0; col < totalCols; col++) {
+        const cellAddress = XLSX.utils.encode_cell({ r: 1, c: col })
+        const cell = ws[cellAddress]
+        if (cell) {
+          cell.s = {
+            font: { bold: true, sz: 13 },
+            fill: { fgColor: { rgb: "D9D9D9" } },
+            alignment: { horizontal: "center", vertical: "center" }
+          }
+        }
+      }
+
+      // Style the Participants and TOTAL PAX rows
+      const participantsRowIndex = 2 + timeSlot.bookings.length
+      const totalPaxRowIndex = participantsRowIndex + 1
+
+      // Style Participants row - light gray background, bold
+      for (let col = 0; col < totalCols; col++) {
+        const cellAddress = XLSX.utils.encode_cell({ r: participantsRowIndex, c: col })
+        const cell = ws[cellAddress]
+        if (cell) {
+          cell.s = {
+            font: { bold: true, sz: 13 },
+            fill: { fgColor: { rgb: "D9D9D9" } },
+            alignment: { horizontal: "center", vertical: "center" }
+          }
+        }
+      }
+
+      // Style TOTAL PAX row - blue background, white text
+      for (let col = 0; col < totalCols; col++) {
+        const cellAddress = XLSX.utils.encode_cell({ r: totalPaxRowIndex, c: col })
+        if (!ws[cellAddress]) ws[cellAddress] = { t: 's', v: '' }
+        ws[cellAddress].s = {
+          font: { bold: true, sz: 13, color: { rgb: "FFFFFF" } },
+          fill: { fgColor: { rgb: "4472C4" } },
+          alignment: { horizontal: "center", vertical: "center" }
+        }
+      }
+
+      // Style data rows (booking rows) with font size 13
+      for (let row = 2; row < 2 + timeSlot.bookings.length; row++) {
+        for (let col = 0; col < totalCols; col++) {
+          const cellAddress = XLSX.utils.encode_cell({ r: row, c: col })
+          const cell = ws[cellAddress]
+          if (cell) {
+            cell.s = {
+              font: { sz: 13 },
+              alignment: { horizontal: "center", vertical: "center" }
+            }
+          }
+        }
+      }
+
+      // Set row heights
+      if (!ws['!rows']) ws['!rows'] = []
+      ws['!rows'][0] = { hpt: 30 } // Title row height
+      ws['!rows'][1] = { hpt: 20 } // Header row height
+
+      // Set column widths
+      const colWidths = [
+        { wch: 12 }, // Data
+        { wch: 8 },  // Ora
+        ...participantCategories.map(() => ({ wch: 15 })), // Participant columns
+        { wch: 25 }, // Nome e Cognome
+        { wch: 20 }, // Telefono
+      ]
+      ws['!cols'] = colWidths
+
+      XLSX.utils.book_append_sheet(wb, ws, 'Lista')
+
+      const buffer = XLSX.write(wb, { type: 'base64', bookType: 'xlsx' })
+      const cleanTourTitle = tour.tourTitle.replace(/[/\\?%*:|"<>]/g, '-')
+      const cleanTime = timeSlot.time.replace(/:/g, '.')
+
+      return {
+        data: buffer,
+        fileName: `${cleanTourTitle} + ${bookingDate} + ${cleanTime}.xlsx`
+      }
+    } catch (err) {
+      console.error('Error generating daily list:', err)
+      return null
+    }
+  }
+
+  // Apply template variables
+  const applyTemplateVariables = (text: string, tourTitle: string, dateStr: string, time: string, paxCount: number) => {
+    return text
+      .replace(/\{\{tour_title\}\}/g, tourTitle)
+      .replace(/\{\{date\}\}/g, format(new Date(dateStr), 'EEEE, MMMM d, yyyy'))
+      .replace(/\{\{time\}\}/g, time.substring(0, 5))
+      .replace(/\{\{pax_count\}\}/g, String(paxCount))
+  }
+
+  // Handle template selection
+  const handleTemplateSelect = (templateId: string) => {
+    setSelectedTemplateId(templateId)
+    if (!templateId || !emailTimeSlot) return
+
+    const template = emailTemplates.find(t => t.id === templateId)
+    const tour = groupedTours.find(t => t.tourTitle === emailTimeSlot.tourTitle)
+    const timeSlot = tour?.timeSlots.find(ts => ts.time === emailTimeSlot.time)
+
+    if (template && timeSlot) {
+      setEmailSubject(applyTemplateVariables(template.subject, emailTimeSlot.tourTitle, selectedDate, emailTimeSlot.time, timeSlot.totalParticipants))
+      setEmailBody(applyTemplateVariables(template.body, emailTimeSlot.tourTitle, selectedDate, emailTimeSlot.time, timeSlot.totalParticipants))
+    }
+  }
+
+  // Open email modal
+  const openEmailModal = async (tour: TourGroup, timeSlot: TimeSlotGroup) => {
+    const firstBooking = timeSlot.bookings[0]
+    if (!firstBooking) return
+
+    const availabilityId = await getAvailabilityId(firstBooking.activity_id, firstBooking.booking_date, timeSlot.time)
+    if (!availabilityId) {
+      alert('Could not find availability for this time slot')
+      return
+    }
+
+    const staff = staffAssignments.get(availabilityId)
+
+    setEmailTimeSlot({
+      tourTitle: tour.tourTitle,
+      time: timeSlot.time,
+      activityId: firstBooking.activity_id,
+      availabilityId
+    })
+
+    // Find default template
+    const defaultTemplate = emailTemplates.find(t => t.is_default) || emailTemplates[0]
+    if (defaultTemplate) {
+      setSelectedTemplateId(defaultTemplate.id)
+      setEmailSubject(applyTemplateVariables(defaultTemplate.subject, tour.tourTitle, selectedDate, timeSlot.time, timeSlot.totalParticipants))
+      setEmailBody(applyTemplateVariables(defaultTemplate.body, tour.tourTitle, selectedDate, timeSlot.time, timeSlot.totalParticipants))
+    } else {
+      setSelectedTemplateId('')
+      setEmailSubject(`Service Assignment: ${tour.tourTitle} - ${format(new Date(selectedDate), 'MMM d, yyyy')} at ${timeSlot.time.substring(0, 5)}`)
+      setEmailBody(`Hello {{name}},\n\nYou have been assigned to:\n\n**Activity:** ${tour.tourTitle}\n**Date:** ${format(new Date(selectedDate), 'EEEE, MMMM d, yyyy')}\n**Time:** ${timeSlot.time.substring(0, 5)}\n**Participants:** ${timeSlot.totalParticipants} pax\n\nBest regards,\nEnRoma.com Team`)
+    }
+
+    // Pre-select all staff with emails
+    const recipients: string[] = []
+    staff?.guides.forEach(g => { if (g.email) recipients.push(`guide:${g.id}`) })
+    staff?.escorts.forEach(e => { if (e.email) recipients.push(`escort:${e.id}`) })
+    setSelectedRecipients(recipients)
+
+    setIncludeAttachments(true)
+    setIncludeDailyList(true)
+    setEmailSuccess(null)
+    setEmailError(null)
+    setShowEmailModal(true)
+  }
+
+  // Toggle recipient
+  const toggleRecipient = (key: string) => {
+    setSelectedRecipients(prev => prev.includes(key) ? prev.filter(r => r !== key) : [...prev, key])
+  }
+
+  // Send email
+  const handleSendEmail = async () => {
+    if (!emailTimeSlot || selectedRecipients.length === 0) return
+
+    setSendingEmail(true)
+    setEmailError(null)
+
+    try {
+      const staff = staffAssignments.get(emailTimeSlot.availabilityId)
+      const recipients: { email: string; name: string; type: 'guide' | 'escort'; id: string }[] = []
+
+      selectedRecipients.forEach(key => {
+        const [type, id] = key.split(':')
+        if (type === 'guide') {
+          const guide = staff?.guides.find(g => g.id === id)
+          if (guide?.email) {
+            recipients.push({ email: guide.email, name: `${guide.first_name} ${guide.last_name}`, type: 'guide', id: guide.id })
+          }
+        } else if (type === 'escort') {
+          const escort = staff?.escorts.find(e => e.id === id)
+          if (escort?.email) {
+            recipients.push({ email: escort.email, name: `${escort.first_name} ${escort.last_name}`, type: 'escort', id: escort.id })
+          }
+        }
+      })
+
+      if (recipients.length === 0) {
+        setEmailError('No valid recipients with email addresses')
+        return
+      }
+
+      // Get attachment URLs
+      const slotAttachments = attachments.filter(a => a.activity_availability_id === emailTimeSlot.availabilityId)
+      const attachmentUrls = includeAttachments ? slotAttachments.map(a => a.file_path) : []
+
+      // Generate daily list
+      let dailyListData: string | undefined
+      let dailyListFileName: string | undefined
+
+      if (includeDailyList) {
+        const tour = groupedTours.find(t => t.tourTitle === emailTimeSlot.tourTitle)
+        const timeSlot = tour?.timeSlots.find(ts => ts.time === emailTimeSlot.time)
+        if (tour && timeSlot) {
+          // Get guide name for the Excel
+          const guideNames = staff?.guides.map(g => `${g.first_name} ${g.last_name}`).join(', ') || ''
+          const dailyList = await generateDailyListExcel(tour, timeSlot, guideNames)
+          if (dailyList) {
+            dailyListData = dailyList.data
+            dailyListFileName = dailyList.fileName
+          }
+        }
+      }
+
+      const response = await fetch('/api/email/send', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          recipients,
+          subject: emailSubject,
+          body: emailBody,
+          activityAvailabilityId: emailTimeSlot.availabilityId,
+          attachmentUrls,
+          dailyListData,
+          dailyListFileName
+        })
+      })
+
+      const result = await response.json()
+
+      if (!response.ok) {
+        throw new Error(result.error || 'Failed to send emails')
+      }
+
+      setEmailSuccess(`Successfully sent ${result.sent} email(s)${result.failed > 0 ? `, ${result.failed} failed` : ''}`)
+
+      setTimeout(() => {
+        setShowEmailModal(false)
+        setEmailTimeSlot(null)
+      }, 2000)
+    } catch (err) {
+      console.error('Error sending email:', err)
+      setEmailError(err instanceof Error ? err.message : 'Failed to send emails')
+    } finally {
+      setSendingEmail(false)
+    }
+  }
+
+  // Generate consolidated Excel for escort with all their services
+  // Each service is formatted as a separate styled table (same as guide Excel)
+  const generateConsolidatedEscortExcel = async (
+    escortName: string,
+    services: { tour: TourGroup; timeSlot: TimeSlotGroup; guideName: string }[]
+  ): Promise<{ data: string; fileName: string } | null> => {
+    try {
+      if (services.length === 0) return null
+
+      const excelData: any[][] = []
+      const dateStr = format(new Date(selectedDate), 'dd/MM/yyyy')
+
+      // Track row positions for styling
+      interface ServiceRowInfo {
+        titleRow: number
+        headerRow: number
+        dataStartRow: number
+        dataEndRow: number
+        participantsRow: number
+        totalPaxRow: number
+        totalCols: number
+      }
+      const serviceRowInfos: ServiceRowInfo[] = []
+
+      let maxCols = 6 // Minimum columns
+
+      // Main title for the consolidated file
+      excelData.push([`Services for ${escortName} - ${dateStr}`])
+      excelData.push([]) // Empty row after main title
+
+      let currentRow = 2 // Start after main title and empty row
+
+      for (let i = 0; i < services.length; i++) {
+        const { tour, timeSlot, guideName } = services[i]
+        const firstBooking = timeSlot.bookings[0]
+        if (!firstBooking) continue
+
+        const participantCategories = await getAllParticipantCategoriesForActivity(firstBooking.activity_id)
+        const totalCols = participantCategories.length + 4
+        if (totalCols > maxCols) maxCols = totalCols
+
+        const titleRowIdx = currentRow
+
+        // Service title row (blue background like guide Excel)
+        const bookingDate = new Date(firstBooking.booking_date).toLocaleDateString('it-IT')
+        const serviceTitle = `${tour.tourTitle} - ${bookingDate} - ${timeSlot.time}`
+        excelData.push([serviceTitle])
+        currentRow++
+
+        // Header row (gray background)
+        const headerRowIdx = currentRow
+        const headers = ['Data', 'Ora', ...participantCategories, 'Nome e Cognome', 'Telefono']
+        excelData.push(headers)
+        currentRow++
+
+        // Data rows
+        const dataStartRowIdx = currentRow
+        const totals: { [key: string]: number } = {}
+        participantCategories.forEach(cat => totals[cat] = 0)
+
+        timeSlot.bookings.forEach(booking => {
+          const fullName = `${booking.customer?.first_name || ''} ${booking.customer?.last_name || ''}`.trim()
+          const participantCounts = getParticipantCounts(booking)
+
+          const row: any[] = [
+            new Date(booking.booking_date).toLocaleDateString('it-IT'),
+            booking.start_time
+          ]
+
+          participantCategories.forEach(category => {
+            const count = participantCounts[category] || 0
+            row.push(count)
+            totals[category] += count
+          })
+
+          row.push(fullName)
+          row.push(booking.customer?.phone_number || '')
+          excelData.push(row)
+          currentRow++
+        })
+        const dataEndRowIdx = currentRow - 1
+
+        // Participants row (gray background)
+        const participantsRowIdx = currentRow
+        const participantsRow: any[] = ['', 'Participants']
+        participantCategories.forEach(category => participantsRow.push(totals[category]))
+        participantsRow.push('', '')
+        excelData.push(participantsRow)
+        currentRow++
+
+        // Total PAX row (blue background) with guide info
+        const totalPaxRowIdx = currentRow
+        const totalParticipants = participantCategories.reduce((sum, cat) => sum + totals[cat], 0)
+        const totalPaxRow: any[] = ['', 'TOTAL PAX', totalParticipants]
+        for (let j = 0; j < participantCategories.length - 1; j++) totalPaxRow.push('')
+        totalPaxRow.push('guide')
+        totalPaxRow.push(guideName)
+        excelData.push(totalPaxRow)
+        currentRow++
+
+        // Store row info for styling
+        serviceRowInfos.push({
+          titleRow: titleRowIdx,
+          headerRow: headerRowIdx,
+          dataStartRow: dataStartRowIdx,
+          dataEndRow: dataEndRowIdx,
+          participantsRow: participantsRowIdx,
+          totalPaxRow: totalPaxRowIdx,
+          totalCols
+        })
+
+        // Add spacing between services
+        if (i < services.length - 1) {
+          excelData.push([])
+          excelData.push([])
+          currentRow += 2
+        }
+      }
+
+      const wb = XLSX.utils.book_new()
+      const ws = XLSX.utils.aoa_to_sheet(excelData)
+      if (!ws['!merges']) ws['!merges'] = []
+
+      // Style the main consolidated title (row 0)
+      for (let col = 0; col < maxCols; col++) {
+        const cellAddress = XLSX.utils.encode_cell({ r: 0, c: col })
+        if (!ws[cellAddress]) ws[cellAddress] = { t: 's', v: '' }
+        ws[cellAddress].s = {
+          font: { bold: true, sz: 16, color: { rgb: "FFFFFF" } },
+          fill: { fgColor: { rgb: "2563EB" } }, // Darker blue for main title
+          alignment: { horizontal: "center", vertical: "center" }
+        }
+      }
+      ws['!merges'].push({
+        s: { r: 0, c: 0 },
+        e: { r: 0, c: maxCols - 1 }
+      })
+
+      // Style each service section
+      for (const info of serviceRowInfos) {
+        const { titleRow, headerRow, dataStartRow, dataEndRow, participantsRow, totalPaxRow, totalCols } = info
+
+        // Service title row - blue background, white text, 18pt (merged)
+        for (let col = 0; col < totalCols; col++) {
+          const cellAddress = XLSX.utils.encode_cell({ r: titleRow, c: col })
+          if (!ws[cellAddress]) ws[cellAddress] = { t: 's', v: '' }
+          ws[cellAddress].s = {
+            font: { bold: true, sz: 18, color: { rgb: "FFFFFF" } },
+            fill: { fgColor: { rgb: "4472C4" } },
+            alignment: { horizontal: "center", vertical: "center" }
+          }
+        }
+        ws['!merges'].push({
+          s: { r: titleRow, c: 0 },
+          e: { r: titleRow, c: totalCols - 1 }
+        })
+
+        // Header row - bold, gray background
+        for (let col = 0; col < totalCols; col++) {
+          const cellAddress = XLSX.utils.encode_cell({ r: headerRow, c: col })
+          const cell = ws[cellAddress]
+          if (cell) {
+            cell.s = {
+              font: { bold: true, sz: 13 },
+              fill: { fgColor: { rgb: "D9D9D9" } },
+              alignment: { horizontal: "center", vertical: "center" }
+            }
+          }
+        }
+
+        // Data rows - font size 13, centered
+        for (let row = dataStartRow; row <= dataEndRow; row++) {
+          for (let col = 0; col < totalCols; col++) {
+            const cellAddress = XLSX.utils.encode_cell({ r: row, c: col })
+            const cell = ws[cellAddress]
+            if (cell) {
+              cell.s = {
+                font: { sz: 13 },
+                alignment: { horizontal: "center", vertical: "center" }
+              }
+            }
+          }
+        }
+
+        // Participants row - bold, gray background
+        for (let col = 0; col < totalCols; col++) {
+          const cellAddress = XLSX.utils.encode_cell({ r: participantsRow, c: col })
+          const cell = ws[cellAddress]
+          if (cell) {
+            cell.s = {
+              font: { bold: true, sz: 13 },
+              fill: { fgColor: { rgb: "D9D9D9" } },
+              alignment: { horizontal: "center", vertical: "center" }
+            }
+          }
+        }
+
+        // Total PAX row - blue background, white text
+        for (let col = 0; col < totalCols; col++) {
+          const cellAddress = XLSX.utils.encode_cell({ r: totalPaxRow, c: col })
+          if (!ws[cellAddress]) ws[cellAddress] = { t: 's', v: '' }
+          ws[cellAddress].s = {
+            font: { bold: true, sz: 13, color: { rgb: "FFFFFF" } },
+            fill: { fgColor: { rgb: "4472C4" } },
+            alignment: { horizontal: "center", vertical: "center" }
+          }
+        }
+      }
+
+      // Set column widths
+      const colWidths = [
+        { wch: 12 }, // Data
+        { wch: 10 }, // Ora
+        ...Array(maxCols - 4).fill({ wch: 15 }), // Participant columns
+        { wch: 25 }, // Nome e Cognome
+        { wch: 20 }, // Telefono
+      ]
+      ws['!cols'] = colWidths
+
+      // Set row heights
+      if (!ws['!rows']) ws['!rows'] = []
+      ws['!rows'][0] = { hpt: 25 } // Main title
+      for (const info of serviceRowInfos) {
+        ws['!rows'][info.titleRow] = { hpt: 30 } // Service title row height
+        ws['!rows'][info.headerRow] = { hpt: 20 } // Header row height
+      }
+
+      XLSX.utils.book_append_sheet(wb, ws, 'Services')
+
+      const buffer = XLSX.write(wb, { type: 'base64', bookType: 'xlsx' })
+      const cleanName = escortName.replace(/[/\\?%*:|"<>]/g, '-')
+      const fileName = `Services_${cleanName}_${format(new Date(selectedDate), 'yyyy-MM-dd')}.xlsx`
+
+      return { data: buffer, fileName }
+    } catch (error) {
+      console.error('Error generating consolidated Excel:', error)
+      return null
+    }
+  }
+
+  // Bulk send emails to all guides
+  const handleBulkSendToGuides = async () => {
+    if (groupedTours.length === 0) {
+      alert('No tours to send emails for')
+      return
+    }
+
+    // Collect all unique guides with their services
+    const guideServices = new Map<string, {
+      guide: Person;
+      services: { tour: TourGroup; timeSlot: TimeSlotGroup; availabilityId: number; escortNames: string[] }[]
+    }>()
+
+    for (const tour of groupedTours) {
+      for (const timeSlot of tour.timeSlots) {
+        const firstBooking = timeSlot.bookings[0]
+        if (!firstBooking) continue
+
+        // Find the availability ID
+        const normalizeTime = (t: string) => t.substring(0, 5)
+        const slotTimeNorm = normalizeTime(timeSlot.time)
+
+        let availabilityId: number | null = null
+        let assignedGuides: Person[] = []
+        let assignedEscorts: Person[] = []
+
+        for (const [id, staff] of staffAssignments.entries()) {
+          const staffTimeNorm = normalizeTime(staff.localTime)
+          if (staff.activityId === firstBooking.activity_id && staffTimeNorm === slotTimeNorm) {
+            availabilityId = id
+            assignedGuides = staff.guides
+            assignedEscorts = staff.escorts
+            break
+          }
+        }
+
+        if (!availabilityId) continue
+
+        const escortNames = assignedEscorts.map(e => `${e.first_name} ${e.last_name}`)
+
+        // Add each guide's service
+        for (const guide of assignedGuides) {
+          if (!guide.email) continue
+
+          const key = guide.id
+          if (!guideServices.has(key)) {
+            guideServices.set(key, { guide, services: [] })
+          }
+          guideServices.get(key)!.services.push({
+            tour,
+            timeSlot,
+            availabilityId,
+            escortNames
+          })
+        }
+      }
+    }
+
+    if (guideServices.size === 0) {
+      alert('No guides with email addresses assigned to any services')
+      return
+    }
+
+    const confirmSend = confirm(`Send emails to ${guideServices.size} guide(s)?`)
+    if (!confirmSend) return
+
+    setSendingBulkGuides(true)
+    setBulkEmailProgress({ sent: 0, total: guideServices.size })
+
+    let sentCount = 0
+    const errors: string[] = []
+
+    for (const [, { guide, services }] of guideServices.entries()) {
+      try {
+        // Send one email per service (each guide may have multiple services)
+        for (const service of services) {
+          const { tour, timeSlot, availabilityId, escortNames } = service
+
+          // Get guide name for Excel
+          const guideName = `${guide.first_name} ${guide.last_name}`
+
+          // Generate daily list Excel
+          const dailyList = await generateDailyListExcel(tour, timeSlot, guideName)
+
+          // Build email body with escort info
+          const escortInfo = escortNames.length > 0
+            ? `\n\n**Escort:** ${escortNames.join(', ')} will be present checking in all customers.`
+            : ''
+
+          const emailBodyText = `Hello ${guide.first_name},
+
+You have been assigned to:
+
+**Activity:** ${tour.tourTitle}
+**Date:** ${format(new Date(selectedDate), 'EEEE, MMMM d, yyyy')}
+**Time:** ${timeSlot.time.substring(0, 5)}
+**Participants:** ${timeSlot.totalParticipants} pax${escortInfo}
+
+Best regards,
+EnRoma.com Team`
+
+          // Get attachments for this service
+          const slotAttachments = attachments.filter(a => a.activity_availability_id === availabilityId)
+          const attachmentUrls = slotAttachments.map(a => a.file_path)
+
+          const response = await fetch('/api/email/send', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({
+              recipients: [{
+                email: guide.email,
+                name: guideName,
+                type: 'guide',
+                id: guide.id
+              }],
+              subject: `Service Assignment: ${tour.tourTitle} - ${format(new Date(selectedDate), 'MMM d, yyyy')} at ${timeSlot.time.substring(0, 5)}`,
+              body: emailBodyText,
+              activityAvailabilityId: availabilityId,
+              attachmentUrls,
+              dailyListData: dailyList?.data,
+              dailyListFileName: dailyList?.fileName
+            })
+          })
+
+          if (!response.ok) {
+            const result = await response.json()
+            throw new Error(result.error || 'Failed to send email')
+          }
+        }
+
+        sentCount++
+        setBulkEmailProgress({ sent: sentCount, total: guideServices.size })
+      } catch (err) {
+        console.error('Error sending to guide:', guide.email, err)
+        errors.push(`${guide.first_name} ${guide.last_name}: ${err instanceof Error ? err.message : 'Unknown error'}`)
+      }
+    }
+
+    setSendingBulkGuides(false)
+    setBulkEmailProgress(null)
+
+    // Refresh email logs
+    await fetchEmailLogs(selectedDate)
+
+    if (errors.length > 0) {
+      alert(`Sent ${sentCount} emails. ${errors.length} failed:\n${errors.join('\n')}`)
+    } else {
+      alert(`Successfully sent emails to ${sentCount} guide(s)`)
+    }
+  }
+
+  // Bulk send emails to all escorts (consolidated)
+  const handleBulkSendToEscorts = async () => {
+    if (groupedTours.length === 0) {
+      alert('No tours to send emails for')
+      return
+    }
+
+    // Collect all unique escorts with their services
+    const escortServices = new Map<string, {
+      escort: Person;
+      services: { tour: TourGroup; timeSlot: TimeSlotGroup; availabilityId: number; guideName: string }[]
+    }>()
+
+    for (const tour of groupedTours) {
+      for (const timeSlot of tour.timeSlots) {
+        const firstBooking = timeSlot.bookings[0]
+        if (!firstBooking) continue
+
+        // Find the availability ID
+        const normalizeTime = (t: string) => t.substring(0, 5)
+        const slotTimeNorm = normalizeTime(timeSlot.time)
+
+        let availabilityId: number | null = null
+        let assignedGuides: Person[] = []
+        let assignedEscorts: Person[] = []
+
+        for (const [id, staff] of staffAssignments.entries()) {
+          const staffTimeNorm = normalizeTime(staff.localTime)
+          if (staff.activityId === firstBooking.activity_id && staffTimeNorm === slotTimeNorm) {
+            availabilityId = id
+            assignedGuides = staff.guides
+            assignedEscorts = staff.escorts
+            break
+          }
+        }
+
+        if (!availabilityId) continue
+
+        const guideName = assignedGuides.map(g => `${g.first_name} ${g.last_name}`).join(', ')
+
+        // Add each escort's service
+        for (const escort of assignedEscorts) {
+          if (!escort.email) continue
+
+          const key = escort.id
+          if (!escortServices.has(key)) {
+            escortServices.set(key, { escort, services: [] })
+          }
+          escortServices.get(key)!.services.push({
+            tour,
+            timeSlot,
+            availabilityId,
+            guideName
+          })
+        }
+      }
+    }
+
+    if (escortServices.size === 0) {
+      alert('No escorts with email addresses assigned to any services')
+      return
+    }
+
+    const confirmSend = confirm(`Send consolidated emails to ${escortServices.size} escort(s)?`)
+    if (!confirmSend) return
+
+    setSendingBulkEscorts(true)
+    setBulkEmailProgress({ sent: 0, total: escortServices.size })
+
+    let sentCount = 0
+    const errors: string[] = []
+
+    for (const [, { escort, services }] of escortServices.entries()) {
+      try {
+        const escortName = `${escort.first_name} ${escort.last_name}`
+
+        // Sort services by time
+        const sortedServices = [...services].sort((a, b) =>
+          a.timeSlot.time.localeCompare(b.timeSlot.time)
+        )
+
+        // Generate consolidated Excel with all services
+        const consolidatedExcel = await generateConsolidatedEscortExcel(
+          escortName,
+          sortedServices.map(s => ({ tour: s.tour, timeSlot: s.timeSlot, guideName: s.guideName }))
+        )
+
+        // Build email body with all services listed
+        const servicesText = sortedServices.map((service, index) => {
+          return `**Service ${index + 1}:**
+- Activity: ${service.tour.tourTitle}
+- Time: ${service.timeSlot.time.substring(0, 5)}
+- Participants: ${service.timeSlot.totalParticipants} pax
+- Guide: ${service.guideName || 'TBD'}`
+        }).join('\n\n')
+
+        const emailBodyText = `Hello ${escort.first_name},
+
+You have been assigned to the following services on ${format(new Date(selectedDate), 'EEEE, MMMM d, yyyy')}:
+
+${servicesText}
+
+Please find attached the consolidated list with all bookings for your services.
+
+Best regards,
+EnRoma.com Team`
+
+        // Collect all attachment URLs from all services
+        const allAttachmentUrls: string[] = []
+        for (const service of services) {
+          const slotAttachments = attachments.filter(a => a.activity_availability_id === service.availabilityId)
+          allAttachmentUrls.push(...slotAttachments.map(a => a.file_path))
+        }
+
+        const response = await fetch('/api/email/send', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            recipients: [{
+              email: escort.email,
+              name: escortName,
+              type: 'escort',
+              id: escort.id
+            }],
+            subject: `Service Assignments: ${format(new Date(selectedDate), 'MMM d, yyyy')} - ${services.length} service(s)`,
+            body: emailBodyText,
+            attachmentUrls: allAttachmentUrls,
+            dailyListData: consolidatedExcel?.data,
+            dailyListFileName: consolidatedExcel?.fileName
+          })
+        })
+
+        if (!response.ok) {
+          const result = await response.json()
+          throw new Error(result.error || 'Failed to send email')
+        }
+
+        sentCount++
+        setBulkEmailProgress({ sent: sentCount, total: escortServices.size })
+      } catch (err) {
+        console.error('Error sending to escort:', escort.email, err)
+        errors.push(`${escort.first_name} ${escort.last_name}: ${err instanceof Error ? err.message : 'Unknown error'}`)
+      }
+    }
+
+    setSendingBulkEscorts(false)
+    setBulkEmailProgress(null)
+
+    // Refresh email logs
+    await fetchEmailLogs(selectedDate)
+
+    if (errors.length > 0) {
+      alert(`Sent ${sentCount} emails. ${errors.length} failed:\n${errors.join('\n')}`)
+    } else {
+      alert(`Successfully sent consolidated emails to ${sentCount} escort(s)`)
+    }
+  }
 
   const loadActivitiesAndFetchData = async () => {
     const { data: allActivities, error } = await supabase
@@ -137,6 +1278,10 @@ export default function DailyListPage() {
 
       // Fetch data with all activities pre-selected
       await fetchDataWithActivities(allActivityIds)
+      // Also fetch staff assignments
+      await fetchStaffAndAttachments(selectedDate, allActivityIds)
+      // Fetch email logs for the day
+      await fetchEmailLogs(selectedDate)
     }
   }
 
@@ -452,7 +1597,7 @@ export default function DailyListPage() {
   }, [isDropdownOpen])
 
   // Handle date change - auto refresh
-  const handleDateChange = (date: string) => {
+  const handleDateChange = async (date: string) => {
     setSelectedDate(date)
     const newDateRange = {
       start: date,
@@ -460,7 +1605,11 @@ export default function DailyListPage() {
     }
     setDateRange(newDateRange)
     // Auto-refresh data with new date range
-    fetchDataWithActivities(selectedActivities, newDateRange)
+    await fetchDataWithActivities(selectedActivities, newDateRange)
+    // Also fetch staff assignments for the new date
+    await fetchStaffAndAttachments(date, selectedActivities)
+    // Fetch email logs for the new date
+    await fetchEmailLogs(date)
   }
 
   // Group data by tour and time slot
@@ -578,11 +1727,13 @@ export default function DailyListPage() {
     }
   }
 
-  const applyTourFilter = () => {
+  const applyTourFilter = async () => {
     setSelectedActivities(tempSelectedActivities)
     setIsDropdownOpen(false)
     // Fetch data with new selections
-    fetchDataWithActivities(tempSelectedActivities, dateRange)
+    await fetchDataWithActivities(tempSelectedActivities, dateRange)
+    // Also fetch staff assignments
+    await fetchStaffAndAttachments(selectedDate, tempSelectedActivities)
   }
 
   // Get ALL participant categories for an activity (including historical data)
@@ -854,6 +2005,20 @@ export default function DailyListPage() {
 
         const bookingDate = new Date(firstBooking.booking_date).toLocaleDateString('it-IT')
 
+        // Find guide name for this time slot
+        const slotActivityId = firstBooking.activity_id
+        // Normalize time to HH:MM format for comparison
+        const normalizeTime = (t: string) => t.substring(0, 5)
+        const slotTimeNorm = normalizeTime(timeSlot.time)
+        let guideName = ''
+        for (const [, staff] of staffAssignments.entries()) {
+          const staffTimeNorm = normalizeTime(staff.localTime)
+          if (staff.activityId === slotActivityId && staffTimeNorm === slotTimeNorm) {
+            guideName = staff.guides.map(g => `${g.first_name} ${g.last_name}`).join(', ')
+            break
+          }
+        }
+
         // Build Excel data manually with proper structure
         const excelData: any[][] = []
 
@@ -900,13 +2065,15 @@ export default function DailyListPage() {
         participantsRow.push('', '') // Empty cells for Name and Phone
         excelData.push(participantsRow)
 
-        // Second Total Row: TOTAL PAX - Show single sum
+        // Second Total Row: TOTAL PAX - Show single sum with guide info
         const totalParticipants = participantCategories.reduce((sum, cat) => sum + totals[cat], 0)
         const totalPaxRow: any[] = ['', 'TOTAL PAX', totalParticipants]
-        // Fill remaining cells with empty values
-        for (let i = 0; i < participantCategories.length - 1 + 2; i++) {
+        // Fill remaining cells with empty values, then add guide label and name
+        for (let i = 0; i < participantCategories.length - 1; i++) {
           totalPaxRow.push('')
         }
+        totalPaxRow.push('guide')
+        totalPaxRow.push(guideName)
         excelData.push(totalPaxRow)
 
         // Create workbook from array
@@ -1308,16 +2475,127 @@ export default function DailyListPage() {
               {/* Time Slots */}
               {tour.isExpanded && (
                 <div className="p-4 space-y-4">
-                  {tour.timeSlots.map((timeSlot) => (
-                    <div key={timeSlot.time} className="border rounded-lg p-3 bg-gray-50">
+                  {tour.timeSlots.map((timeSlot) => {
+                    const firstBooking = timeSlot.bookings[0]
+                    const slotActivityId = firstBooking?.activity_id
+                    // Normalize time format: "10:00" -> "10:00:00" for comparison
+                    const slotTime = timeSlot.time.length === 5 ? `${timeSlot.time}:00` : timeSlot.time
+
+                    // Find staff by matching activity_id and time
+                    const slotStaff = (() => {
+                      if (!slotActivityId) return null
+                      for (const [availId, staff] of staffAssignments.entries()) {
+                        // Match by activity_id and local_time (both normalized to HH:mm:ss)
+                        const staffTime = staff.localTime.length === 5 ? `${staff.localTime}:00` : staff.localTime
+                        if (staff.activityId === slotActivityId && staffTime === slotTime) {
+                          return { availId, staff }
+                        }
+                      }
+                      return null
+                    })()
+
+                    // Get attachments for this time slot (we'll need to properly map this)
+                    const slotAttachments = slotStaff ? attachments.filter(a => a.activity_availability_id === slotStaff.availId) : []
+                    const slotGuides = slotStaff?.staff.guides || []
+                    const slotEscorts = slotStaff?.staff.escorts || []
+                    const slotAvailabilityId = slotStaff?.availId
+
+                    return (
+                      <div key={timeSlot.time} className="border rounded-lg p-3 bg-gray-50">
                       {/* Time Slot Header */}
-                      <div className="mb-3 pb-2 border-b flex items-center justify-between">
-                        <h4 className="font-semibold text-md">
-                          Time: {timeSlot.time}
-                        </h4>
-                        <span className="text-sm text-gray-600">
-                          {timeSlot.totalParticipants} participants
-                        </span>
+                      <div className="mb-3 pb-3 border-b space-y-3">
+                        <div className="flex items-center justify-between">
+                          <h4 className="font-semibold text-lg">
+                            Time: {timeSlot.time.substring(0, 5)}
+                          </h4>
+                          <div className="flex items-center gap-3">
+                            <span className="text-sm font-medium text-gray-700 bg-gray-200 px-2 py-1 rounded">
+                              {timeSlot.totalParticipants} participants
+                            </span>
+                            {/* Upload PDF Button */}
+                            <label className="cursor-pointer">
+                              <input
+                                type="file"
+                                accept=".pdf"
+                                multiple
+                                className="hidden"
+                                onChange={async (e) => {
+                                  if (!firstBooking) return
+                                  const availId = await getAvailabilityId(firstBooking.activity_id, firstBooking.booking_date, timeSlot.time)
+                                  if (availId) handleFileUpload(e, availId)
+                                }}
+                              />
+                              <span className="inline-flex items-center gap-1 px-3 py-1.5 text-sm bg-white border rounded-md hover:bg-gray-50">
+                                {uploadingFor === slotAvailabilityId ? (
+                                  <Loader2 className="w-4 h-4 animate-spin" />
+                                ) : (
+                                  <Upload className="w-4 h-4" />
+                                )}
+                                Add PDF
+                              </span>
+                            </label>
+                            {/* Send Email Button */}
+                            <Button
+                              size="sm"
+                              onClick={() => openEmailModal(tour, timeSlot)}
+                              disabled={slotGuides.length === 0 && slotEscorts.length === 0}
+                            >
+                              <Mail className="w-4 h-4 mr-1" />
+                              Send Email
+                            </Button>
+                          </div>
+                        </div>
+
+                        {/* Staff & Attachments Row */}
+                        <div className="flex flex-wrap items-center gap-4 text-sm">
+                          {/* Guides */}
+                          {slotGuides.length > 0 && (
+                            <div className="flex items-center gap-2">
+                              <User className="w-4 h-4 text-purple-600" />
+                              <span className="text-purple-700 font-medium">Guides:</span>
+                              {slotGuides.map((g) => (
+                                <span key={g.id} className="bg-purple-100 text-purple-800 px-2 py-0.5 rounded">
+                                  {g.first_name} {g.last_name}
+                                </span>
+                              ))}
+                            </div>
+                          )}
+                          {/* Escorts */}
+                          {slotEscorts.length > 0 && (
+                            <div className="flex items-center gap-2">
+                              <UserCheck className="w-4 h-4 text-green-600" />
+                              <span className="text-green-700 font-medium">Escorts:</span>
+                              {slotEscorts.map((e) => (
+                                <span key={e.id} className="bg-green-100 text-green-800 px-2 py-0.5 rounded">
+                                  {e.first_name} {e.last_name}
+                                </span>
+                              ))}
+                            </div>
+                          )}
+                          {/* No staff assigned */}
+                          {slotGuides.length === 0 && slotEscorts.length === 0 && (
+                            <span className="text-gray-500 italic">No guides or escorts assigned</span>
+                          )}
+                          {/* Attachments */}
+                          {slotAttachments.length > 0 && (
+                            <div className="flex items-center gap-2">
+                              <Paperclip className="w-4 h-4 text-blue-600" />
+                              {slotAttachments.map(att => (
+                                <span key={att.id} className="inline-flex items-center gap-1 bg-blue-100 text-blue-800 px-2 py-0.5 rounded">
+                                  <a href={att.file_path} target="_blank" rel="noopener noreferrer" className="hover:underline">
+                                    {att.file_name}
+                                  </a>
+                                  <button
+                                    onClick={() => handleDeleteAttachment(att)}
+                                    className="ml-1 text-red-500 hover:text-red-700"
+                                  >
+                                    <X className="w-3 h-3" />
+                                  </button>
+                                </span>
+                              ))}
+                            </div>
+                          )}
+                        </div>
                       </div>
 
                       {/* Draggable Bookings Table */}
@@ -1356,8 +2634,9 @@ export default function DailyListPage() {
                           </TableBody>
                         </Table>
                       </DndContext>
-                    </div>
-                  ))}
+                      </div>
+                    );
+                  })}
                 </div>
               )}
             </div>
@@ -1365,6 +2644,346 @@ export default function DailyListPage() {
         )}
       </div>
 
+      {/* Bulk Email Actions */}
+      {groupedTours.length > 0 && (
+        <div className="mt-8 p-6 border rounded-lg bg-gray-50">
+          <h3 className="text-lg font-semibold mb-4">Bulk Email Actions</h3>
+          <div className="flex flex-wrap gap-4">
+            <Button
+              onClick={handleBulkSendToGuides}
+              disabled={sendingBulkGuides || sendingBulkEscorts}
+              className="bg-purple-600 hover:bg-purple-700"
+            >
+              {sendingBulkGuides ? (
+                <>
+                  <Loader2 className="w-4 h-4 mr-2 animate-spin" />
+                  Sending to Guides... {bulkEmailProgress && `(${bulkEmailProgress.sent}/${bulkEmailProgress.total})`}
+                </>
+              ) : (
+                <>
+                  <Mail className="w-4 h-4 mr-2" />
+                  Send to All Guides
+                </>
+              )}
+            </Button>
+            <Button
+              onClick={handleBulkSendToEscorts}
+              disabled={sendingBulkGuides || sendingBulkEscorts}
+              className="bg-orange-600 hover:bg-orange-700"
+            >
+              {sendingBulkEscorts ? (
+                <>
+                  <Loader2 className="w-4 h-4 mr-2 animate-spin" />
+                  Sending to Escorts... {bulkEmailProgress && `(${bulkEmailProgress.sent}/${bulkEmailProgress.total})`}
+                </>
+              ) : (
+                <>
+                  <Mail className="w-4 h-4 mr-2" />
+                  Send to All Escorts (Consolidated)
+                </>
+              )}
+            </Button>
+          </div>
+          <p className="text-sm text-gray-500 mt-3">
+            <strong>Guides:</strong> Each guide receives one email per service with escort info included.<br/>
+            <strong>Escorts:</strong> Each escort receives one consolidated email with all their services for the day.
+          </p>
+        </div>
+      )}
+
+      {/* Email Logs Section */}
+      <div className="mt-8 p-6 border rounded-lg bg-white">
+        <div className="flex justify-between items-center mb-4">
+          <h3 className="text-lg font-semibold">Email Log</h3>
+          <Button
+            variant="outline"
+            size="sm"
+            onClick={() => fetchEmailLogs(selectedDate)}
+            disabled={loadingLogs}
+          >
+            {loadingLogs ? (
+              <Loader2 className="w-4 h-4 animate-spin" />
+            ) : (
+              'Refresh'
+            )}
+          </Button>
+        </div>
+
+        {loadingLogs ? (
+          <div className="flex justify-center py-8">
+            <Loader2 className="w-6 h-6 animate-spin text-gray-400" />
+          </div>
+        ) : emailLogs.length === 0 ? (
+          <p className="text-gray-500 text-center py-8">No emails sent on this date</p>
+        ) : (
+          <div className="overflow-x-auto">
+            <table className="w-full text-sm">
+              <thead>
+                <tr className="border-b bg-gray-50">
+                  <th className="text-left py-2 px-3 font-medium">Time</th>
+                  <th className="text-left py-2 px-3 font-medium">Recipient</th>
+                  <th className="text-left py-2 px-3 font-medium">Type</th>
+                  <th className="text-left py-2 px-3 font-medium">Subject</th>
+                  <th className="text-left py-2 px-3 font-medium">Status</th>
+                </tr>
+              </thead>
+              <tbody>
+                {emailLogs.map((log) => {
+                  // Status color mapping
+                  const statusColors: Record<string, string> = {
+                    pending: 'bg-yellow-100 text-yellow-800',
+                    sent: 'bg-blue-100 text-blue-800',
+                    delivered: 'bg-green-100 text-green-800',
+                    read: 'bg-purple-100 text-purple-800',
+                    replied: 'bg-indigo-100 text-indigo-800',
+                    failed: 'bg-red-100 text-red-800'
+                  }
+                  const statusColor = statusColors[log.status] || 'bg-gray-100 text-gray-800'
+
+                  return (
+                    <tr key={log.id} className="border-b hover:bg-gray-50">
+                      <td className="py-2 px-3 whitespace-nowrap">
+                        {new Date(log.sent_at).toLocaleTimeString('it-IT', { hour: '2-digit', minute: '2-digit' })}
+                      </td>
+                      <td className="py-2 px-3">
+                        <div className="font-medium">{log.recipient_name || 'Unknown'}</div>
+                        <div className="text-xs text-gray-500">{log.recipient_email}</div>
+                      </td>
+                      <td className="py-2 px-3">
+                        <span className={`inline-flex items-center px-2 py-0.5 rounded text-xs font-medium ${
+                          log.recipient_type === 'guide' ? 'bg-purple-100 text-purple-700' :
+                          log.recipient_type === 'escort' ? 'bg-orange-100 text-orange-700' :
+                          'bg-gray-100 text-gray-700'
+                        }`}>
+                          {log.recipient_type || 'N/A'}
+                        </span>
+                      </td>
+                      <td className="py-2 px-3 max-w-xs truncate" title={log.subject}>
+                        {log.subject}
+                      </td>
+                      <td className="py-2 px-3">
+                        <span className={`inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium ${statusColor}`}>
+                          {log.status}
+                        </span>
+                        {log.error_message && (
+                          <div className="text-xs text-red-500 mt-1" title={log.error_message}>
+                            {log.error_message.substring(0, 30)}...
+                          </div>
+                        )}
+                      </td>
+                    </tr>
+                  )
+                })}
+              </tbody>
+            </table>
+          </div>
+        )}
+
+        {/* Status Legend */}
+        <div className="mt-4 pt-4 border-t">
+          <p className="text-xs text-gray-500 mb-2">Status Legend:</p>
+          <div className="flex flex-wrap gap-2">
+            <span className="inline-flex items-center px-2 py-0.5 rounded-full text-xs font-medium bg-yellow-100 text-yellow-800">pending</span>
+            <span className="inline-flex items-center px-2 py-0.5 rounded-full text-xs font-medium bg-blue-100 text-blue-800">sent</span>
+            <span className="inline-flex items-center px-2 py-0.5 rounded-full text-xs font-medium bg-green-100 text-green-800">delivered</span>
+            <span className="inline-flex items-center px-2 py-0.5 rounded-full text-xs font-medium bg-purple-100 text-purple-800">read</span>
+            <span className="inline-flex items-center px-2 py-0.5 rounded-full text-xs font-medium bg-indigo-100 text-indigo-800">replied</span>
+            <span className="inline-flex items-center px-2 py-0.5 rounded-full text-xs font-medium bg-red-100 text-red-800">failed</span>
+          </div>
+        </div>
+      </div>
+
+      {/* Email Modal */}
+      {showEmailModal && emailTimeSlot && (
+        <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50 p-4">
+          <div className="bg-white rounded-lg shadow-xl max-w-2xl w-full max-h-[90vh] overflow-y-auto">
+            <div className="p-6 border-b flex justify-between items-start">
+              <div>
+                <h2 className="text-xl font-semibold">Send Email</h2>
+                <p className="text-sm text-gray-500 mt-1">
+                  {emailTimeSlot.tourTitle} - {emailTimeSlot.time.substring(0, 5)}
+                </p>
+              </div>
+              <button onClick={() => setShowEmailModal(false)} className="text-gray-500 hover:text-gray-700">
+                <X className="w-6 h-6" />
+              </button>
+            </div>
+
+            <div className="p-6 space-y-4">
+              {/* Success Message */}
+              {emailSuccess && (
+                <div className="bg-green-50 border border-green-200 rounded-lg p-4">
+                  <p className="text-sm text-green-700">{emailSuccess}</p>
+                </div>
+              )}
+
+              {/* Error Message */}
+              {emailError && (
+                <div className="bg-red-50 border border-red-200 rounded-lg p-4">
+                  <p className="text-sm text-red-700">{emailError}</p>
+                </div>
+              )}
+
+              {/* Template Selector */}
+              {emailTemplates.length > 0 && (
+                <div>
+                  <label className="block text-sm font-medium mb-2">Email Template</label>
+                  <select
+                    value={selectedTemplateId}
+                    onChange={(e) => handleTemplateSelect(e.target.value)}
+                    className="w-full px-3 py-2 border rounded-md text-sm bg-white"
+                  >
+                    <option value="">-- Custom (no template) --</option>
+                    {emailTemplates.map(template => (
+                      <option key={template.id} value={template.id}>
+                        {template.name} {template.is_default ? '(default)' : ''}
+                      </option>
+                    ))}
+                  </select>
+                </div>
+              )}
+
+              {/* Recipients */}
+              <div>
+                <label className="block text-sm font-medium mb-2">Recipients</label>
+                <div className="border rounded-lg p-3 space-y-2">
+                  {(() => {
+                    const staff = staffAssignments.get(emailTimeSlot.availabilityId)
+                    const guides = staff?.guides || []
+                    const escorts = staff?.escorts || []
+
+                    return (
+                      <>
+                        {guides.length > 0 && (
+                          <div>
+                            <span className="text-xs text-purple-600 font-medium">Guides</span>
+                            <div className="mt-1 space-y-1">
+                              {guides.map(guide => (
+                                <label key={guide.id} className="flex items-center gap-2 text-sm">
+                                  <input
+                                    type="checkbox"
+                                    checked={selectedRecipients.includes(`guide:${guide.id}`)}
+                                    onChange={() => toggleRecipient(`guide:${guide.id}`)}
+                                    disabled={!guide.email}
+                                    className="rounded"
+                                  />
+                                  <span className={!guide.email ? 'text-gray-400' : ''}>
+                                    {guide.first_name} {guide.last_name}
+                                    {guide.email ? ` (${guide.email})` : ' (no email)'}
+                                  </span>
+                                </label>
+                              ))}
+                            </div>
+                          </div>
+                        )}
+                        {escorts.length > 0 && (
+                          <div className={guides.length > 0 ? 'pt-2 border-t' : ''}>
+                            <span className="text-xs text-green-600 font-medium">Escorts</span>
+                            <div className="mt-1 space-y-1">
+                              {escorts.map(escort => (
+                                <label key={escort.id} className="flex items-center gap-2 text-sm">
+                                  <input
+                                    type="checkbox"
+                                    checked={selectedRecipients.includes(`escort:${escort.id}`)}
+                                    onChange={() => toggleRecipient(`escort:${escort.id}`)}
+                                    disabled={!escort.email}
+                                    className="rounded"
+                                  />
+                                  <span className={!escort.email ? 'text-gray-400' : ''}>
+                                    {escort.first_name} {escort.last_name}
+                                    {escort.email ? ` (${escort.email})` : ' (no email)'}
+                                  </span>
+                                </label>
+                              ))}
+                            </div>
+                          </div>
+                        )}
+                        {guides.length === 0 && escorts.length === 0 && (
+                          <p className="text-sm text-gray-500 italic">No staff assigned to this time slot</p>
+                        )}
+                      </>
+                    )
+                  })()}
+                </div>
+              </div>
+
+              {/* Subject */}
+              <div>
+                <label className="block text-sm font-medium mb-2">Subject</label>
+                <input
+                  type="text"
+                  value={emailSubject}
+                  onChange={(e) => setEmailSubject(e.target.value)}
+                  className="w-full px-3 py-2 border rounded-md text-sm"
+                />
+              </div>
+
+              {/* Body */}
+              <div>
+                <label className="block text-sm font-medium mb-2">Message</label>
+                <textarea
+                  value={emailBody}
+                  onChange={(e) => setEmailBody(e.target.value)}
+                  rows={8}
+                  className="w-full px-3 py-2 border rounded-md text-sm font-mono"
+                />
+                <p className="text-xs text-gray-500 mt-1">
+                  Use {"{{name}}"} to insert recipient&apos;s name
+                </p>
+              </div>
+
+              {/* Attachments options */}
+              <div className="space-y-2">
+                {attachments.filter(a => a.activity_availability_id === emailTimeSlot.availabilityId).length > 0 && (
+                  <label className="flex items-center gap-2 text-sm">
+                    <input
+                      type="checkbox"
+                      checked={includeAttachments}
+                      onChange={(e) => setIncludeAttachments(e.target.checked)}
+                      className="rounded"
+                    />
+                    <Paperclip className="w-4 h-4 text-gray-400" />
+                    Include {attachments.filter(a => a.activity_availability_id === emailTimeSlot.availabilityId).length} PDF attachment(s)
+                  </label>
+                )}
+                <label className="flex items-center gap-2 text-sm">
+                  <input
+                    type="checkbox"
+                    checked={includeDailyList}
+                    onChange={(e) => setIncludeDailyList(e.target.checked)}
+                    className="rounded"
+                  />
+                  <Download className="w-4 h-4 text-gray-400" />
+                  Include Daily List (Excel with bookings)
+                </label>
+              </div>
+
+              {/* Actions */}
+              <div className="flex justify-end gap-3 pt-4 border-t">
+                <Button variant="outline" onClick={() => setShowEmailModal(false)}>
+                  Cancel
+                </Button>
+                <Button
+                  onClick={handleSendEmail}
+                  disabled={sendingEmail || selectedRecipients.length === 0}
+                >
+                  {sendingEmail ? (
+                    <>
+                      <Loader2 className="w-4 h-4 mr-2 animate-spin" />
+                      Sending...
+                    </>
+                  ) : (
+                    <>
+                      <Send className="w-4 h-4 mr-2" />
+                      Send Email
+                    </>
+                  )}
+                </Button>
+              </div>
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   )
 }

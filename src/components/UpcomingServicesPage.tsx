@@ -2,15 +2,24 @@
 
 import { useState, useEffect, useRef } from 'react'
 import { supabase } from '@/lib/supabase'
-import { Calendar, ChevronLeft, ChevronRight, User, Clock, Users, UserCheck, Paperclip, Upload, X, Mail, FileText, Send, Loader2 } from 'lucide-react'
+import { Calendar, ChevronLeft, ChevronRight, User, Clock, Users, UserCheck, Paperclip, Upload, X, Mail, FileText, Send, Loader2, Table } from 'lucide-react'
 import { format, addDays, startOfDay } from 'date-fns'
 import { Button } from '@/components/ui/button'
+import * as XLSX from 'xlsx'
 
 interface Person {
   id: string
   first_name: string
   last_name: string
   email?: string
+}
+
+interface EmailTemplate {
+  id: string
+  name: string
+  subject: string
+  body: string
+  is_default: boolean
 }
 
 interface Attachment {
@@ -51,8 +60,15 @@ export default function UpcomingServicesPage() {
   const [emailBody, setEmailBody] = useState('')
   const [selectedRecipients, setSelectedRecipients] = useState<string[]>([])
   const [includeAttachments, setIncludeAttachments] = useState(true)
+  const [includeDailyList, setIncludeDailyList] = useState(false)
   const [sendingEmail, setSendingEmail] = useState(false)
   const [emailSuccess, setEmailSuccess] = useState<string | null>(null)
+  const [emailTemplates, setEmailTemplates] = useState<EmailTemplate[]>([])
+  const [selectedTemplateId, setSelectedTemplateId] = useState<string>('')
+
+  useEffect(() => {
+    fetchEmailTemplates()
+  }, [])
 
   useEffect(() => {
     fetchExcludedActivities()
@@ -64,6 +80,25 @@ export default function UpcomingServicesPage() {
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [selectedDate, excludedActivityIds])
+
+  const fetchEmailTemplates = async () => {
+    try {
+      const { data, error } = await supabase
+        .from('email_templates')
+        .select('*')
+        .order('is_default', { ascending: false })
+        .order('name', { ascending: true })
+
+      if (error) {
+        console.error('Error fetching templates:', error)
+        return
+      }
+
+      setEmailTemplates(data || [])
+    } catch (err) {
+      console.error('Error fetching templates:', err)
+    }
+  }
 
   const fetchExcludedActivities = async () => {
     try {
@@ -350,11 +385,44 @@ export default function UpcomingServicesPage() {
     }
   }
 
+  // Apply template variables to subject and body
+  const applyTemplateVariables = (text: string, service: ServiceSlot) => {
+    return text
+      .replace(/\{\{tour_title\}\}/g, service.activity_title)
+      .replace(/\{\{date\}\}/g, format(new Date(service.local_date), 'EEEE, MMMM d, yyyy'))
+      .replace(/\{\{time\}\}/g, service.local_time.substring(0, 5))
+      .replace(/\{\{pax_count\}\}/g, String(service.vacancy_sold))
+  }
+
+  // Handle template selection
+  const handleTemplateSelect = (templateId: string) => {
+    setSelectedTemplateId(templateId)
+
+    if (!templateId || !emailService) return
+
+    const template = emailTemplates.find(t => t.id === templateId)
+    if (template) {
+      setEmailSubject(applyTemplateVariables(template.subject, emailService))
+      setEmailBody(applyTemplateVariables(template.body, emailService))
+    }
+  }
+
   // Open email modal
   const openEmailModal = (service: ServiceSlot) => {
     setEmailService(service)
-    setEmailSubject(`Service Assignment: ${service.activity_title} - ${format(new Date(service.local_date), 'MMM d, yyyy')} at ${service.local_time.substring(0, 5)}`)
-    setEmailBody(`Hello {{name}},
+
+    // Find default template or use first template
+    const defaultTemplate = emailTemplates.find(t => t.is_default) || emailTemplates[0]
+
+    if (defaultTemplate) {
+      setSelectedTemplateId(defaultTemplate.id)
+      setEmailSubject(applyTemplateVariables(defaultTemplate.subject, service))
+      setEmailBody(applyTemplateVariables(defaultTemplate.body, service))
+    } else {
+      // Fallback if no templates exist
+      setSelectedTemplateId('')
+      setEmailSubject(`Service Assignment: ${service.activity_title} - ${format(new Date(service.local_date), 'MMM d, yyyy')} at ${service.local_time.substring(0, 5)}`)
+      setEmailBody(`Hello {{name}},
 
 You have been assigned to the following service:
 
@@ -365,7 +433,8 @@ Participants: ${service.vacancy_sold} pax
 
 ${service.attachments.length > 0 ? 'Please find the attached documents for this service.\n' : ''}
 Best regards,
-Tourmageddon Team`)
+EnRoma.com Team`)
+    }
 
     // Pre-select all recipients with emails
     const allRecipients: string[] = []
@@ -379,6 +448,81 @@ Tourmageddon Team`)
     setIncludeAttachments(true)
     setEmailSuccess(null)
     setShowEmailModal(true)
+  }
+
+  // Generate daily list Excel as base64
+  const generateDailyListExcel = async (service: ServiceSlot): Promise<{ data: string; fileName: string } | null> => {
+    try {
+      // Fetch bookings for this service
+      const { data: bookings, error } = await supabase
+        .from('bookings')
+        .select('*')
+        .eq('activity_availability_id', service.id)
+        .order('customer_name', { ascending: true })
+
+      if (error) {
+        console.error('Error fetching bookings:', error)
+        return null
+      }
+
+      if (!bookings || bookings.length === 0) {
+        // Create empty sheet with headers only
+        const headers = ['#', 'Customer Name', 'Pax', 'Phone', 'Email', 'Notes']
+        const ws = XLSX.utils.aoa_to_sheet([headers])
+        const wb = XLSX.utils.book_new()
+        XLSX.utils.book_append_sheet(wb, ws, 'Daily List')
+
+        const buffer = XLSX.write(wb, { type: 'base64', bookType: 'xlsx' })
+        const dateStr = format(new Date(service.local_date), 'yyyy-MM-dd')
+        const timeStr = service.local_time.substring(0, 5).replace(':', '')
+
+        return {
+          data: buffer,
+          fileName: `DailyList_${dateStr}_${timeStr}.xlsx`
+        }
+      }
+
+      // Build rows for Excel
+      const rows = bookings.map((booking, index) => ({
+        '#': index + 1,
+        'Customer Name': booking.customer_name || '',
+        'Pax': booking.pax || booking.vacancy_sold || 1,
+        'Phone': booking.customer_phone || '',
+        'Email': booking.customer_email || '',
+        'Notes': booking.notes || ''
+      }))
+
+      // Create worksheet
+      const ws = XLSX.utils.json_to_sheet(rows)
+
+      // Set column widths
+      ws['!cols'] = [
+        { wch: 5 },   // #
+        { wch: 30 },  // Customer Name
+        { wch: 6 },   // Pax
+        { wch: 15 },  // Phone
+        { wch: 30 },  // Email
+        { wch: 40 },  // Notes
+      ]
+
+      // Create workbook
+      const wb = XLSX.utils.book_new()
+      XLSX.utils.book_append_sheet(wb, ws, 'Daily List')
+
+      // Convert to base64
+      const buffer = XLSX.write(wb, { type: 'base64', bookType: 'xlsx' })
+
+      const dateStr = format(new Date(service.local_date), 'yyyy-MM-dd')
+      const timeStr = service.local_time.substring(0, 5).replace(':', '')
+
+      return {
+        data: buffer,
+        fileName: `DailyList_${dateStr}_${timeStr}.xlsx`
+      }
+    } catch (err) {
+      console.error('Error generating daily list:', err)
+      return null
+    }
   }
 
   // Toggle recipient selection
@@ -436,6 +580,18 @@ Tourmageddon Team`)
         ? emailService.attachments.map(a => a.file_path)
         : []
 
+      // Generate daily list Excel if requested
+      let dailyListData: string | undefined
+      let dailyListFileName: string | undefined
+
+      if (includeDailyList) {
+        const dailyList = await generateDailyListExcel(emailService)
+        if (dailyList) {
+          dailyListData = dailyList.data
+          dailyListFileName = dailyList.fileName
+        }
+      }
+
       // Send email via API
       const response = await fetch('/api/email/send', {
         method: 'POST',
@@ -445,7 +601,9 @@ Tourmageddon Team`)
           subject: emailSubject,
           body: emailBody,
           activityAvailabilityId: emailService.id,
-          attachmentUrls
+          attachmentUrls,
+          dailyListData,
+          dailyListFileName
         })
       })
 
@@ -711,6 +869,25 @@ Tourmageddon Team`)
                 </div>
               )}
 
+              {/* Template Selector */}
+              {emailTemplates.length > 0 && (
+                <div>
+                  <label className="block text-sm font-medium mb-2">Email Template</label>
+                  <select
+                    value={selectedTemplateId}
+                    onChange={(e) => handleTemplateSelect(e.target.value)}
+                    className="w-full px-3 py-2 border rounded-md text-sm bg-white"
+                  >
+                    <option value="">-- Custom (no template) --</option>
+                    {emailTemplates.map(template => (
+                      <option key={template.id} value={template.id}>
+                        {template.name} {template.is_default ? '(default)' : ''}
+                      </option>
+                    ))}
+                  </select>
+                </div>
+              )}
+
               {/* Recipients */}
               <div>
                 <label className="block text-sm font-medium mb-2">Recipients</label>
@@ -787,9 +964,9 @@ Tourmageddon Team`)
                 </p>
               </div>
 
-              {/* Attachments option */}
-              {emailService.attachments.length > 0 && (
-                <div>
+              {/* Attachments options */}
+              <div className="space-y-2">
+                {emailService.attachments.length > 0 && (
                   <label className="flex items-center gap-2 text-sm">
                     <input
                       type="checkbox"
@@ -797,10 +974,21 @@ Tourmageddon Team`)
                       onChange={(e) => setIncludeAttachments(e.target.checked)}
                       className="rounded"
                     />
+                    <Paperclip className="w-4 h-4 text-gray-400" />
                     Include {emailService.attachments.length} PDF attachment{emailService.attachments.length !== 1 ? 's' : ''}
                   </label>
-                </div>
-              )}
+                )}
+                <label className="flex items-center gap-2 text-sm">
+                  <input
+                    type="checkbox"
+                    checked={includeDailyList}
+                    onChange={(e) => setIncludeDailyList(e.target.checked)}
+                    className="rounded"
+                  />
+                  <Table className="w-4 h-4 text-gray-400" />
+                  Include Daily List (Excel with bookings)
+                </label>
+              </div>
 
               {/* Actions */}
               <div className="flex justify-end gap-3 pt-4 border-t">

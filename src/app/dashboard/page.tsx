@@ -2,7 +2,7 @@
 'use client'
 
 import React, { useState } from 'react'
-import { Menu, ChevronRight, Users, FileBarChart, LayoutDashboard, FileText, FileSpreadsheet, BarChart3, DollarSign, TrendingUp, RefreshCw, Percent, UserCog, Calendar, Clock, UserCheck } from 'lucide-react'
+import { Menu, ChevronRight, Users, FileBarChart, LayoutDashboard, FileText, FileSpreadsheet, BarChart3, DollarSign, TrendingUp, RefreshCw, Percent, UserCog, Calendar, Clock, UserCheck, FolderOpen, MapPin } from 'lucide-react'
 import { SidebarProvider, SidebarTrigger } from "@/components/ui/sidebar"
 import { Sidebar, SidebarContent, SidebarGroup, SidebarHeader, SidebarMenu, SidebarMenuButton, SidebarMenuItem, SidebarMenuSub, SidebarMenuSubButton, SidebarMenuSubItem } from "@/components/ui/sidebar"
 import RecapPage from '@/components/RecapPage'
@@ -19,6 +19,7 @@ import EscortsListPage from '@/components/EscortsListPage'
 import StaffCalendarPage from '@/components/StaffCalendarPage'
 import UpcomingServicesPage from '@/components/UpcomingServicesPage'
 import StaffReportsPage from '@/components/StaffReportsPage'
+import ContentPage from '@/components/ContentPage'
 
 // Custom Sidebar Component
 function AppSidebar({ currentView, onNavigate }: {
@@ -29,6 +30,7 @@ function AppSidebar({ currentView, onNavigate }: {
   const [staffOpen, setStaffOpen] = useState(true)
   const [reportsOpen, setReportsOpen] = useState(true)
   const [financeOpen, setFinanceOpen] = useState(true)
+  const [contentOpen, setContentOpen] = useState(true)
 
   const menuItems = [
     {
@@ -133,6 +135,19 @@ function AppSidebar({ currentView, onNavigate }: {
         },
       ],
     },
+    {
+      title: "Content",
+      icon: FolderOpen,
+      isOpen: contentOpen,
+      setOpen: setContentOpen,
+      items: [
+        {
+          title: "Templates & Points",
+          icon: MapPin,
+          view: "content",
+        },
+      ],
+    },
   ]
 
   return (
@@ -214,6 +229,8 @@ export default function DashboardLayout() {
         return <CancellationRatePage />
       case 'affiliates':
         return <AffiliatesPage />
+      case 'content':
+        return <ContentPage />
       default:
         return <RecapPage />
     }
@@ -249,6 +266,8 @@ export default function DashboardLayout() {
         return 'Cancellation Rate'
       case 'affiliates':
         return 'Affiliate Commissions'
+      case 'content':
+        return 'Templates & Meeting Points'
       default:
         return 'Dashboard'
     }
@@ -266,6 +285,9 @@ export default function DashboardLayout() {
     }
     if (currentView === 'finance-overview' || currentView === 'cancellation-rate' || currentView === 'affiliates') {
       return 'Finance'
+    }
+    if (currentView === 'content') {
+      return 'Content'
     }
     return 'Dashboard'
   }
