@@ -2,7 +2,7 @@
 'use client'
 
 import React, { useState } from 'react'
-import { Menu, ChevronRight, Users, FileBarChart, LayoutDashboard, FileText, FileSpreadsheet, BarChart3, DollarSign, TrendingUp, RefreshCw, Percent, UserCog, Calendar, Clock } from 'lucide-react'
+import { Menu, ChevronRight, Users, FileBarChart, LayoutDashboard, FileText, FileSpreadsheet, BarChart3, DollarSign, TrendingUp, RefreshCw, Percent, UserCog, Calendar, Clock, UserCheck } from 'lucide-react'
 import { SidebarProvider, SidebarTrigger } from "@/components/ui/sidebar"
 import { Sidebar, SidebarContent, SidebarGroup, SidebarHeader, SidebarMenu, SidebarMenuButton, SidebarMenuItem, SidebarMenuSub, SidebarMenuSubButton, SidebarMenuSubItem } from "@/components/ui/sidebar"
 import RecapPage from '@/components/RecapPage'
@@ -15,9 +15,10 @@ import AvailabilitySyncPage from '@/components/AvailabilitySyncPage'
 import CancellationRatePage from '@/components/CancellationRatePage'
 import AffiliatesPage from './affiliates/page'
 import GuidesListPage from '@/components/GuidesListPage'
+import EscortsListPage from '@/components/EscortsListPage'
+import StaffCalendarPage from '@/components/StaffCalendarPage'
 import UpcomingServicesPage from '@/components/UpcomingServicesPage'
-import GuidesCalendarPage from '@/components/GuidesCalendarPage'
-import GuideReportsPage from '@/components/GuideReportsPage'
+import StaffReportsPage from '@/components/StaffReportsPage'
 
 // Custom Sidebar Component
 function AppSidebar({ currentView, onNavigate }: {
@@ -25,7 +26,7 @@ function AppSidebar({ currentView, onNavigate }: {
   onNavigate: (view: string) => void
 }) {
   const [operationsOpen, setOperationsOpen] = useState(true)
-  const [guidesOpen, setGuidesOpen] = useState(true)
+  const [staffOpen, setStaffOpen] = useState(true)
   const [reportsOpen, setReportsOpen] = useState(true)
   const [financeOpen, setFinanceOpen] = useState(true)
 
@@ -64,10 +65,10 @@ function AppSidebar({ currentView, onNavigate }: {
       ],
     },
     {
-      title: "Guides",
+      title: "Guides & Escorts",
       icon: UserCog,
-      isOpen: guidesOpen,
-      setOpen: setGuidesOpen,
+      isOpen: staffOpen,
+      setOpen: setStaffOpen,
       items: [
         {
           title: "Guides List",
@@ -75,19 +76,24 @@ function AppSidebar({ currentView, onNavigate }: {
           view: "guides-list",
         },
         {
+          title: "Escorts List",
+          icon: UserCheck,
+          view: "escorts-list",
+        },
+        {
+          title: "Calendar",
+          icon: Calendar,
+          view: "staff-calendar",
+        },
+        {
           title: "Upcoming Services",
           icon: Clock,
           view: "upcoming-services",
         },
         {
-          title: "Calendar",
-          icon: Calendar,
-          view: "guides-calendar",
-        },
-        {
-          title: "Guide Reports",
+          title: "Reports",
           icon: FileSpreadsheet,
-          view: "guide-reports",
+          view: "staff-reports",
         },
       ],
     },
@@ -190,12 +196,14 @@ export default function DashboardLayout() {
         return <DailyListPage />
       case 'guides-list':
         return <GuidesListPage />
+      case 'escorts-list':
+        return <EscortsListPage />
+      case 'staff-calendar':
+        return <StaffCalendarPage />
       case 'upcoming-services':
         return <UpcomingServicesPage />
-      case 'guides-calendar':
-        return <GuidesCalendarPage />
-      case 'guide-reports':
-        return <GuideReportsPage />
+      case 'staff-reports':
+        return <StaffReportsPage />
       case 'marketing-export':
         return <MarketingExportPage />
       case 'finance-overview':
@@ -223,12 +231,14 @@ export default function DashboardLayout() {
         return 'Daily List'
       case 'guides-list':
         return 'Guides List'
+      case 'escorts-list':
+        return 'Escorts List'
+      case 'staff-calendar':
+        return 'Staff Calendar'
       case 'upcoming-services':
         return 'Upcoming Services'
-      case 'guides-calendar':
-        return 'Guides Calendar'
-      case 'guide-reports':
-        return 'Guide Reports'
+      case 'staff-reports':
+        return 'Staff Reports'
       case 'marketing-export':
         return 'Marketing Export'
       case 'finance-overview':
@@ -248,8 +258,8 @@ export default function DashboardLayout() {
     if (['recap', 'consumed', 'pax-names', 'daily-list', 'availability-sync'].includes(currentView)) {
       return 'Operations'
     }
-    if (['guides-list', 'upcoming-services', 'guides-calendar', 'guide-reports'].includes(currentView)) {
-      return 'Guides'
+    if (['guides-list', 'escorts-list', 'staff-calendar', 'upcoming-services', 'staff-reports'].includes(currentView)) {
+      return 'Guides & Escorts'
     }
     if (currentView === 'marketing-export') {
       return 'Reports'
