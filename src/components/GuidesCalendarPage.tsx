@@ -88,7 +88,6 @@ export default function GuidesCalendarPage() {
 
   const fetchExcludedActivities = async () => {
     try {
-      console.log('Fetching excluded activities from DB...')
       const { data, error } = await supabase
         .from('guide_calendar_settings')
         .select('setting_value')
@@ -96,18 +95,14 @@ export default function GuidesCalendarPage() {
         .single()
 
       if (error) {
-        console.log('No excluded activities found, showing all')
-        // Empty array means show all activities (nothing excluded)
         setExcludedActivityIds([])
         return
       }
 
-      console.log('Loaded excluded activities from DB:', data?.setting_value)
       if (data?.setting_value) {
         setExcludedActivityIds(data.setting_value as string[])
       }
-    } catch (err) {
-      console.error('Error fetching settings:', err)
+    } catch {
       setExcludedActivityIds([])
     }
   }
@@ -159,7 +154,7 @@ export default function GuidesCalendarPage() {
       const endStr = format(end, 'yyyy-MM-dd')
 
       // Build the query - fetch availabilities WITHOUT guide_assignments to avoid duplication
-      let query = supabase
+      const { data: rawAvails, error: availError } = await supabase
         .from('activity_availability')
         .select(`
           id,
@@ -175,35 +170,17 @@ export default function GuidesCalendarPage() {
         `)
         .gte('local_date', startStr)
         .lte('local_date', endStr)
-
-      // Apply activity filter - EXCLUDE activities that user wants to hide
-      if (excludedActivityIds.length > 0) {
-        query = query.not('activity_id', 'in', `(${excludedActivityIds.join(',')})`)
-      }
-
-      // Order by date and time to show services chronologically
-      const { data: avails, error: availError } = await query
         .order('local_date', { ascending: true })
         .order('local_time', { ascending: true })
-        .limit(100000) // Very high limit
+        .limit(100000)
+
+      // Filter out excluded activities client-side (more reliable than Supabase .not().in())
+      const avails = excludedActivityIds.length > 0
+        ? rawAvails?.filter(a => !excludedActivityIds.includes(a.activity_id))
+        : rawAvails
 
       if (availError) {
-        console.error('Error fetching availabilities:', availError)
         throw availError
-      }
-
-      console.log('📊 Calendar Data Debug:')
-      console.log('Date range:', startStr, 'to', endStr)
-      console.log('Raw availabilities fetched:', avails?.length || 0)
-
-      const uniqueDatesInQuery = [...new Set(avails?.map(a => a.local_date))].sort()
-      console.log('❗❗❗ UNIQUE DATES IN QUERY RESULT:', uniqueDatesInQuery)
-      console.log('❗❗❗ NUMBER OF UNIQUE DATES:', uniqueDatesInQuery.length)
-      console.log('❗❗❗ EXPECTED 7 DAYS FROM', startStr, 'TO', endStr)
-
-      if (uniqueDatesInQuery.length < 7) {
-        console.error('🚨 NOT ENOUGH DAYS! Only got', uniqueDatesInQuery.length, 'days instead of 7')
-        console.error('🚨 Missing dates. This means the query is incomplete.')
       }
 
       // Fetch guide assignments separately to avoid duplication
@@ -233,9 +210,6 @@ export default function GuidesCalendarPage() {
         ...avail,
         guide_assignments: guideAssignmentsMap.get(avail.id) || []
       }))
-
-      console.log('Total availabilities with guides:', availsWithGuides?.length || 0)
-      console.log('🔍 Current excludedActivityIds:', excludedActivityIds)
 
       // Activity filtering is now done at the database level
       const filtered = availsWithGuides || []
@@ -275,31 +249,6 @@ export default function GuidesCalendarPage() {
           }
         }) as unknown as ActivityAvailability[]
 
-      console.log('Final enriched slots:', enrichedData.length)
-      console.log('Final slots to display:', enrichedData)
-      console.log('📅 Today\'s date for debugging:', format(new Date(), 'yyyy-MM-dd'))
-
-      // Show unique dates in the fetched data
-      const uniqueDates = [...new Set(enrichedData.map(slot => slot.local_date))].sort()
-      console.log('📅 Unique dates in fetched data:', uniqueDates)
-
-      // Show which activity IDs are in the data
-      const activityIdsInData = [...new Set(enrichedData.map(slot => slot.activity_id))]
-      console.log('📅 Activity IDs in fetched data:', activityIdsInData)
-
-      // Show detailed info for each slot
-      enrichedData.forEach((slot, index) => {
-        console.log(`Slot ${index + 1}:`, {
-          date: slot.local_date,
-          time: slot.local_time,
-          activity: slot.activity.title,
-          capacity: `${slot.vacancy_sold}/${slot.vacancy_available}`,
-          status: slot.status,
-          availability_id: slot.availability_id,
-          guides_assigned: slot.guide_assignments?.length || 0
-        })
-      })
-
       setAvailabilities(enrichedData)
 
       // Fetch all active guides
@@ -323,7 +272,6 @@ export default function GuidesCalendarPage() {
     if (viewMode === 'weekly') {
       const start = startOfWeek(currentDate, { weekStartsOn: 1 }) // 1 = Monday
       const end = endOfWeek(currentDate, { weekStartsOn: 1 })
-      console.log('📅 Week range:', format(start, 'yyyy-MM-dd (EEEE)'), 'to', format(end, 'yyyy-MM-dd (EEEE)'))
       return { start, end }
     } else {
       // Daily view - just the current day
@@ -358,39 +306,29 @@ export default function GuidesCalendarPage() {
       return [currentDate]
     }
     const { start, end } = getDateRange()
-    const days = eachDayOfInterval({ start, end })
-    console.log('📅 Calendar days:', days.map(d => format(d, 'yyyy-MM-dd (EEEE)')))
-    console.log('📅 Total days:', days.length)
-    return days
+    return eachDayOfInterval({ start, end })
   }
 
   const getAvailabilitiesForDay = (day: Date) => {
     const dayStr = format(day, 'yyyy-MM-dd')
-    console.log(`🔍 Getting availabilities for ${dayStr}`)
-    console.log(`   Total availabilities in state: ${availabilities.length}`)
 
     let filtered = availabilities.filter(avail => avail.local_date === dayStr)
-    console.log(`   Matching date ${dayStr}: ${filtered.length}`)
 
     // Apply activity filter
     if (selectedActivityIds.length > 0) {
       filtered = filtered.filter(avail => selectedActivityIds.includes(avail.activity_id))
-      console.log(`   After activity filter: ${filtered.length}`)
     }
 
     // Apply bookings filter
     if (showOnlyWithBookings) {
       filtered = filtered.filter(avail => (avail.vacancy_sold || 0) > 0)
-      console.log(`   After bookings filter: ${filtered.length}`)
     }
 
     // Apply unassigned filter
     if (showOnlyUnassigned) {
       filtered = filtered.filter(avail => !avail.guide_assignments || avail.guide_assignments.length === 0)
-      console.log(`   After unassigned filter: ${filtered.length}`)
     }
 
-    console.log(`   Final count for ${dayStr}: ${filtered.length}`)
     return filtered
   }
 
@@ -534,9 +472,7 @@ export default function GuidesCalendarPage() {
 
   const handleSaveSettings = async () => {
     try {
-      console.log('🔵 Step 1: Attempting to save settings:', tempExcludedIds)
-
-      const { data, error } = await supabase
+      const { error } = await supabase
         .from('guide_calendar_settings')
         .upsert({
           setting_key: 'excluded_activity_ids',
@@ -548,23 +484,15 @@ export default function GuidesCalendarPage() {
         .select()
 
       if (error) {
-        console.error('❌ Error saving settings:', error)
         throw error
       }
 
-      console.log('✅ Step 2: Settings saved successfully to DB:', data)
-
       // Reload from database to ensure consistency
-      console.log('🔵 Step 3: Reloading settings from database...')
       await fetchExcludedActivities()
 
-      console.log('🔵 Step 4: Closing drawer')
       setSettingsOpen(false)
       setSettingsSearchText('')
-
-      console.log('✅ Save complete!')
-    } catch (err) {
-      console.error('❌ Error saving settings:', err)
+    } catch {
       setError('Failed to save settings')
     }
   }
@@ -699,7 +627,7 @@ export default function GuidesCalendarPage() {
               <DrawerHeader>
                 <DrawerTitle>Calendar Settings</DrawerTitle>
                 <DrawerDescription>
-                  Select which activities to show in the calendar view (leave empty to show all)
+                  Select which activities to exclude from the calendar view
                 </DrawerDescription>
               </DrawerHeader>
               <div className="p-4 h-[70vh] overflow-y-auto">
@@ -743,10 +671,10 @@ export default function GuidesCalendarPage() {
                 {/* Selection Controls */}
                 <div className="mb-4 flex gap-2">
                   <Button variant="outline" size="sm" onClick={selectAllActivities}>
-                    Select All
+                    Exclude All
                   </Button>
                   <Button variant="outline" size="sm" onClick={clearAllActivities}>
-                    Clear All
+                    Show All
                   </Button>
                   <Button variant="outline" size="sm" onClick={() => setShowGroupForm(!showGroupForm)}>
                     Save as Group
@@ -805,7 +733,7 @@ export default function GuidesCalendarPage() {
                 {/* Activity List */}
                 <div>
                   <label className="block text-sm font-medium mb-2">
-                    All Activities ({allActivities.length} total)
+                    Activities to Exclude ({tempExcludedIds.length} of {allActivities.length} selected)
                   </label>
                   <div className="space-y-2">
                     {filteredSettingsActivities.length === 0 ? (

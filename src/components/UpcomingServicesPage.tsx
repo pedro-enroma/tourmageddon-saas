@@ -40,11 +40,37 @@ export default function UpcomingServicesPage() {
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState<string | null>(null)
   const [selectedDate, setSelectedDate] = useState(new Date())
+  const [excludedActivityIds, setExcludedActivityIds] = useState<string[]>([])
+
+  useEffect(() => {
+    fetchExcludedActivities()
+  }, [])
 
   useEffect(() => {
     fetchAssignments()
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [selectedDate])
+  }, [selectedDate, excludedActivityIds])
+
+  const fetchExcludedActivities = async () => {
+    try {
+      const { data, error } = await supabase
+        .from('guide_calendar_settings')
+        .select('setting_value')
+        .eq('setting_key', 'excluded_activity_ids')
+        .single()
+
+      if (error) {
+        setExcludedActivityIds([])
+        return
+      }
+
+      if (data?.setting_value) {
+        setExcludedActivityIds(data.setting_value as string[])
+      }
+    } catch {
+      setExcludedActivityIds([])
+    }
+  }
 
   const fetchAssignments = async () => {
     setLoading(true)
@@ -107,10 +133,7 @@ export default function UpcomingServicesPage() {
         return acc
       }, {})
 
-      // Exclude specific activity IDs (Traslados)
-      const EXCLUDED_ACTIVITY_IDS = ['243718', '243709', '219735', '217930']
-
-      // Filter out Traslados assignments
+      // Filter out excluded activities (loaded from database settings)
       const enrichedData = (filteredData || [])
         .map((assignment) => {
           const avail = Array.isArray(assignment.activity_availability)
@@ -123,8 +146,8 @@ export default function UpcomingServicesPage() {
           const activity = activitiesMap[avail.activity_id]
           if (!activity) return null
 
-          // Skip excluded activity IDs
-          if (EXCLUDED_ACTIVITY_IDS.includes(avail.activity_id)) return null
+          // Skip excluded activity IDs (from database settings)
+          if (excludedActivityIds.includes(avail.activity_id)) return null
 
           return {
             ...assignment,

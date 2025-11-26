@@ -29,6 +29,7 @@ export default function GuidesListPage() {
   const [showModal, setShowModal] = useState(false)
   const [editingGuide, setEditingGuide] = useState<Guide | null>(null)
   const [error, setError] = useState<string | null>(null)
+  const [saving, setSaving] = useState(false)
 
   // Form state
   const [formData, setFormData] = useState({
@@ -100,6 +101,7 @@ export default function GuidesListPage() {
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault()
     setError(null)
+    setSaving(true)
 
     try {
       if (editingGuide) {
@@ -140,6 +142,8 @@ export default function GuidesListPage() {
     } catch (err) {
       console.error('Error saving guide:', err)
       setError(err instanceof Error ? err.message : 'Failed to save guide')
+    } finally {
+      setSaving(false)
     }
   }
 
@@ -406,9 +410,9 @@ export default function GuidesListPage() {
                 </Button>
                 <Button
                   type="submit"
-                  disabled={formData.languages.length === 0}
+                  disabled={formData.languages.length === 0 || saving}
                 >
-                  {editingGuide ? 'Update Guide' : 'Create Guide'}
+                  {saving ? 'Saving...' : (editingGuide ? 'Update Guide' : 'Create Guide')}
                 </Button>
               </div>
             </form>
