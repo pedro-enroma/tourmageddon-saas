@@ -111,7 +111,11 @@ export async function POST(request: NextRequest) {
 
     const resend = getResend()
     if (!resend) {
-      return NextResponse.json({ error: 'Email service not configured. Please set RESEND_API_KEY.' }, { status: 500 })
+      const availableVars = Object.keys(process.env).filter(k => k.includes('RESEND') || k.includes('SUPABASE'))
+      return NextResponse.json({
+        error: 'Email service not configured. Please set RESEND_API_KEY.',
+        debug: `Available vars: ${availableVars.join(', ') || 'none'}`
+      }, { status: 500 })
     }
 
     const supabase = getSupabase()

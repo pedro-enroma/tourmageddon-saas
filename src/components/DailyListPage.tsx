@@ -697,7 +697,8 @@ export default function DailyListPage() {
       const result = await response.json()
 
       if (!response.ok) {
-        throw new Error(result.error || 'Failed to send emails')
+        const errorMsg = result.debug ? `${result.error} ${result.debug}` : result.error
+        throw new Error(errorMsg || 'Failed to send emails')
       }
 
       setEmailSuccess(`Successfully sent ${result.sent} email(s)${result.failed > 0 ? `, ${result.failed} failed` : ''}`)
