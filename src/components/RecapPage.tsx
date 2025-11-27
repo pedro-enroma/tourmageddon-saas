@@ -1138,7 +1138,7 @@ export default function RecapPage() {
               />
               <button
                 onClick={onAddCategory}
-                className="px-4 py-2 bg-blue-600 text-white rounded hover:bg-blue-700"
+                className="px-4 py-2 bg-brand-orange text-white rounded hover:bg-brand-orange-dark"
               >
                 <Plus className="w-4 h-4" />
               </button>
@@ -1358,7 +1358,7 @@ export default function RecapPage() {
             <div className="col-span-4">
               <button
                 onClick={() => openGroupModal()}
-                className="w-full flex items-center justify-center gap-2 px-4 py-2 bg-purple-500 text-white rounded-md hover:bg-purple-600 transition-colors"
+                className="w-full flex items-center justify-center gap-2 px-4 py-2 bg-brand-green text-white rounded-md hover:bg-brand-green-dark transition-colors"
               >
                 <Plus className="w-4 h-4" />
                 Crea Nuovo Gruppo
@@ -1429,7 +1429,7 @@ export default function RecapPage() {
                 id="bookings-toggle"
                 checked={showOnlyWithBookings}
                 onCheckedChange={setShowOnlyWithBookings}
-                className="data-[state=checked]:bg-purple-600"
+                className="data-[state=checked]:bg-brand-orange"
               />
             </div>
             
@@ -1478,7 +1478,7 @@ export default function RecapPage() {
               <div className="flex items-center gap-2 flex-wrap">
                 <span className="text-sm font-medium text-gray-700">Gruppi salvati:</span>
                 {tourGroups.map(group => (
-                  <div key={group.id} className="inline-flex items-center gap-1 bg-purple-50 px-2 py-1 rounded text-sm">
+                  <div key={group.id} className="inline-flex items-center gap-1 bg-brand-orange-light px-2 py-1 rounded text-sm">
                     <span>{group.name}</span>
                     <span className="text-xs text-gray-500">({group.tour_ids?.length || 0})</span>
                     <button
@@ -1539,7 +1539,7 @@ export default function RecapPage() {
               {data.map((row) => (
                 <React.Fragment key={row.id}>
                   <tr className={`border-t hover:bg-gray-50 ${
-                    row.isGroup || row.isDateGroup || row.isWeekGroup ? 'bg-purple-50' : ''
+                    row.isGroup || row.isDateGroup || row.isWeekGroup ? 'bg-brand-orange-light' : ''
                   }`}>
                     <td className="px-4 py-3">
                       <div className="flex items-center gap-2">
@@ -1814,7 +1814,7 @@ export default function RecapPage() {
               <button
                 onClick={saveGroup}
                 disabled={selectedTours.length === 0 || !newGroupName.trim()}
-                className="flex items-center gap-2 px-4 py-2 bg-purple-500 text-white rounded hover:bg-purple-600 disabled:bg-gray-400 disabled:cursor-not-allowed"
+                className="flex items-center gap-2 px-4 py-2 bg-brand-green text-white rounded hover:bg-brand-green-dark disabled:bg-gray-400 disabled:cursor-not-allowed"
               >
                 <Save className="w-4 h-4" />
                 Salva Gruppo

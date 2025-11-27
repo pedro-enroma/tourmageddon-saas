@@ -263,7 +263,7 @@ export default function GuideReportsPage() {
               <button
                 onClick={fetchAssignments}
                 disabled={loading || selectedGuides.length === 0 || !startDate || !endDate}
-                className="flex-1 bg-blue-600 text-white px-4 py-2 rounded-lg hover:bg-blue-700 disabled:bg-gray-300 disabled:cursor-not-allowed font-medium"
+                className="flex-1 bg-brand-orange text-white px-4 py-2 rounded-lg hover:bg-brand-orange-dark disabled:bg-gray-300 disabled:cursor-not-allowed font-medium"
               >
                 {loading ? 'Loading...' : 'Generate Report'}
               </button>

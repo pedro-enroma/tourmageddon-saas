@@ -145,34 +145,47 @@ function AppSidebar({ currentView, onNavigate }: {
   ]
 
   return (
-    <Sidebar>
-      <SidebarHeader className="border-b px-6 py-4">
-        <h2 className="text-xl font-bold">Tourmageddon</h2>
+    <Sidebar className="bg-[#1a1a1a] border-r border-gray-800">
+      <SidebarHeader className="border-b border-gray-800 px-5 py-4">
+        <div className="flex items-center gap-3">
+          <div className="w-9 h-9 rounded-lg bg-brand-gradient flex items-center justify-center">
+            <span className="text-white font-bold text-lg">T</span>
+          </div>
+          <div>
+            <h2 className="text-lg font-bold text-white">Tourmageddon</h2>
+            <p className="text-xs text-gray-500">Operations Dashboard</p>
+          </div>
+        </div>
       </SidebarHeader>
-      <SidebarContent>
+      <SidebarContent className="px-3 py-4">
         <SidebarGroup>
-          <SidebarMenu>
+          <SidebarMenu className="space-y-1">
             {menuItems.map((section) => (
               <SidebarMenuItem key={section.title}>
                 <SidebarMenuButton
                   onClick={() => section.setOpen(!section.isOpen)}
-                  className="w-full"
+                  className="w-full text-gray-400 hover:text-white hover:bg-gray-800/50 rounded-lg transition-colors"
                 >
                   <section.icon className="h-4 w-4" />
-                  <span>{section.title}</span>
-                  <ChevronRight 
+                  <span className="font-medium">{section.title}</span>
+                  <ChevronRight
                     className={`ml-auto h-4 w-4 transition-transform ${
                       section.isOpen ? "rotate-90" : ""
                     }`}
                   />
                 </SidebarMenuButton>
                 {section.isOpen && (
-                  <SidebarMenuSub>
+                  <SidebarMenuSub className="ml-4 mt-1 space-y-0.5 border-l border-gray-800 pl-3">
                     {section.items.map((item) => (
                       <SidebarMenuSubItem key={item.view}>
                         <SidebarMenuSubButton
                           onClick={() => onNavigate(item.view)}
                           isActive={currentView === item.view}
+                          className={`rounded-lg transition-all ${
+                            currentView === item.view
+                              ? 'bg-brand-orange text-white font-medium'
+                              : 'text-gray-500 hover:text-white hover:bg-gray-800/50'
+                          }`}
                         >
                           <item.icon className="h-4 w-4" />
                           <span>{item.title}</span>
@@ -284,19 +297,25 @@ export default function DashboardLayout() {
 
   return (
     <SidebarProvider>
-      <div className="flex h-screen w-full">
+      <div className="flex h-screen w-full bg-gray-50">
         <AppSidebar currentView={currentView} onNavigate={setCurrentView} />
         <main className="flex-1 overflow-auto">
-          <div className="border-b bg-white px-6 py-3 flex items-center gap-3">
-            <SidebarTrigger>
-              <Menu className="h-5 w-5" />
-            </SidebarTrigger>
-            <div className="flex items-center gap-2 text-sm text-gray-600">
-              <span>Dashboard</span>
-              <ChevronRight className="w-4 h-4" />
-              <span>{getBreadcrumbSection()}</span>
-              <ChevronRight className="w-4 h-4" />
-              <span className="text-gray-900 font-medium">{getPageTitle()}</span>
+          <div className="sticky top-0 z-10 border-b bg-white/95 backdrop-blur-sm px-6 py-4 flex items-center justify-between">
+            <div className="flex items-center gap-4">
+              <SidebarTrigger className="p-2 hover:bg-gray-100 rounded-lg transition-colors">
+                <Menu className="h-5 w-5 text-gray-600" />
+              </SidebarTrigger>
+              <div className="flex items-center gap-2 text-sm">
+                <span className="text-gray-400">Dashboard</span>
+                <ChevronRight className="w-4 h-4 text-gray-300" />
+                <span className="text-gray-400">{getBreadcrumbSection()}</span>
+                <ChevronRight className="w-4 h-4 text-gray-300" />
+                <span className="text-brand-orange font-semibold">{getPageTitle()}</span>
+              </div>
+            </div>
+            <div className="flex items-center gap-2">
+              <div className="h-2 w-2 rounded-full bg-brand-green animate-pulse" />
+              <span className="text-xs text-gray-500">Live</span>
             </div>
           </div>
           <div className="p-6">

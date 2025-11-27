@@ -681,7 +681,7 @@ EnRoma.com Team`)
             </div>
             <button
               onClick={goToToday}
-              className="px-4 py-2 bg-blue-600 text-white rounded-md hover:bg-blue-700 text-sm"
+              className="px-4 py-2 bg-brand-orange text-white rounded-md hover:bg-brand-orange-dark text-sm"
             >
               Today
             </button>

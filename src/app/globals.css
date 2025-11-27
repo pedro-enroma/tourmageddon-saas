@@ -51,10 +51,12 @@
   --card-foreground: oklch(0.145 0 0);
   --popover: oklch(1 0 0);
   --popover-foreground: oklch(0.145 0 0);
-  --primary: oklch(0.205 0 0);
+  /* Brand Primary - Orange #ee682a */
+  --primary: oklch(0.65 0.2 35);
   --primary-foreground: oklch(0.985 0 0);
-  --secondary: oklch(0.97 0 0);
-  --secondary-foreground: oklch(0.205 0 0);
+  /* Brand Secondary - Green #2dba7d */
+  --secondary: oklch(0.68 0.15 160);
+  --secondary-foreground: oklch(0.985 0 0);
   --muted: oklch(0.97 0 0);
   --muted-foreground: oklch(0.556 0 0);
   --accent: oklch(0.97 0 0);
@@ -62,20 +64,30 @@
   --destructive: oklch(0.577 0.245 27.325);
   --border: oklch(0.922 0 0);
   --input: oklch(0.922 0 0);
-  --ring: oklch(0.708 0 0);
-  --chart-1: oklch(0.646 0.222 41.116);
-  --chart-2: oklch(0.6 0.118 184.704);
-  --chart-3: oklch(0.398 0.07 227.392);
-  --chart-4: oklch(0.828 0.189 84.429);
-  --chart-5: oklch(0.769 0.188 70.08);
-  --sidebar: oklch(0.985 0 0);
-  --sidebar-foreground: oklch(0.145 0 0);
-  --sidebar-primary: oklch(0.205 0 0);
+  --ring: oklch(0.65 0.2 35);
+  /* Chart colors using brand palette */
+  --chart-1: oklch(0.65 0.2 35);
+  --chart-2: oklch(0.68 0.15 160);
+  --chart-3: oklch(0.55 0.18 35);
+  --chart-4: oklch(0.58 0.13 160);
+  --chart-5: oklch(0.75 0.15 35);
+  /* Sidebar with brand colors */
+  --sidebar: oklch(0.18 0 0);
+  --sidebar-foreground: oklch(0.985 0 0);
+  --sidebar-primary: oklch(0.65 0.2 35);
   --sidebar-primary-foreground: oklch(0.985 0 0);
-  --sidebar-accent: oklch(0.97 0 0);
-  --sidebar-accent-foreground: oklch(0.205 0 0);
-  --sidebar-border: oklch(0.922 0 0);
-  --sidebar-ring: oklch(0.708 0 0);
+  --sidebar-accent: oklch(0.25 0 0);
+  --sidebar-accent-foreground: oklch(0.985 0 0);
+  --sidebar-border: oklch(0.3 0 0);
+  --sidebar-ring: oklch(0.65 0.2 35);
+
+  /* Custom brand color variables for direct use */
+  --brand-orange: #ee682a;
+  --brand-green: #2dba7d;
+  --brand-orange-light: #fef3ee;
+  --brand-orange-dark: #c5521f;
+  --brand-green-light: #edfbf4;
+  --brand-green-dark: #239964;
 }
 
 .dark {
@@ -123,8 +135,8 @@
 
 /* Calendar styles for react-day-picker v9 */
 .rdp {
-  --rdp-accent-color: theme('colors.gray.900');
-  --rdp-background-color: theme('colors.gray.100');
+  --rdp-accent-color: var(--brand-orange);
+  --rdp-background-color: var(--brand-orange-light);
   margin: 0;
 }
 
@@ -134,6 +146,27 @@
 }
 
 .rdp-day_selected:hover:not(.rdp-day_outside) {
-  background-color: var(--rdp-accent-color);
+  background-color: var(--brand-orange-dark);
   color: white;
+}
+
+/* Brand utility classes */
+.bg-brand-orange { background-color: var(--brand-orange); }
+.bg-brand-green { background-color: var(--brand-green); }
+.bg-brand-orange-light { background-color: var(--brand-orange-light); }
+.bg-brand-green-light { background-color: var(--brand-green-light); }
+.text-brand-orange { color: var(--brand-orange); }
+.text-brand-green { color: var(--brand-green); }
+.border-brand-orange { border-color: var(--brand-orange); }
+.border-brand-green { border-color: var(--brand-green); }
+.hover\:bg-brand-orange-dark:hover { background-color: var(--brand-orange-dark); }
+.hover\:bg-brand-green-dark:hover { background-color: var(--brand-green-dark); }
+
+/* Gradient backgrounds */
+.bg-brand-gradient {
+  background: linear-gradient(135deg, var(--brand-orange) 0%, var(--brand-green) 100%);
+}
+
+.bg-brand-gradient-subtle {
+  background: linear-gradient(135deg, var(--brand-orange-light) 0%, var(--brand-green-light) 100%);
 }

@@ -2566,7 +2566,7 @@ EnRoma.com Team`
             <div key={tour.tourTitle} className="border rounded-lg bg-white shadow-sm">
               {/* Tour Header */}
               <div
-                className="p-4 bg-blue-50 border-b hover:bg-blue-100 transition-colors"
+                className="p-4 bg-brand-orange-light border-b hover:bg-orange-100 transition-colors"
               >
                 <div className="flex items-center justify-between">
                   <div
@@ -2682,7 +2682,7 @@ EnRoma.com Team`
                               <User className="w-4 h-4 text-purple-600" />
                               <span className="text-purple-700 font-medium">Guides:</span>
                               {slotGuides.map((g) => (
-                                <span key={g.id} className="bg-purple-100 text-purple-800 px-2 py-0.5 rounded">
+                                <span key={g.id} className="bg-brand-green-light text-green-800 px-2 py-0.5 rounded">
                                   {g.first_name} {g.last_name}
                                 </span>
                               ))}
@@ -2780,7 +2780,7 @@ EnRoma.com Team`
             <Button
               onClick={openBulkEmailDrawerForGuides}
               disabled={sendingBulkGuides || sendingBulkEscorts}
-              className="bg-purple-600 hover:bg-purple-700"
+              className="bg-brand-green hover:bg-brand-green-dark"
             >
               {sendingBulkGuides ? (
                 <>
@@ -2797,7 +2797,7 @@ EnRoma.com Team`
             <Button
               onClick={openBulkEmailDrawerForEscorts}
               disabled={sendingBulkGuides || sendingBulkEscorts}
-              className="bg-orange-600 hover:bg-orange-700"
+              className="bg-brand-orange hover:bg-brand-orange-dark"
             >
               {sendingBulkEscorts ? (
                 <>
@@ -2862,7 +2862,7 @@ EnRoma.com Team`
                     pending: 'bg-yellow-100 text-yellow-800',
                     sent: 'bg-blue-100 text-blue-800',
                     delivered: 'bg-green-100 text-green-800',
-                    read: 'bg-purple-100 text-purple-800',
+                    read: 'bg-brand-green-light text-green-800',
                     replied: 'bg-indigo-100 text-indigo-800',
                     failed: 'bg-red-100 text-red-800'
                   }
@@ -2879,8 +2879,8 @@ EnRoma.com Team`
                       </td>
                       <td className="py-2 px-3">
                         <span className={`inline-flex items-center px-2 py-0.5 rounded text-xs font-medium ${
-                          log.recipient_type === 'guide' ? 'bg-purple-100 text-purple-700' :
-                          log.recipient_type === 'escort' ? 'bg-orange-100 text-orange-700' :
+                          log.recipient_type === 'guide' ? 'bg-brand-green-light text-green-700' :
+                          log.recipient_type === 'escort' ? 'bg-brand-orange-light text-orange-700' :
                           'bg-gray-100 text-gray-700'
                         }`}>
                           {log.recipient_type || 'N/A'}
@@ -2914,7 +2914,7 @@ EnRoma.com Team`
             <span className="inline-flex items-center px-2 py-0.5 rounded-full text-xs font-medium bg-yellow-100 text-yellow-800">pending</span>
             <span className="inline-flex items-center px-2 py-0.5 rounded-full text-xs font-medium bg-blue-100 text-blue-800">sent</span>
             <span className="inline-flex items-center px-2 py-0.5 rounded-full text-xs font-medium bg-green-100 text-green-800">delivered</span>
-            <span className="inline-flex items-center px-2 py-0.5 rounded-full text-xs font-medium bg-purple-100 text-purple-800">read</span>
+            <span className="inline-flex items-center px-2 py-0.5 rounded-full text-xs font-medium bg-brand-green-light text-green-800">read</span>
             <span className="inline-flex items-center px-2 py-0.5 rounded-full text-xs font-medium bg-indigo-100 text-indigo-800">replied</span>
             <span className="inline-flex items-center px-2 py-0.5 rounded-full text-xs font-medium bg-red-100 text-red-800">failed</span>
           </div>
@@ -3117,10 +3117,10 @@ EnRoma.com Team`
       <Sheet open={showBulkEmailDrawer} onOpenChange={setShowBulkEmailDrawer}>
         <SheetContent className="w-[450px] sm:w-[500px] flex flex-col p-0">
           {/* Header */}
-          <div className={`px-6 py-5 border-b ${bulkEmailType === 'guides' ? 'bg-purple-50' : 'bg-orange-50'}`}>
+          <div className={`px-6 py-5 border-b ${bulkEmailType === 'guides' ? 'bg-brand-green-light' : 'bg-brand-orange-light'}`}>
             <div className="flex items-center gap-3">
-              <div className={`p-2 rounded-lg ${bulkEmailType === 'guides' ? 'bg-purple-100' : 'bg-orange-100'}`}>
-                <Mail className={`w-5 h-5 ${bulkEmailType === 'guides' ? 'text-purple-600' : 'text-orange-600'}`} />
+              <div className={`p-2 rounded-lg ${bulkEmailType === 'guides' ? 'bg-green-100' : 'bg-orange-100'}`}>
+                <Mail className={`w-5 h-5 ${bulkEmailType === 'guides' ? 'text-green-600' : 'text-orange-600'}`} />
               </div>
               <div>
                 <SheetTitle className="text-lg font-semibold">
@@ -3165,7 +3165,7 @@ EnRoma.com Team`
                       htmlFor={`guide-${guideId}`}
                       className={`flex items-center gap-3 p-3 rounded-lg border cursor-pointer transition-all ${
                         bulkSelectedRecipients.has(guideId)
-                          ? 'border-purple-300 bg-purple-50'
+                          ? 'border-green-300 bg-brand-green-light'
                           : 'border-gray-200 hover:border-gray-300 hover:bg-gray-50'
                       }`}
                     >
@@ -3173,7 +3173,7 @@ EnRoma.com Team`
                         id={`guide-${guideId}`}
                         checked={bulkSelectedRecipients.has(guideId)}
                         onCheckedChange={() => toggleRecipientSelection(guideId)}
-                        className="data-[state=checked]:bg-purple-600 data-[state=checked]:border-purple-600"
+                        className="data-[state=checked]:bg-brand-green data-[state=checked]:border-green-600"
                       />
                       <div className="flex-1 min-w-0">
                         <div className="flex items-center gap-2">
@@ -3182,7 +3182,7 @@ EnRoma.com Team`
                           </span>
                           <span className={`px-1.5 py-0.5 text-xs rounded-full ${
                             bulkSelectedRecipients.has(guideId)
-                              ? 'bg-purple-100 text-purple-700'
+                              ? 'bg-brand-green-light text-green-700'
                               : 'bg-gray-100 text-gray-600'
                           }`}>
                             {services.length} {services.length === 1 ? 'tour' : 'tours'}
@@ -3199,7 +3199,7 @@ EnRoma.com Team`
                       htmlFor={`escort-${escortId}`}
                       className={`flex items-center gap-3 p-3 rounded-lg border cursor-pointer transition-all ${
                         bulkSelectedRecipients.has(escortId)
-                          ? 'border-orange-300 bg-orange-50'
+                          ? 'border-orange-300 bg-brand-orange-light'
                           : 'border-gray-200 hover:border-gray-300 hover:bg-gray-50'
                       }`}
                     >
@@ -3207,7 +3207,7 @@ EnRoma.com Team`
                         id={`escort-${escortId}`}
                         checked={bulkSelectedRecipients.has(escortId)}
                         onCheckedChange={() => toggleRecipientSelection(escortId)}
-                        className="data-[state=checked]:bg-orange-600 data-[state=checked]:border-orange-600"
+                        className="data-[state=checked]:bg-brand-orange data-[state=checked]:border-orange-600"
                       />
                       <div className="flex-1 min-w-0">
                         <div className="flex items-center gap-2">
@@ -3216,7 +3216,7 @@ EnRoma.com Team`
                           </span>
                           <span className={`px-1.5 py-0.5 text-xs rounded-full ${
                             bulkSelectedRecipients.has(escortId)
-                              ? 'bg-orange-100 text-orange-700'
+                              ? 'bg-brand-orange-light text-orange-700'
                               : 'bg-gray-100 text-gray-600'
                           }`}>
                             {services.length} {services.length === 1 ? 'service' : 'services'}
@@ -3272,8 +3272,8 @@ EnRoma.com Team`
                 disabled={bulkSelectedRecipients.size === 0}
                 className={`${
                   bulkEmailType === 'guides'
-                    ? 'bg-purple-600 hover:bg-purple-700'
-                    : 'bg-orange-600 hover:bg-orange-700'
+                    ? 'bg-brand-green hover:bg-brand-green-dark'
+                    : 'bg-brand-orange hover:bg-brand-orange-dark'
                 } text-white px-6`}
               >
                 <Send className="w-4 h-4 mr-2" />

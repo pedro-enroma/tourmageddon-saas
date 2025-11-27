@@ -761,9 +761,9 @@ export default function ContentPage() {
                       <button
                         key={variable.key}
                         onClick={() => insertVariable(variable.key)}
-                        className="w-full text-left px-3 py-2 bg-white border rounded hover:bg-blue-50 hover:border-blue-300 transition-colors"
+                        className="w-full text-left px-3 py-2 bg-white border rounded hover:bg-brand-orange-light hover:border-orange-300 transition-colors"
                       >
-                        <div className="font-mono text-xs text-blue-600">{variable.key}</div>
+                        <div className="font-mono text-xs text-brand-orange">{variable.key}</div>
                         <div className="text-xs text-gray-500">{variable.description}</div>
                       </button>
                     ))}

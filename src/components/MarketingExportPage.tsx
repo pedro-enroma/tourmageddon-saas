@@ -159,7 +159,7 @@ const CustomDropdown = ({
                     onClick={() => toggleCategoryFilter(cat)}
                     className={`px-3 py-1 text-xs rounded-full transition-colors ${
                       selectedCategories.includes(cat)
-                        ? 'bg-blue-600 text-white'
+                        ? 'bg-brand-orange text-white'
                         : 'bg-gray-200 text-gray-700 hover:bg-gray-300'
                     }`}
                   >
@@ -310,11 +310,11 @@ const CategoryManagementModal = ({
                   onChange={(e) => setNewCategoryName(e.target.value)}
                   onKeyPress={(e) => e.key === 'Enter' && addCategory()}
                   placeholder="Nome nuova categoria..."
-                  className="flex-1 px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-purple-500"
+                  className="flex-1 px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-brand-orange"
                 />
                 <button
                   onClick={addCategory}
-                  className="px-4 py-2 bg-purple-600 text-white rounded-md hover:bg-purple-700 flex items-center gap-2"
+                  className="px-4 py-2 bg-brand-orange text-white rounded-md hover:bg-brand-orange-dark flex items-center gap-2"
                 >
                   <Plus className="w-4 h-4" />
                   Aggiungi
@@ -328,8 +328,8 @@ const CategoryManagementModal = ({
                     key={category.name}
                     className={`p-3 border rounded-md cursor-pointer transition-colors ${
                       editingCategory === category.name
-                        ? 'border-purple-600 bg-purple-50'
-                        : 'border-gray-200 hover:border-purple-300'
+                        ? 'border-brand-orange bg-brand-orange-light'
+                        : 'border-gray-200 hover:border-orange-300'
                     }`}
                     onClick={() => {
                       setEditingCategory(category.name)
@@ -416,7 +416,7 @@ const CategoryManagementModal = ({
           </button>
           <button
             onClick={handleSave}
-            className="px-4 py-2 bg-purple-600 text-white rounded-md hover:bg-purple-700"
+            className="px-4 py-2 bg-brand-orange text-white rounded-md hover:bg-brand-orange-dark"
           >
             Salva Modifiche
           </button>
@@ -810,7 +810,7 @@ export default function MarketingExport() {
           <h2 className="text-xl font-semibold">Filtri</h2>
           <button
             onClick={() => setShowCategoryModal(true)}
-            className="flex items-center gap-2 px-4 py-2 bg-purple-600 text-white rounded-md hover:bg-purple-700 transition-colors"
+            className="flex items-center gap-2 px-4 py-2 bg-brand-orange text-white rounded-md hover:bg-brand-orange-dark transition-colors"
           >
             <Tags className="w-4 h-4" />
             Gestisci Categorie

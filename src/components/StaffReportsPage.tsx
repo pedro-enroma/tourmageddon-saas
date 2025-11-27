@@ -355,7 +355,7 @@ export default function StaffReportsPage() {
               <button
                 onClick={fetchAssignments}
                 disabled={loading || (selectedGuides.length === 0 && selectedEscorts.length === 0) || !startDate || !endDate}
-                className="flex-1 bg-blue-600 text-white px-4 py-2 rounded-lg hover:bg-blue-700 disabled:bg-gray-300 disabled:cursor-not-allowed font-medium"
+                className="flex-1 bg-brand-orange text-white px-4 py-2 rounded-lg hover:bg-brand-orange-dark disabled:bg-gray-300 disabled:cursor-not-allowed font-medium"
               >
                 {loading ? 'Loading...' : 'Generate Report'}
               </button>
@@ -377,7 +377,7 @@ export default function StaffReportsPage() {
                 onClick={() => setActiveTab('guides')}
                 className={`px-4 py-2 text-sm font-medium border-b-2 transition-colors ${
                   activeTab === 'guides'
-                    ? 'border-purple-600 text-purple-600'
+                    ? 'border-brand-green text-brand-green'
                     : 'border-transparent text-gray-500 hover:text-gray-700'
                 }`}
               >
@@ -539,7 +539,7 @@ export default function StaffReportsPage() {
                       <td className="px-6 py-4 whitespace-nowrap">
                         <span className={`px-2 py-1 text-xs font-medium rounded-full ${
                           assignment.staff_type === 'Guide'
-                            ? 'bg-purple-100 text-purple-800'
+                            ? 'bg-brand-green-light text-green-800'
                             : 'bg-green-100 text-green-800'
                         }`}>
                           {assignment.staff_type}

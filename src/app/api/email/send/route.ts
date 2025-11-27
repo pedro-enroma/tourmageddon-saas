@@ -46,7 +46,8 @@ function textToHtml(text: string, hasAttachments: boolean): string {
   // Convert line breaks to <br>
   html = html.replace(/\n/g, '<br>')
 
-  // Create styled HTML email
+  // Create styled HTML email with brand colors
+  // Brand Orange: #ee682a, Brand Green: #2dba7d
   return `
 <!DOCTYPE html>
 <html>
@@ -55,28 +56,46 @@ function textToHtml(text: string, hasAttachments: boolean): string {
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
   <title>Service Assignment</title>
 </head>
-<body style="margin: 0; padding: 0; font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, 'Helvetica Neue', Arial, sans-serif; background-color: #f5f5f5;">
-  <table role="presentation" cellspacing="0" cellpadding="0" border="0" width="100%" style="background-color: #f5f5f5;">
+<body style="margin: 0; padding: 0; font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, 'Helvetica Neue', Arial, sans-serif; background-color: #f8f9fa;">
+  <table role="presentation" cellspacing="0" cellpadding="0" border="0" width="100%" style="background-color: #f8f9fa;">
     <tr>
       <td style="padding: 40px 20px;">
-        <table role="presentation" cellspacing="0" cellpadding="0" border="0" width="600" style="margin: 0 auto; background-color: #ffffff; border-radius: 8px; box-shadow: 0 2px 8px rgba(0,0,0,0.1);">
-          <!-- Header -->
+        <table role="presentation" cellspacing="0" cellpadding="0" border="0" width="600" style="margin: 0 auto; background-color: #ffffff; border-radius: 12px; box-shadow: 0 4px 20px rgba(0,0,0,0.08);">
+          <!-- Header with gradient -->
           <tr>
-            <td style="padding: 30px 40px; background-color: #2563eb; border-radius: 8px 8px 0 0;">
-              <h1 style="margin: 0; color: #ffffff; font-size: 24px; font-weight: 600;">EnRoma.com</h1>
+            <td style="padding: 0;">
+              <table role="presentation" cellspacing="0" cellpadding="0" border="0" width="100%">
+                <tr>
+                  <td style="padding: 32px 40px; background: linear-gradient(135deg, #ee682a 0%, #2dba7d 100%); border-radius: 12px 12px 0 0;">
+                    <table role="presentation" cellspacing="0" cellpadding="0" border="0">
+                      <tr>
+                        <td style="padding-right: 16px;">
+                          <div style="width: 48px; height: 48px; background-color: rgba(255,255,255,0.2); border-radius: 10px; text-align: center; line-height: 48px;">
+                            <span style="color: #ffffff; font-size: 24px; font-weight: bold;">E</span>
+                          </div>
+                        </td>
+                        <td>
+                          <h1 style="margin: 0; color: #ffffff; font-size: 26px; font-weight: 700;">EnRoma.com</h1>
+                          <p style="margin: 4px 0 0 0; color: rgba(255,255,255,0.85); font-size: 14px;">Tour Operations</p>
+                        </td>
+                      </tr>
+                    </table>
+                  </td>
+                </tr>
+              </table>
             </td>
           </tr>
           <!-- Content -->
           <tr>
             <td style="padding: 40px;">
-              <div style="color: #374151; font-size: 15px; line-height: 1.6;">
+              <div style="color: #374151; font-size: 15px; line-height: 1.7;">
                 ${html}
               </div>
               ${hasAttachments ? `
-              <div style="margin-top: 30px; padding: 20px; background-color: #f3f4f6; border-radius: 8px; border-left: 4px solid #2563eb;">
-                <p style="margin: 0; color: #4b5563; font-size: 14px;">
-                  <strong style="color: #1f2937;">📎 Attachments included</strong><br>
-                  Please find the attached documents for this service.
+              <div style="margin-top: 32px; padding: 20px 24px; background-color: #fef3ee; border-radius: 10px; border-left: 4px solid #ee682a;">
+                <p style="margin: 0; color: #92400e; font-size: 14px;">
+                  <strong style="color: #c5521f;">📎 Attachments included</strong><br>
+                  <span style="color: #78350f;">Please find the attached documents for this service.</span>
                 </p>
               </div>
               ` : ''}
@@ -84,10 +103,28 @@ function textToHtml(text: string, hasAttachments: boolean): string {
           </tr>
           <!-- Footer -->
           <tr>
-            <td style="padding: 30px 40px; background-color: #f9fafb; border-radius: 0 0 8px 8px; border-top: 1px solid #e5e7eb;">
-              <p style="margin: 0; color: #6b7280; font-size: 13px; text-align: center;">
-                This email was sent by EnRoma.com<br>
-                <span style="color: #9ca3af;">If you have questions, please contact your coordinator.</span>
+            <td style="padding: 24px 40px 32px; background-color: #f9fafb; border-radius: 0 0 12px 12px; border-top: 1px solid #e5e7eb;">
+              <table role="presentation" cellspacing="0" cellpadding="0" border="0" width="100%">
+                <tr>
+                  <td style="text-align: center;">
+                    <p style="margin: 0 0 8px 0; color: #6b7280; font-size: 13px;">
+                      This email was sent by <strong style="color: #ee682a;">EnRoma.com</strong>
+                    </p>
+                    <p style="margin: 0; color: #9ca3af; font-size: 12px;">
+                      If you have questions, please contact your coordinator.
+                    </p>
+                  </td>
+                </tr>
+              </table>
+            </td>
+          </tr>
+        </table>
+        <!-- Brand footer -->
+        <table role="presentation" cellspacing="0" cellpadding="0" border="0" width="600" style="margin: 24px auto 0;">
+          <tr>
+            <td style="text-align: center;">
+              <p style="margin: 0; color: #9ca3af; font-size: 11px;">
+                Powered by Tourmageddon
               </p>
             </td>
           </tr>

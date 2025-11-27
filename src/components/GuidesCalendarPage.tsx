@@ -893,7 +893,7 @@ export default function GuidesCalendarPage() {
             </div>
             <button
               onClick={goToToday}
-              className="px-4 py-2 bg-blue-600 text-white rounded-md hover:bg-blue-700 text-sm"
+              className="px-4 py-2 bg-brand-orange text-white rounded-md hover:bg-brand-orange-dark text-sm"
             >
               Today
             </button>
@@ -945,7 +945,7 @@ export default function GuidesCalendarPage() {
                   className="bg-white min-h-[120px] p-2"
                 >
                   <div className={`text-sm font-medium mb-2 ${
-                    isToday ? 'bg-blue-600 text-white rounded-full w-7 h-7 flex items-center justify-center' : 'text-gray-700'
+                    isToday ? 'bg-brand-orange text-white rounded-full w-7 h-7 flex items-center justify-center' : 'text-gray-700'
                   }`}>
                     {format(day, 'd')}
                   </div>
@@ -1059,7 +1059,7 @@ export default function GuidesCalendarPage() {
                             {guide.languages.map(lang => (
                               <span
                                 key={lang}
-                                className="px-2 py-1 text-xs bg-purple-100 text-purple-800 rounded"
+                                className="px-2 py-1 text-xs bg-brand-green-light text-green-800 rounded"
                               >
                                 {lang}
                               </span>
