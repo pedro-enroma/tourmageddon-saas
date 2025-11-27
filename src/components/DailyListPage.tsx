@@ -3173,7 +3173,7 @@ EnRoma.com Team`
                         id={`guide-${guideId}`}
                         checked={bulkSelectedRecipients.has(guideId)}
                         onCheckedChange={() => toggleRecipientSelection(guideId)}
-                        className="data-[state=checked]:bg-brand-green data-[state=checked]:border-green-600"
+                        className="data-[state=checked]:bg-brand-green data-[state=checked]:border-brand-green data-[state=checked]:text-white"
                       />
                       <div className="flex-1 min-w-0">
                         <div className="flex items-center gap-2">
@@ -3207,7 +3207,7 @@ EnRoma.com Team`
                         id={`escort-${escortId}`}
                         checked={bulkSelectedRecipients.has(escortId)}
                         onCheckedChange={() => toggleRecipientSelection(escortId)}
-                        className="data-[state=checked]:bg-brand-orange data-[state=checked]:border-orange-600"
+                        className="data-[state=checked]:bg-brand-orange data-[state=checked]:border-brand-orange data-[state=checked]:text-white"
                       />
                       <div className="flex-1 min-w-0">
                         <div className="flex items-center gap-2">
@@ -3241,7 +3241,7 @@ EnRoma.com Team`
                 id="include-meeting-point"
                 checked={includeMeetingPoint}
                 onCheckedChange={(checked) => setIncludeMeetingPoint(checked === true)}
-                className="mt-0.5"
+                className={`mt-0.5 ${bulkEmailType === 'guides' ? 'data-[state=checked]:bg-brand-green data-[state=checked]:border-brand-green' : 'data-[state=checked]:bg-brand-orange data-[state=checked]:border-brand-orange'} data-[state=checked]:text-white`}
               />
               <div>
                 <div className="flex items-center gap-2">
