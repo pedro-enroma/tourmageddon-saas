@@ -2,7 +2,7 @@
 'use client'
 import { useState, useEffect, useRef } from 'react'
 import { supabase } from '@/lib/supabase'
-import { Download, ChevronDown, Search, X, GripVertical, ChevronRight, User, UserCheck, Paperclip, Upload, Mail, Send, Loader2 } from 'lucide-react'
+import { Download, ChevronDown, Search, X, GripVertical, ChevronRight, User, UserCheck, Paperclip, Upload, Mail, Send, Loader2, MapPin } from 'lucide-react'
 import { format } from 'date-fns'
 import * as XLSX from 'xlsx-js-style'
 
@@ -58,6 +58,12 @@ import {
 import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
 import { Label } from "@/components/ui/label"
+import { Checkbox } from "@/components/ui/checkbox"
+import {
+  Sheet,
+  SheetContent,
+  SheetTitle,
+} from "@/components/ui/sheet"
 
 interface PaxData {
   activity_id: string
@@ -137,6 +143,15 @@ interface EmailLog {
   sent_at: string
 }
 
+interface MeetingPoint {
+  id: string
+  name: string
+  description: string | null
+  address: string | null
+  google_maps_url: string | null
+  instructions: string | null
+}
+
 export default function DailyListPage() {
   const [data, setData] = useState<PaxData[]>([])
   const [groupedTours, setGroupedTours] = useState<TourGroup[]>([])
@@ -175,6 +190,15 @@ export default function DailyListPage() {
   const [sendingBulkEscorts, setSendingBulkEscorts] = useState(false)
   const [bulkEmailProgress, setBulkEmailProgress] = useState<{ sent: number; total: number } | null>(null)
 
+  // Bulk email drawer state
+  const [showBulkEmailDrawer, setShowBulkEmailDrawer] = useState(false)
+  const [bulkEmailType, setBulkEmailType] = useState<'guides' | 'escorts'>('guides')
+  const [bulkSelectedRecipients, setBulkSelectedRecipients] = useState<Set<string>>(new Set())
+  const [includeMeetingPoint, setIncludeMeetingPoint] = useState(true)
+
+  // Meeting points data (activity_id -> meeting point)
+  const [activityMeetingPoints, setActivityMeetingPoints] = useState<Map<string, MeetingPoint>>(new Map())
+
   // Email logs state
   const [emailLogs, setEmailLogs] = useState<EmailLog[]>([])
   const [loadingLogs, setLoadingLogs] = useState(false)
@@ -206,6 +230,43 @@ export default function DailyListPage() {
 
     if (!error && data) {
       setEmailTemplates(data)
+    }
+  }
+
+  // Fetch meeting points for all activities
+  const fetchMeetingPoints = async (activityIds: string[]) => {
+    if (activityIds.length === 0) return
+
+    const { data, error } = await supabase
+      .from('activity_meeting_points')
+      .select(`
+        activity_id,
+        meeting_point_id,
+        is_default,
+        meeting_points (
+          id,
+          name,
+          description,
+          address,
+          google_maps_url,
+          instructions
+        )
+      `)
+      .in('activity_id', activityIds)
+
+    if (!error && data) {
+      const meetingPointsMap = new Map<string, MeetingPoint>()
+      for (const item of data) {
+        const activityId = item.activity_id as string
+        const isDefault = item.is_default as boolean
+        // Supabase returns the joined record - handle as unknown first
+        const mp = item.meeting_points as unknown as MeetingPoint | null
+        // Use the default meeting point for each activity, or the first one
+        if (mp && (!meetingPointsMap.has(activityId) || isDefault)) {
+          meetingPointsMap.set(activityId, mp)
+        }
+      }
+      setActivityMeetingPoints(meetingPointsMap)
     }
   }
 
@@ -955,14 +1016,8 @@ export default function DailyListPage() {
     }
   }
 
-  // Bulk send emails to all guides
-  const handleBulkSendToGuides = async () => {
-    if (groupedTours.length === 0) {
-      alert('No tours to send emails for')
-      return
-    }
-
-    // Collect all unique guides with their services
+  // Get all guides with email addresses for the drawer
+  const getGuidesWithServices = () => {
     const guideServices = new Map<string, {
       guide: Person;
       services: { tour: TourGroup; timeSlot: TimeSlotGroup; availabilityId: number; escortNames: string[] }[]
@@ -973,7 +1028,6 @@ export default function DailyListPage() {
         const firstBooking = timeSlot.bookings[0]
         if (!firstBooking) continue
 
-        // Find the availability ID
         const normalizeTime = (t: string) => t.substring(0, 5)
         const slotTimeNorm = normalizeTime(timeSlot.time)
 
@@ -995,7 +1049,6 @@ export default function DailyListPage() {
 
         const escortNames = assignedEscorts.map(e => `${e.first_name} ${e.last_name}`)
 
-        // Add each guide's service
         for (const guide of assignedGuides) {
           if (!guide.email) continue
 
@@ -1013,36 +1066,147 @@ export default function DailyListPage() {
       }
     }
 
+    return guideServices
+  }
+
+  // Get all escorts with email addresses for the drawer
+  const getEscortsWithServices = () => {
+    const escortServices = new Map<string, {
+      escort: Person;
+      services: { tour: TourGroup; timeSlot: TimeSlotGroup; availabilityId: number; guideName: string }[]
+    }>()
+
+    for (const tour of groupedTours) {
+      for (const timeSlot of tour.timeSlots) {
+        const firstBooking = timeSlot.bookings[0]
+        if (!firstBooking) continue
+
+        const normalizeTime = (t: string) => t.substring(0, 5)
+        const slotTimeNorm = normalizeTime(timeSlot.time)
+
+        let availabilityId: number | null = null
+        let assignedGuides: Person[] = []
+        let assignedEscorts: Person[] = []
+
+        for (const [id, staff] of staffAssignments.entries()) {
+          const staffTimeNorm = normalizeTime(staff.localTime)
+          if (staff.activityId === firstBooking.activity_id && staffTimeNorm === slotTimeNorm) {
+            availabilityId = id
+            assignedGuides = staff.guides
+            assignedEscorts = staff.escorts
+            break
+          }
+        }
+
+        if (!availabilityId) continue
+
+        const guideName = assignedGuides.map(g => `${g.first_name} ${g.last_name}`).join(', ')
+
+        for (const escort of assignedEscorts) {
+          if (!escort.email) continue
+
+          const key = escort.id
+          if (!escortServices.has(key)) {
+            escortServices.set(key, { escort, services: [] })
+          }
+          escortServices.get(key)!.services.push({
+            tour,
+            timeSlot,
+            availabilityId,
+            guideName
+          })
+        }
+      }
+    }
+
+    return escortServices
+  }
+
+  // Open the bulk email drawer for guides
+  const openBulkEmailDrawerForGuides = () => {
+    const guideServices = getGuidesWithServices()
     if (guideServices.size === 0) {
       alert('No guides with email addresses assigned to any services')
       return
     }
+    // Select all guides by default
+    setBulkSelectedRecipients(new Set(guideServices.keys()))
+    setBulkEmailType('guides')
+    setShowBulkEmailDrawer(true)
+  }
 
-    const confirmSend = confirm(`Send emails to ${guideServices.size} guide(s)?`)
-    if (!confirmSend) return
+  // Open the bulk email drawer for escorts
+  const openBulkEmailDrawerForEscorts = () => {
+    const escortServices = getEscortsWithServices()
+    if (escortServices.size === 0) {
+      alert('No escorts with email addresses assigned to any services')
+      return
+    }
+    // Select all escorts by default
+    setBulkSelectedRecipients(new Set(escortServices.keys()))
+    setBulkEmailType('escorts')
+    setShowBulkEmailDrawer(true)
+  }
 
+  // Toggle selection of a recipient
+  const toggleRecipientSelection = (id: string) => {
+    setBulkSelectedRecipients(prev => {
+      const newSet = new Set(prev)
+      if (newSet.has(id)) {
+        newSet.delete(id)
+      } else {
+        newSet.add(id)
+      }
+      return newSet
+    })
+  }
+
+  // Send bulk emails to selected guides
+  const handleSendToSelectedGuides = async () => {
+    if (bulkSelectedRecipients.size === 0) {
+      alert('Please select at least one guide')
+      return
+    }
+
+    setShowBulkEmailDrawer(false)
     setSendingBulkGuides(true)
-    setBulkEmailProgress({ sent: 0, total: guideServices.size })
+    setBulkEmailProgress({ sent: 0, total: bulkSelectedRecipients.size })
 
+    const guideServices = getGuidesWithServices()
     let sentCount = 0
     const errors: string[] = []
 
-    for (const [, { guide, services }] of guideServices.entries()) {
+    for (const [guideId, { guide, services }] of guideServices.entries()) {
+      if (!bulkSelectedRecipients.has(guideId)) continue
+
       try {
-        // Send one email per service (each guide may have multiple services)
         for (const service of services) {
           const { tour, timeSlot, availabilityId, escortNames } = service
-
-          // Get guide name for Excel
           const guideName = `${guide.first_name} ${guide.last_name}`
-
-          // Generate daily list Excel
           const dailyList = await generateDailyListExcel(tour, timeSlot, guideName)
 
-          // Build email body with escort info
           const escortInfo = escortNames.length > 0
             ? `\n\n**Escort:** ${escortNames.join(', ')} will be present checking in all customers.`
             : ''
+
+          // Get meeting point for this specific activity (get activity_id from first booking)
+          let meetingPointInfo = ''
+          if (includeMeetingPoint) {
+            const activityId = timeSlot.bookings[0]?.activity_id
+            const meetingPoint = activityId ? activityMeetingPoints.get(activityId) : null
+            if (meetingPoint) {
+              meetingPointInfo = `\n\n**Meeting Point:** ${meetingPoint.name}`
+              if (meetingPoint.address) {
+                meetingPointInfo += `\n${meetingPoint.address}`
+              }
+              if (meetingPoint.google_maps_url) {
+                meetingPointInfo += `\nMap: ${meetingPoint.google_maps_url}`
+              }
+              if (meetingPoint.instructions) {
+                meetingPointInfo += `\n${meetingPoint.instructions}`
+              }
+            }
+          }
 
           const emailBodyText = `Hello ${guide.first_name},
 
@@ -1051,12 +1215,11 @@ You have been assigned to:
 **Activity:** ${tour.tourTitle}
 **Date:** ${format(new Date(selectedDate), 'EEEE, MMMM d, yyyy')}
 **Time:** ${timeSlot.time.substring(0, 5)}
-**Participants:** ${timeSlot.totalParticipants} pax${escortInfo}
+**Participants:** ${timeSlot.totalParticipants} pax${escortInfo}${meetingPointInfo}
 
 Best regards,
 EnRoma.com Team`
 
-          // Get attachments for this service
           const slotAttachments = attachments.filter(a => a.activity_availability_id === availabilityId)
           const attachmentUrls = slotAttachments.map(a => a.file_path)
 
@@ -1086,7 +1249,7 @@ EnRoma.com Team`
         }
 
         sentCount++
-        setBulkEmailProgress({ sent: sentCount, total: guideServices.size })
+        setBulkEmailProgress({ sent: sentCount, total: bulkSelectedRecipients.size })
       } catch (err) {
         console.error('Error sending to guide:', guide.email, err)
         errors.push(`${guide.first_name} ${guide.last_name}: ${err instanceof Error ? err.message : 'Unknown error'}`)
@@ -1095,8 +1258,6 @@ EnRoma.com Team`
 
     setSendingBulkGuides(false)
     setBulkEmailProgress(null)
-
-    // Refresh email logs
     await fetchEmailLogs(selectedDate)
 
     if (errors.length > 0) {
@@ -1106,94 +1267,35 @@ EnRoma.com Team`
     }
   }
 
-  // Bulk send emails to all escorts (consolidated)
-  const handleBulkSendToEscorts = async () => {
-    if (groupedTours.length === 0) {
-      alert('No tours to send emails for')
+  // Send bulk emails to selected escorts
+  const handleSendToSelectedEscorts = async () => {
+    if (bulkSelectedRecipients.size === 0) {
+      alert('Please select at least one escort')
       return
     }
 
-    // Collect all unique escorts with their services
-    const escortServices = new Map<string, {
-      escort: Person;
-      services: { tour: TourGroup; timeSlot: TimeSlotGroup; availabilityId: number; guideName: string }[]
-    }>()
-
-    for (const tour of groupedTours) {
-      for (const timeSlot of tour.timeSlots) {
-        const firstBooking = timeSlot.bookings[0]
-        if (!firstBooking) continue
-
-        // Find the availability ID
-        const normalizeTime = (t: string) => t.substring(0, 5)
-        const slotTimeNorm = normalizeTime(timeSlot.time)
-
-        let availabilityId: number | null = null
-        let assignedGuides: Person[] = []
-        let assignedEscorts: Person[] = []
-
-        for (const [id, staff] of staffAssignments.entries()) {
-          const staffTimeNorm = normalizeTime(staff.localTime)
-          if (staff.activityId === firstBooking.activity_id && staffTimeNorm === slotTimeNorm) {
-            availabilityId = id
-            assignedGuides = staff.guides
-            assignedEscorts = staff.escorts
-            break
-          }
-        }
-
-        if (!availabilityId) continue
-
-        const guideName = assignedGuides.map(g => `${g.first_name} ${g.last_name}`).join(', ')
-
-        // Add each escort's service
-        for (const escort of assignedEscorts) {
-          if (!escort.email) continue
-
-          const key = escort.id
-          if (!escortServices.has(key)) {
-            escortServices.set(key, { escort, services: [] })
-          }
-          escortServices.get(key)!.services.push({
-            tour,
-            timeSlot,
-            availabilityId,
-            guideName
-          })
-        }
-      }
-    }
-
-    if (escortServices.size === 0) {
-      alert('No escorts with email addresses assigned to any services')
-      return
-    }
-
-    const confirmSend = confirm(`Send consolidated emails to ${escortServices.size} escort(s)?`)
-    if (!confirmSend) return
-
+    setShowBulkEmailDrawer(false)
     setSendingBulkEscorts(true)
-    setBulkEmailProgress({ sent: 0, total: escortServices.size })
+    setBulkEmailProgress({ sent: 0, total: bulkSelectedRecipients.size })
 
+    const escortServices = getEscortsWithServices()
     let sentCount = 0
     const errors: string[] = []
 
-    for (const [, { escort, services }] of escortServices.entries()) {
+    for (const [escortId, { escort, services }] of escortServices.entries()) {
+      if (!bulkSelectedRecipients.has(escortId)) continue
+
       try {
         const escortName = `${escort.first_name} ${escort.last_name}`
-
-        // Sort services by time
         const sortedServices = [...services].sort((a, b) =>
           a.timeSlot.time.localeCompare(b.timeSlot.time)
         )
 
-        // Generate consolidated Excel with all services
         const consolidatedExcel = await generateConsolidatedEscortExcel(
           escortName,
           sortedServices.map(s => ({ tour: s.tour, timeSlot: s.timeSlot, guideName: s.guideName }))
         )
 
-        // Build email body with all services listed
         const servicesText = sortedServices.map((service, index) => {
           return `**Service ${index + 1}:**
 - Activity: ${service.tour.tourTitle}
@@ -1202,18 +1304,43 @@ EnRoma.com Team`
 - Guide: ${service.guideName || 'TBD'}`
         }).join('\n\n')
 
+        // Build consolidated meeting points section (unique meeting points only, shown once)
+        let meetingPointsSection = ''
+        if (includeMeetingPoint) {
+          const uniqueMeetingPoints = new Map<string, MeetingPoint>()
+          for (const service of sortedServices) {
+            // Get activity_id from the first booking in timeSlot
+            const activityId = service.timeSlot.bookings[0]?.activity_id
+            const meetingPoint = activityId ? activityMeetingPoints.get(activityId) : null
+            if (meetingPoint && !uniqueMeetingPoints.has(meetingPoint.id)) {
+              uniqueMeetingPoints.set(meetingPoint.id, meetingPoint)
+            }
+          }
+
+          if (uniqueMeetingPoints.size > 0) {
+            const meetingPointsText = Array.from(uniqueMeetingPoints.values()).map(mp => {
+              let mpText = `• **${mp.name}**`
+              if (mp.address) mpText += `\n  ${mp.address}`
+              if (mp.google_maps_url) mpText += `\n  Map: ${mp.google_maps_url}`
+              if (mp.instructions) mpText += `\n  ${mp.instructions}`
+              return mpText
+            }).join('\n\n')
+
+            meetingPointsSection = `\n\n**Meeting Points:**\n${meetingPointsText}`
+          }
+        }
+
         const emailBodyText = `Hello ${escort.first_name},
 
 You have been assigned to the following services on ${format(new Date(selectedDate), 'EEEE, MMMM d, yyyy')}:
 
-${servicesText}
+${servicesText}${meetingPointsSection}
 
 Please find attached the consolidated list with all bookings for your services.
 
 Best regards,
 EnRoma.com Team`
 
-        // Collect all attachment URLs from all services
         const allAttachmentUrls: string[] = []
         for (const service of services) {
           const slotAttachments = attachments.filter(a => a.activity_availability_id === service.availabilityId)
@@ -1244,7 +1371,7 @@ EnRoma.com Team`
         }
 
         sentCount++
-        setBulkEmailProgress({ sent: sentCount, total: escortServices.size })
+        setBulkEmailProgress({ sent: sentCount, total: bulkSelectedRecipients.size })
       } catch (err) {
         console.error('Error sending to escort:', escort.email, err)
         errors.push(`${escort.first_name} ${escort.last_name}: ${err instanceof Error ? err.message : 'Unknown error'}`)
@@ -1253,8 +1380,6 @@ EnRoma.com Team`
 
     setSendingBulkEscorts(false)
     setBulkEmailProgress(null)
-
-    // Refresh email logs
     await fetchEmailLogs(selectedDate)
 
     if (errors.length > 0) {
@@ -1283,6 +1408,8 @@ EnRoma.com Team`
       await fetchStaffAndAttachments(selectedDate, allActivityIds)
       // Fetch email logs for the day
       await fetchEmailLogs(selectedDate)
+      // Fetch meeting points for activities
+      await fetchMeetingPoints(allActivityIds)
     }
   }
 
@@ -2651,7 +2778,7 @@ EnRoma.com Team`
           <h3 className="text-lg font-semibold mb-4">Bulk Email Actions</h3>
           <div className="flex flex-wrap gap-4">
             <Button
-              onClick={handleBulkSendToGuides}
+              onClick={openBulkEmailDrawerForGuides}
               disabled={sendingBulkGuides || sendingBulkEscorts}
               className="bg-purple-600 hover:bg-purple-700"
             >
@@ -2663,12 +2790,12 @@ EnRoma.com Team`
               ) : (
                 <>
                   <Mail className="w-4 h-4 mr-2" />
-                  Send to All Guides
+                  Send to Guides
                 </>
               )}
             </Button>
             <Button
-              onClick={handleBulkSendToEscorts}
+              onClick={openBulkEmailDrawerForEscorts}
               disabled={sendingBulkGuides || sendingBulkEscorts}
               className="bg-orange-600 hover:bg-orange-700"
             >
@@ -2680,7 +2807,7 @@ EnRoma.com Team`
               ) : (
                 <>
                   <Mail className="w-4 h-4 mr-2" />
-                  Send to All Escorts (Consolidated)
+                  Send to Escorts (Consolidated)
                 </>
               )}
             </Button>
@@ -2985,6 +3112,177 @@ EnRoma.com Team`
           </div>
         </div>
       )}
+
+      {/* Bulk Email Selection Drawer */}
+      <Sheet open={showBulkEmailDrawer} onOpenChange={setShowBulkEmailDrawer}>
+        <SheetContent className="w-[450px] sm:w-[500px] flex flex-col p-0">
+          {/* Header */}
+          <div className={`px-6 py-5 border-b ${bulkEmailType === 'guides' ? 'bg-purple-50' : 'bg-orange-50'}`}>
+            <div className="flex items-center gap-3">
+              <div className={`p-2 rounded-lg ${bulkEmailType === 'guides' ? 'bg-purple-100' : 'bg-orange-100'}`}>
+                <Mail className={`w-5 h-5 ${bulkEmailType === 'guides' ? 'text-purple-600' : 'text-orange-600'}`} />
+              </div>
+              <div>
+                <SheetTitle className="text-lg font-semibold">
+                  Send to {bulkEmailType === 'guides' ? 'Guides' : 'Escorts'}
+                </SheetTitle>
+                <p className="text-sm text-gray-500 mt-0.5">
+                  {format(new Date(selectedDate), 'EEEE, MMM d, yyyy')}
+                </p>
+              </div>
+            </div>
+          </div>
+
+          {/* Recipients Section */}
+          <div className="flex-1 overflow-hidden flex flex-col">
+            <div className="px-6 py-3 bg-gray-50 border-b flex items-center justify-between">
+              <span className="text-sm font-medium text-gray-700">Recipients</span>
+              <button
+                onClick={() => {
+                  const allIds = bulkEmailType === 'guides'
+                    ? Array.from(getGuidesWithServices().keys())
+                    : Array.from(getEscortsWithServices().keys())
+                  if (bulkSelectedRecipients.size === allIds.length) {
+                    setBulkSelectedRecipients(new Set())
+                  } else {
+                    setBulkSelectedRecipients(new Set(allIds))
+                  }
+                }}
+                className="text-xs text-blue-600 hover:text-blue-700 font-medium"
+              >
+                {bulkSelectedRecipients.size === (bulkEmailType === 'guides' ? getGuidesWithServices().size : getEscortsWithServices().size)
+                  ? 'Deselect all'
+                  : 'Select all'}
+              </button>
+            </div>
+
+            <div className="flex-1 overflow-y-auto px-4 py-3">
+              <div className="space-y-2">
+                {bulkEmailType === 'guides' ? (
+                  Array.from(getGuidesWithServices().entries()).map(([guideId, { guide, services }]) => (
+                    <label
+                      key={guideId}
+                      htmlFor={`guide-${guideId}`}
+                      className={`flex items-center gap-3 p-3 rounded-lg border cursor-pointer transition-all ${
+                        bulkSelectedRecipients.has(guideId)
+                          ? 'border-purple-300 bg-purple-50'
+                          : 'border-gray-200 hover:border-gray-300 hover:bg-gray-50'
+                      }`}
+                    >
+                      <Checkbox
+                        id={`guide-${guideId}`}
+                        checked={bulkSelectedRecipients.has(guideId)}
+                        onCheckedChange={() => toggleRecipientSelection(guideId)}
+                        className="data-[state=checked]:bg-purple-600 data-[state=checked]:border-purple-600"
+                      />
+                      <div className="flex-1 min-w-0">
+                        <div className="flex items-center gap-2">
+                          <span className="font-medium text-sm text-gray-900">
+                            {guide.first_name} {guide.last_name}
+                          </span>
+                          <span className={`px-1.5 py-0.5 text-xs rounded-full ${
+                            bulkSelectedRecipients.has(guideId)
+                              ? 'bg-purple-100 text-purple-700'
+                              : 'bg-gray-100 text-gray-600'
+                          }`}>
+                            {services.length} {services.length === 1 ? 'tour' : 'tours'}
+                          </span>
+                        </div>
+                        <p className="text-xs text-gray-500 truncate mt-0.5">{guide.email}</p>
+                      </div>
+                    </label>
+                  ))
+                ) : (
+                  Array.from(getEscortsWithServices().entries()).map(([escortId, { escort, services }]) => (
+                    <label
+                      key={escortId}
+                      htmlFor={`escort-${escortId}`}
+                      className={`flex items-center gap-3 p-3 rounded-lg border cursor-pointer transition-all ${
+                        bulkSelectedRecipients.has(escortId)
+                          ? 'border-orange-300 bg-orange-50'
+                          : 'border-gray-200 hover:border-gray-300 hover:bg-gray-50'
+                      }`}
+                    >
+                      <Checkbox
+                        id={`escort-${escortId}`}
+                        checked={bulkSelectedRecipients.has(escortId)}
+                        onCheckedChange={() => toggleRecipientSelection(escortId)}
+                        className="data-[state=checked]:bg-orange-600 data-[state=checked]:border-orange-600"
+                      />
+                      <div className="flex-1 min-w-0">
+                        <div className="flex items-center gap-2">
+                          <span className="font-medium text-sm text-gray-900">
+                            {escort.first_name} {escort.last_name}
+                          </span>
+                          <span className={`px-1.5 py-0.5 text-xs rounded-full ${
+                            bulkSelectedRecipients.has(escortId)
+                              ? 'bg-orange-100 text-orange-700'
+                              : 'bg-gray-100 text-gray-600'
+                          }`}>
+                            {services.length} {services.length === 1 ? 'service' : 'services'}
+                          </span>
+                        </div>
+                        <p className="text-xs text-gray-500 truncate mt-0.5">{escort.email}</p>
+                      </div>
+                    </label>
+                  ))
+                )}
+              </div>
+            </div>
+          </div>
+
+          {/* Options Section */}
+          <div className="px-6 py-4 border-t bg-gray-50">
+            <label
+              htmlFor="include-meeting-point"
+              className="flex items-start gap-3 cursor-pointer"
+            >
+              <Checkbox
+                id="include-meeting-point"
+                checked={includeMeetingPoint}
+                onCheckedChange={(checked) => setIncludeMeetingPoint(checked === true)}
+                className="mt-0.5"
+              />
+              <div>
+                <div className="flex items-center gap-2">
+                  <MapPin className="w-4 h-4 text-gray-500" />
+                  <span className="text-sm font-medium text-gray-700">Include meeting points</span>
+                </div>
+                <p className="text-xs text-gray-500 mt-1">
+                  {bulkEmailType === 'guides'
+                    ? 'Add meeting point details for each assigned tour'
+                    : 'Add consolidated meeting points section (shown once)'}
+                </p>
+              </div>
+            </label>
+          </div>
+
+          {/* Footer */}
+          <div className="px-6 py-4 border-t bg-white">
+            <div className="flex items-center justify-between">
+              <Button
+                variant="ghost"
+                onClick={() => setShowBulkEmailDrawer(false)}
+                className="text-gray-600"
+              >
+                Cancel
+              </Button>
+              <Button
+                onClick={bulkEmailType === 'guides' ? handleSendToSelectedGuides : handleSendToSelectedEscorts}
+                disabled={bulkSelectedRecipients.size === 0}
+                className={`${
+                  bulkEmailType === 'guides'
+                    ? 'bg-purple-600 hover:bg-purple-700'
+                    : 'bg-orange-600 hover:bg-orange-700'
+                } text-white px-6`}
+              >
+                <Send className="w-4 h-4 mr-2" />
+                Send {bulkSelectedRecipients.size > 0 ? `(${bulkSelectedRecipients.size})` : ''}
+              </Button>
+            </div>
+          </div>
+        </SheetContent>
+      </Sheet>
     </div>
   )
 }
