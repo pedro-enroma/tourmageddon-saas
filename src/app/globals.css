@@ -165,6 +165,18 @@
   .hover\:bg-brand-orange-dark:hover { background-color: var(--brand-orange-dark); }
   .hover\:bg-brand-green-dark:hover { background-color: var(--brand-green-dark); }
 
+  /* Checkbox checked state variants */
+  .checkbox-green[data-state="checked"] {
+    background-color: var(--brand-green);
+    border-color: var(--brand-green);
+    color: white;
+  }
+  .checkbox-orange[data-state="checked"] {
+    background-color: var(--brand-orange);
+    border-color: var(--brand-orange);
+    color: white;
+  }
+
   /* Gradient backgrounds */
   .bg-brand-gradient {
     background: linear-gradient(135deg, var(--brand-orange) 0%, var(--brand-green) 100%);
