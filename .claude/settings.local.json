@@ -40,7 +40,8 @@
       "Bash(~/.ssh/known_hosts)",
       "Bash(npm audit:*)",
       "Bash(npm ls:*)",
-      "Bash(PGPASSWORD='bqsj3VQN8R3nYNlT' psql:*)"
+      "Bash(PGPASSWORD='bqsj3VQN8R3nYNlT' psql:*)",
+      "Bash(railway variables:*)"
     ],
     "deny": [],
     "ask": []

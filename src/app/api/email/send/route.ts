@@ -2,13 +2,14 @@ import { NextRequest, NextResponse } from 'next/server'
 import { Resend } from 'resend'
 import { createClient } from '@supabase/supabase-js'
 
-// Lazy initialization to avoid build-time errors
-let resendClient: Resend | null = null
+// Initialize Resend on each request to ensure env vars are read
 const getResend = () => {
-  if (!resendClient && process.env.RESEND_API_KEY) {
-    resendClient = new Resend(process.env.RESEND_API_KEY)
+  const apiKey = process.env.RESEND_API_KEY
+  if (!apiKey) {
+    console.error('RESEND_API_KEY not found. Available env vars:', Object.keys(process.env).filter(k => k.includes('RESEND') || k.includes('SUPABASE')))
+    return null
   }
-  return resendClient
+  return new Resend(apiKey)
 }
 
 const getSupabase = () => createClient(
