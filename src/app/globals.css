@@ -133,40 +133,44 @@
   }
 }
 
-/* Calendar styles for react-day-picker v9 */
-.rdp {
-  --rdp-accent-color: var(--brand-orange);
-  --rdp-background-color: var(--brand-orange-light);
-  margin: 0;
+@layer components {
+  /* Calendar styles for react-day-picker v9 */
+  .rdp {
+    --rdp-accent-color: var(--brand-orange);
+    --rdp-background-color: var(--brand-orange-light);
+    margin: 0;
+  }
+
+  .rdp-day_selected:not(.rdp-day_outside) {
+    background-color: var(--rdp-accent-color);
+    color: white;
+  }
+
+  .rdp-day_selected:hover:not(.rdp-day_outside) {
+    background-color: var(--brand-orange-dark);
+    color: white;
+  }
 }
 
-.rdp-day_selected:not(.rdp-day_outside) {
-  background-color: var(--rdp-accent-color);
-  color: white;
-}
+@layer utilities {
+  /* Brand utility classes */
+  .bg-brand-orange { background-color: var(--brand-orange); }
+  .bg-brand-green { background-color: var(--brand-green); }
+  .bg-brand-orange-light { background-color: var(--brand-orange-light); }
+  .bg-brand-green-light { background-color: var(--brand-green-light); }
+  .text-brand-orange { color: var(--brand-orange); }
+  .text-brand-green { color: var(--brand-green); }
+  .border-brand-orange { border-color: var(--brand-orange); }
+  .border-brand-green { border-color: var(--brand-green); }
+  .hover\:bg-brand-orange-dark:hover { background-color: var(--brand-orange-dark); }
+  .hover\:bg-brand-green-dark:hover { background-color: var(--brand-green-dark); }
 
-.rdp-day_selected:hover:not(.rdp-day_outside) {
-  background-color: var(--brand-orange-dark);
-  color: white;
-}
+  /* Gradient backgrounds */
+  .bg-brand-gradient {
+    background: linear-gradient(135deg, var(--brand-orange) 0%, var(--brand-green) 100%);
+  }
 
-/* Brand utility classes */
-.bg-brand-orange { background-color: var(--brand-orange); }
-.bg-brand-green { background-color: var(--brand-green); }
-.bg-brand-orange-light { background-color: var(--brand-orange-light); }
-.bg-brand-green-light { background-color: var(--brand-green-light); }
-.text-brand-orange { color: var(--brand-orange); }
-.text-brand-green { color: var(--brand-green); }
-.border-brand-orange { border-color: var(--brand-orange); }
-.border-brand-green { border-color: var(--brand-green); }
-.hover\:bg-brand-orange-dark:hover { background-color: var(--brand-orange-dark); }
-.hover\:bg-brand-green-dark:hover { background-color: var(--brand-green-dark); }
-
-/* Gradient backgrounds */
-.bg-brand-gradient {
-  background: linear-gradient(135deg, var(--brand-orange) 0%, var(--brand-green) 100%);
-}
-
-.bg-brand-gradient-subtle {
-  background: linear-gradient(135deg, var(--brand-orange-light) 0%, var(--brand-green-light) 100%);
+  .bg-brand-gradient-subtle {
+    background: linear-gradient(135deg, var(--brand-orange-light) 0%, var(--brand-green-light) 100%);
+  }
 }
