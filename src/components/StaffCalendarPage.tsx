@@ -383,9 +383,9 @@ export default function StaffCalendarPage() {
     }
 
     if (showOnlyUnassigned) {
+      // Only consider guide assignments - escort-only services are still "unassigned"
       filtered = filtered.filter(avail =>
-        (!avail.guide_assignments || avail.guide_assignments.length === 0) &&
-        (!avail.escort_assignments || avail.escort_assignments.length === 0)
+        !avail.guide_assignments || avail.guide_assignments.length === 0
       )
     }
 
@@ -395,12 +395,11 @@ export default function StaffCalendarPage() {
   const getStatusColor = (availability: ActivityAvailability) => {
     const hasBookings = (availability.actual_booking_count || 0) > 0
     const hasGuides = availability.guide_assignments && availability.guide_assignments.length > 0
-    const hasEscorts = availability.escort_assignments && availability.escort_assignments.length > 0
-    const hasStaff = hasGuides || hasEscorts
+    // Escort-only services are considered "unassigned" - only guide assignment counts as fully assigned
 
-    if (hasBookings && hasStaff) {
+    if (hasBookings && hasGuides) {
       return 'bg-green-100 border-green-300 text-green-800'
-    } else if (hasBookings && !hasStaff) {
+    } else if (hasBookings && !hasGuides) {
       return 'bg-yellow-100 border-yellow-300 text-yellow-800'
     }
     return 'bg-gray-100 border-gray-300 text-gray-800'
@@ -754,7 +753,7 @@ export default function StaffCalendarPage() {
   return (
     <div className="p-6 max-w-7xl mx-auto">
       <div className="flex justify-between items-center mb-6">
-        <h1 className="text-2xl font-bold">Staff Calendar</h1>
+        <h1 className="text-2xl font-bold">Assignments</h1>
         <div className="flex gap-2">
           <Button
             onClick={() => setViewMode('weekly')}

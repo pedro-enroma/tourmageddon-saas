@@ -2,7 +2,7 @@
 'use client'
 
 import React, { useState } from 'react'
-import { Menu, ChevronRight, Users, FileBarChart, LayoutDashboard, FileText, FileSpreadsheet, BarChart3, DollarSign, TrendingUp, RefreshCw, Percent, UserCog, Calendar, Clock, UserCheck, FolderOpen, MapPin } from 'lucide-react'
+import { Menu, ChevronRight, Users, FileBarChart, LayoutDashboard, FileText, FileSpreadsheet, BarChart3, DollarSign, TrendingUp, RefreshCw, Percent, UserCog, Calendar, UserCheck, FolderOpen, MapPin } from 'lucide-react'
 import { SidebarProvider, SidebarTrigger } from "@/components/ui/sidebar"
 import { Sidebar, SidebarContent, SidebarGroup, SidebarHeader, SidebarMenu, SidebarMenuButton, SidebarMenuItem, SidebarMenuSub, SidebarMenuSubButton, SidebarMenuSubItem } from "@/components/ui/sidebar"
 import RecapPage from '@/components/RecapPage'
@@ -17,7 +17,6 @@ import AffiliatesPage from './affiliates/page'
 import GuidesListPage from '@/components/GuidesListPage'
 import EscortsListPage from '@/components/EscortsListPage'
 import StaffCalendarPage from '@/components/StaffCalendarPage'
-import UpcomingServicesPage from '@/components/UpcomingServicesPage'
 import StaffReportsPage from '@/components/StaffReportsPage'
 import ContentPage from '@/components/ContentPage'
 
@@ -83,14 +82,9 @@ function AppSidebar({ currentView, onNavigate }: {
           view: "escorts-list",
         },
         {
-          title: "Calendar",
+          title: "Assignments",
           icon: Calendar,
           view: "staff-calendar",
-        },
-        {
-          title: "Upcoming Services",
-          icon: Clock,
-          view: "upcoming-services",
         },
         {
           title: "Reports",
@@ -215,8 +209,6 @@ export default function DashboardLayout() {
         return <EscortsListPage />
       case 'staff-calendar':
         return <StaffCalendarPage />
-      case 'upcoming-services':
-        return <UpcomingServicesPage />
       case 'staff-reports':
         return <StaffReportsPage />
       case 'marketing-export':
@@ -251,9 +243,7 @@ export default function DashboardLayout() {
       case 'escorts-list':
         return 'Escorts List'
       case 'staff-calendar':
-        return 'Staff Calendar'
-      case 'upcoming-services':
-        return 'Upcoming Services'
+        return 'Assignments'
       case 'staff-reports':
         return 'Staff Reports'
       case 'marketing-export':
@@ -277,7 +267,7 @@ export default function DashboardLayout() {
     if (['recap', 'consumed', 'pax-names', 'daily-list', 'availability-sync'].includes(currentView)) {
       return 'Operations'
     }
-    if (['guides-list', 'escorts-list', 'staff-calendar', 'upcoming-services', 'staff-reports'].includes(currentView)) {
+    if (['guides-list', 'escorts-list', 'staff-calendar', 'staff-reports'].includes(currentView)) {
       return 'Guides & Escorts'
     }
     if (currentView === 'marketing-export') {
