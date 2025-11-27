@@ -167,14 +167,14 @@
 
   /* Checkbox checked state variants */
   .checkbox-green[data-state="checked"] {
-    background-color: var(--brand-green);
-    border-color: var(--brand-green);
-    color: white;
+    background-color: var(--brand-green) !important;
+    border-color: var(--brand-green) !important;
+    color: white !important;
   }
   .checkbox-orange[data-state="checked"] {
-    background-color: var(--brand-orange);
-    border-color: var(--brand-orange);
-    color: white;
+    background-color: var(--brand-orange) !important;
+    border-color: var(--brand-orange) !important;
+    color: white !important;
   }
 
   /* Gradient backgrounds */
