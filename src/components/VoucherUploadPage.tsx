@@ -70,6 +70,7 @@ export default function VoucherUploadPage() {
   // uploading state removed - not currently used
   const [extracting, setExtracting] = useState(false)
   const [extractedData, setExtractedData] = useState<ExtractedVoucher | null>(null)
+  const [extractionWarning, setExtractionWarning] = useState<string | null>(null)
   const [categories, setCategories] = useState<TicketCategory[]>([])
   const [selectedCategoryId, setSelectedCategoryId] = useState('')
   const [availabilities, setAvailabilities] = useState<ActivityAvailability[]>([])
@@ -410,6 +411,7 @@ export default function VoucherUploadPage() {
       }
 
       setExtractedData(result.data)
+      setExtractionWarning(result.warning || null)
 
       // Auto-detect category based on product name from mappings
       const productName = result.data.product_name || ''
@@ -620,6 +622,18 @@ export default function VoucherUploadPage() {
                 <span className="w-6 h-6 rounded-full bg-orange-100 text-orange-600 flex items-center justify-center text-sm font-bold">2</span>
                 Review Extracted Data
               </h2>
+
+              {extractionWarning && (
+                <div className="bg-yellow-50 border border-yellow-200 rounded-lg p-4 mb-4">
+                  <p className="text-sm text-yellow-800 font-medium flex items-center gap-2">
+                    <AlertTriangle className="w-4 h-4" />
+                    {extractionWarning}
+                  </p>
+                  <p className="text-xs text-yellow-600 mt-1">
+                    Try re-uploading the PDF or check if all pages were extracted correctly.
+                  </p>
+                </div>
+              )}
 
               <div className="grid grid-cols-2 md:grid-cols-4 gap-4 mb-6">
                 <div className="bg-gray-50 p-3 rounded-lg">

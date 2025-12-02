@@ -52,11 +52,17 @@ export async function POST(request: NextRequest) {
 
     console.log('Extracting text from PDF with unpdf...')
     let pdfText: string
+    let pdfPages: string[] = []
     try {
       const { text, totalPages } = await extractText(new Uint8Array(bytes))
-      // text can be an array of strings (one per page) or a single string
-      pdfText = Array.isArray(text) ? text.join('\n') : text
+      // Keep individual pages for per-ticket extraction
+      pdfPages = Array.isArray(text) ? text : [text]
+      pdfText = pdfPages.join('\n\n--- PAGE BREAK ---\n\n')
       console.log(`Extracted ${pdfText.length} characters from ${totalPages} pages`)
+
+      // Count potential tickets by looking for ticket code patterns
+      const ticketCodeMatches = pdfText.match(/[A-Z0-9]{16}/g) || []
+      console.log(`Found ${ticketCodeMatches.length} potential ticket codes in PDF text`)
     } catch (pdfError) {
       console.error('PDF text extraction error:', pdfError)
       return NextResponse.json({
@@ -69,55 +75,57 @@ export async function POST(request: NextRequest) {
       return NextResponse.json({ error: 'No text found in PDF' }, { status: 400 })
     }
 
-    // Use GPT-4o to extract structured data from text
+    // Pre-extract ticket codes
+    const allCodes = pdfText.match(/[A-Z0-9]{16}/g) || []
+    const uniqueTicketCodes = [...new Set(allCodes)].filter(code =>
+      !/^(.)\1+$/.test(code) && // Not all same character
+      /^SPC/.test(code) // Ticket codes typically start with SPC
+    )
+    const expectedTicketCount = uniqueTicketCodes.length
+
+    console.log(`Pre-extracted ${expectedTicketCount} ticket codes: ${uniqueTicketCodes.join(', ')}`)
+
+    // Use GPT-4o to extract structured data - but we'll also do our own extraction
     console.log('Sending text to GPT-4o...')
     const response = await openai.chat.completions.create({
       model: 'gpt-4o',
       messages: [
         {
           role: 'system',
-          content: `You are a data extraction assistant. Extract ticket information from PDF text content.
+          content: `You are a data extraction assistant. Extract ticket information from PDF text.
 
-The text is extracted from electronic tickets (BIGLIETTO ELETTRONICO) for attractions like the Colosseum.
-Each ticket typically contains the following information:
-- Booking/Reservation number (Prenotazione n.) - format like "OCO3058684"
-- Booking date and time
-- Ticket code (alphanumeric code like "SPCOXW5QDWZJQ7DK")
-- Holder name (e.g., "GARCIA MARTIN LUCIA")
-- Ticket type (e.g., "Intero", "Ridotto", "Gratuito - Under 18", "Guide turistiche con tesserino Gruppi e Scuole")
-- Price in EUR (e.g., "0,00 EUR" or "18,00 EUR")
-- Visit date (Data validità)
-- Entry time (Fascia oraria)
-- Product name (e.g., "COLOSSEO-FORO ROMANO PALATINO 24H - GRUPPI")
+The PDF contains ${expectedTicketCount} electronic tickets. For EACH ticket code listed below, extract:
+- holder_name: The person's name (Title Case)
+- ticket_type: The ticket category (e.g., "Intero Full Experience", "Guide turistiche con tesserino Full Experience Gru. e Scuole")
+- price: The price as a number
 
-Return a JSON object with the following structure:
+Also extract shared info:
+- booking_number: The reservation number (format: OCO followed by numbers)
+- booking_date: When the booking was made (ISO 8601)
+- visit_date: The date of the visit (YYYY-MM-DD)
+- entry_time: The entry time slot (HH:MM)
+- product_name: The product/attraction name
+
+TICKET CODES TO EXTRACT (${expectedTicketCount} total):
+${uniqueTicketCodes.map((code, i) => `${i + 1}. ${code}`).join('\n')}
+
+Return JSON with this structure:
 {
-  "booking_number": "OCO3058684",
-  "booking_date": "2025-11-03T16:39:00",
-  "visit_date": "2025-11-11",
-  "entry_time": "12:45",
-  "product_name": "COLOSSEO-FORO ROMANO PALATINO 24H - GRUPPI",
+  "booking_number": "...",
+  "booking_date": "...",
+  "visit_date": "...",
+  "entry_time": "...",
+  "product_name": "...",
   "tickets": [
-    {
-      "ticket_code": "SPCOXW5QDWZJQ7DK",
-      "holder_name": "Nora Fernandez Gomez",
-      "ticket_type": "Gratuito - Under 18",
-      "price": 0.00
-    }
+    {"ticket_code": "...", "holder_name": "...", "ticket_type": "...", "price": 0.00}
   ]
 }
 
-Important:
-- Extract ALL tickets from the text
-- Use ISO 8601 format for dates (YYYY-MM-DD)
-- Use 24h format for times (HH:MM)
-- Extract the exact ticket type as written
-- Price should be a number (convert "18,00 EUR" to 18.00)
-- Holder name should be properly capitalized (Title Case)`
+IMPORTANT: You MUST return exactly ${expectedTicketCount} tickets in the tickets array - one for each code listed above.`
         },
         {
           role: 'user',
-          content: `Extract all ticket information from this PDF text. Return only valid JSON, no markdown formatting.\n\nPDF Text:\n${pdfText}`
+          content: `Extract data for all ${expectedTicketCount} tickets. Here is the PDF text:\n\n${pdfText}`
         }
       ],
       max_tokens: 16000,
@@ -149,10 +157,76 @@ Important:
       }, { status: 400 })
     }
 
+    // CRITICAL: Ensure all ticket codes are included
+    // GPT sometimes misses tickets, so we add any missing codes
+    const extractedCodes = new Set((extractedData.tickets || []).map(t => t.ticket_code))
+    const missingCodes = uniqueTicketCodes.filter(code => !extractedCodes.has(code))
+
+    if (missingCodes.length > 0) {
+      console.log(`GPT missed ${missingCodes.length} tickets. Adding them manually...`)
+
+      // For each missing code, try to extract info from the page containing it
+      for (const code of missingCodes) {
+        // Find which page contains this code
+        const pageIndex = pdfPages.findIndex(page => page.includes(code))
+        const pageText = pageIndex >= 0 ? pdfPages[pageIndex] : pdfText
+
+        // Try to extract holder name from the page
+        // In these tickets, names are typically in UPPERCASE on their own line
+        let holderName = 'Unknown'
+        let ticketType = 'Unknown'
+        let price = 0
+
+        // The name is usually right after the ticket code or near "Intestatario"
+        const codePos = pageText.indexOf(code)
+        if (codePos >= 0) {
+          // Get text around the code
+          const before = pageText.substring(Math.max(0, codePos - 500), codePos)
+          const after = pageText.substring(codePos, Math.min(pageText.length, codePos + 500))
+
+          // Look for name patterns - usually UPPERCASE names
+          const nameMatch = before.match(/([A-ZÀÈÌÒÙÁÉÍÓÚ][a-zàèìòùáéíóú]+(?:\s+[A-ZÀÈÌÒÙÁÉÍÓÚ][a-zàèìòùáéíóú]+)+)\s*$/m)
+            || after.match(/^\s*([A-ZÀÈÌÒÙÁÉÍÓÚ][a-zàèìòùáéíóú]+(?:\s+[A-ZÀÈÌÒÙÁÉÍÓÚ][a-zàèìòùáéíóú]+)+)/m)
+
+          if (nameMatch) {
+            holderName = nameMatch[1].trim()
+          }
+
+          // Look for ticket type
+          const typeMatch = pageText.match(/(Intero\s+Full\s+Experience|Guide\s+turistiche[^0-9]*|Gratuito[^0-9]*|Ridotto[^0-9]*)/i)
+          if (typeMatch) {
+            ticketType = typeMatch[1].trim()
+          }
+
+          // Look for price
+          const priceMatch = pageText.match(/(\d+)[,.](\d{2})\s*EUR/i)
+          if (priceMatch) {
+            price = parseFloat(`${priceMatch[1]}.${priceMatch[2]}`)
+          }
+        }
+
+        // Add the missing ticket
+        if (!extractedData.tickets) extractedData.tickets = []
+        extractedData.tickets.push({
+          ticket_code: code,
+          holder_name: holderName,
+          ticket_type: ticketType,
+          price
+        })
+      }
+    }
+
+    const extractedCount = extractedData.tickets?.length || 0
+    console.log(`Final ticket count: ${extractedCount} (expected ${expectedTicketCount})`)
+
     return NextResponse.json({
       success: true,
       data: extractedData,
-      ticketCount: extractedData.tickets?.length || 0
+      ticketCount: extractedCount,
+      potentialTicketCodes: expectedTicketCount,
+      warning: expectedTicketCount > extractedCount
+        ? `Warning: Found ${expectedTicketCount} potential ticket codes in PDF but only extracted ${extractedCount} tickets`
+        : undefined
     })
 
   } catch (error) {
