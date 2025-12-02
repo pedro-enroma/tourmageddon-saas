@@ -2,7 +2,7 @@
 'use client'
 
 import React, { useState } from 'react'
-import { Menu, ChevronRight, Users, FileBarChart, LayoutDashboard, FileText, FileSpreadsheet, BarChart3, DollarSign, TrendingUp, RefreshCw, Percent, UserCog, Calendar, UserCheck, FolderOpen, MapPin } from 'lucide-react'
+import { Menu, ChevronRight, Users, FileBarChart, LayoutDashboard, FileText, FileSpreadsheet, BarChart3, DollarSign, TrendingUp, RefreshCw, Percent, UserCog, Calendar, UserCheck, FolderOpen, MapPin, Ticket, Upload, List, Tags, Link2 } from 'lucide-react'
 import { SidebarProvider, SidebarTrigger } from "@/components/ui/sidebar"
 import { Sidebar, SidebarContent, SidebarGroup, SidebarHeader, SidebarMenu, SidebarMenuButton, SidebarMenuItem, SidebarMenuSub, SidebarMenuSubButton, SidebarMenuSubItem } from "@/components/ui/sidebar"
 import RecapPage from '@/components/RecapPage'
@@ -19,6 +19,11 @@ import EscortsListPage from '@/components/EscortsListPage'
 import StaffCalendarPage from '@/components/StaffCalendarPage'
 import StaffReportsPage from '@/components/StaffReportsPage'
 import ContentPage from '@/components/ContentPage'
+import VoucherUploadPage from '@/components/VoucherUploadPage'
+import VouchersListPage from '@/components/VouchersListPage'
+import TicketCategoriesPage from '@/components/TicketCategoriesPage'
+import ProductActivityMappingsPage from '@/components/ProductActivityMappingsPage'
+import TicketTypeMappingsPage from '@/components/TicketTypeMappingsPage'
 
 // Custom Sidebar Component
 function AppSidebar({ currentView, onNavigate }: {
@@ -26,6 +31,7 @@ function AppSidebar({ currentView, onNavigate }: {
   onNavigate: (view: string) => void
 }) {
   const [operationsOpen, setOperationsOpen] = useState(true)
+  const [ticketsOpen, setTicketsOpen] = useState(true)
   const [staffOpen, setStaffOpen] = useState(true)
   const [reportsOpen, setReportsOpen] = useState(true)
   const [financeOpen, setFinanceOpen] = useState(true)
@@ -62,6 +68,39 @@ function AppSidebar({ currentView, onNavigate }: {
           title: "Sync Now",
           icon: RefreshCw,
           view: "availability-sync",
+        },
+      ],
+    },
+    {
+      title: "Tickets",
+      icon: Ticket,
+      isOpen: ticketsOpen,
+      setOpen: setTicketsOpen,
+      items: [
+        {
+          title: "Upload Voucher",
+          icon: Upload,
+          view: "voucher-upload",
+        },
+        {
+          title: "All Vouchers",
+          icon: List,
+          view: "vouchers-list",
+        },
+        {
+          title: "Categories",
+          icon: Tags,
+          view: "ticket-categories",
+        },
+        {
+          title: "Product Mappings",
+          icon: Link2,
+          view: "product-mappings",
+        },
+        {
+          title: "Type Mappings",
+          icon: Link2,
+          view: "type-mappings",
         },
       ],
     },
@@ -236,6 +275,16 @@ export default function DashboardLayout() {
         return <AffiliatesPage />
       case 'content':
         return <ContentPage />
+      case 'voucher-upload':
+        return <VoucherUploadPage />
+      case 'vouchers-list':
+        return <VouchersListPage />
+      case 'ticket-categories':
+        return <TicketCategoriesPage />
+      case 'product-mappings':
+        return <ProductActivityMappingsPage />
+      case 'type-mappings':
+        return <TicketTypeMappingsPage />
       default:
         return <RecapPage />
     }
@@ -271,6 +320,16 @@ export default function DashboardLayout() {
         return 'Affiliate Commissions'
       case 'content':
         return 'Templates & Meeting Points'
+      case 'voucher-upload':
+        return 'Upload Voucher'
+      case 'vouchers-list':
+        return 'All Vouchers'
+      case 'ticket-categories':
+        return 'Ticket Categories'
+      case 'product-mappings':
+        return 'Product-Activity Mappings'
+      case 'type-mappings':
+        return 'Ticket Type Mappings'
       default:
         return 'Dashboard'
     }
@@ -279,6 +338,9 @@ export default function DashboardLayout() {
   const getBreadcrumbSection = () => {
     if (['recap', 'consumed', 'pax-names', 'daily-list', 'availability-sync'].includes(currentView)) {
       return 'Operations'
+    }
+    if (['voucher-upload', 'vouchers-list', 'ticket-categories', 'product-mappings', 'type-mappings'].includes(currentView)) {
+      return 'Tickets'
     }
     if (['guides-list', 'escorts-list', 'staff-calendar', 'staff-reports'].includes(currentView)) {
       return 'Guides & Escorts'

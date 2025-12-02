@@ -41,7 +41,14 @@
       "Bash(npm audit:*)",
       "Bash(npm ls:*)",
       "Bash(PGPASSWORD='bqsj3VQN8R3nYNlT' psql:*)",
-      "Bash(railway variables:*)"
+      "Bash(railway variables:*)",
+      "Bash(SUPABASE_URL=\"https://ydnvqephejbcvlfzjzej.supabase.co\")",
+      "Bash(SUPABASE_KEY=\"eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6InlkbnZxZXBoZWpiY3ZsZnpqemVqIiwicm9sZSI6ImFub24iLCJpYXQiOjE3NTE2MjM1OTgsImV4cCI6MjA2NzE5OTU5OH0.6h1myEeLPIAwM50SiOf9vw4_DQqMjSRoNfmbbizqYY0\":*)",
+      "Bash(__NEW_LINE__ curl -s \"$SUPABASE_URL/rest/v1/activities?select=activity_id,title\" )",
+      "Bash(__NEW_LINE__ curl -s \"$SUPABASE_URL/rest/v1/product_activity_mappings?select=product_name,category_id,activity_id\" )",
+      "Bash(__NEW_LINE__ curl -s \"$SUPABASE_URL/rest/v1/ticket_categories?select=id,name\" )",
+      "Bash(SUPABASE_URL=https://ydnvqephejbcvlfzjzej.supabase.co:*)",
+      "Bash(SUPABASE_KEY=eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6InlkbnZxZXBoZWpiY3ZsZnpqemVqIiwicm9sZSI6ImFub24iLCJpYXQiOjE3NTE2MjM1OTgsImV4cCI6MjA2NzE5OTU5OH0.6h1myEeLPIAwM50SiOf9vw4_DQqMjSRoNfmbbizqYY0)"
     ],
     "deny": [],
     "ask": []

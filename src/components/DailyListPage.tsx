@@ -2,7 +2,7 @@
 'use client'
 import { useState, useEffect, useRef } from 'react'
 import { supabase } from '@/lib/supabase'
-import { Download, ChevronDown, Search, X, GripVertical, ChevronRight, User, UserCheck, Paperclip, Upload, Mail, Send, Loader2, MapPin } from 'lucide-react'
+import { Download, ChevronDown, Search, X, GripVertical, ChevronRight, User, UserCheck, Paperclip, Upload, Mail, Send, Loader2, MapPin, Ticket, FileText } from 'lucide-react'
 import { format } from 'date-fns'
 import * as XLSX from 'xlsx-js-style'
 
@@ -152,6 +152,15 @@ interface MeetingPoint {
   instructions: string | null
 }
 
+interface VoucherInfo {
+  id: string
+  booking_number: string
+  total_tickets: number
+  product_name: string
+  category_name: string | null
+  pdf_path: string | null
+}
+
 export default function DailyListPage() {
   const [data, setData] = useState<PaxData[]>([])
   const [groupedTours, setGroupedTours] = useState<TourGroup[]>([])
@@ -181,6 +190,7 @@ export default function DailyListPage() {
   const [selectedRecipients, setSelectedRecipients] = useState<string[]>([])
   const [includeAttachments, setIncludeAttachments] = useState(true)
   const [includeDailyList, setIncludeDailyList] = useState(true)
+  const [includeVouchers, setIncludeVouchers] = useState(true)
   const [sendingEmail, setSendingEmail] = useState(false)
   const [emailSuccess, setEmailSuccess] = useState<string | null>(null)
   const [emailError, setEmailError] = useState<string | null>(null)
@@ -202,6 +212,9 @@ export default function DailyListPage() {
   // Email logs state
   const [emailLogs, setEmailLogs] = useState<EmailLog[]>([])
   const [loadingLogs, setLoadingLogs] = useState(false)
+
+  // Vouchers state (activity_availability_id -> vouchers)
+  const [slotVouchers, setSlotVouchers] = useState<Map<number, VoucherInfo[]>>(new Map())
 
   // File upload
   const fileInputRef = useRef<HTMLInputElement>(null)
@@ -379,6 +392,52 @@ export default function DailyListPage() {
     })
 
     setStaffAssignments(staffMap)
+  }
+
+  // Fetch vouchers assigned to time slots on the selected date
+  const fetchVouchers = async (dateStr: string) => {
+    try {
+      const { data: vouchers, error } = await supabase
+        .from('vouchers')
+        .select(`
+          id,
+          booking_number,
+          total_tickets,
+          product_name,
+          pdf_path,
+          activity_availability_id,
+          ticket_categories (id, name)
+        `)
+        .eq('visit_date', dateStr)
+        .not('activity_availability_id', 'is', null)
+
+      if (error) {
+        console.error('Error fetching vouchers:', error)
+        return
+      }
+
+      // Group vouchers by activity_availability_id
+      const vouchersMap = new Map<number, VoucherInfo[]>()
+      vouchers?.forEach(v => {
+        if (v.activity_availability_id) {
+          const existingVouchers = vouchersMap.get(v.activity_availability_id) || []
+          existingVouchers.push({
+            id: v.id,
+            booking_number: v.booking_number,
+            total_tickets: v.total_tickets,
+            product_name: v.product_name,
+            category_name: Array.isArray(v.ticket_categories)
+              ? (v.ticket_categories[0] as { id: string; name: string } | undefined)?.name || null
+              : (v.ticket_categories as { id: string; name: string } | null)?.name || null,
+            pdf_path: v.pdf_path
+          })
+          vouchersMap.set(v.activity_availability_id, existingVouchers)
+        }
+      })
+      setSlotVouchers(vouchersMap)
+    } catch (err) {
+      console.error('Error fetching vouchers:', err)
+    }
   }
 
   // Get availability ID for a time slot
@@ -721,7 +780,20 @@ export default function DailyListPage() {
 
       // Get attachment URLs
       const slotAttachments = attachments.filter(a => a.activity_availability_id === emailTimeSlot.availabilityId)
-      const attachmentUrls = includeAttachments ? slotAttachments.map(a => a.file_path) : []
+      const attachmentUrls: string[] = includeAttachments ? slotAttachments.map(a => a.file_path) : []
+
+      // Add voucher PDF URLs if enabled
+      if (includeVouchers) {
+        const vouchersForSlot = slotVouchers.get(emailTimeSlot.availabilityId) || []
+        const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL
+        for (const voucher of vouchersForSlot) {
+          if (voucher.pdf_path) {
+            // Build public URL for the voucher PDF
+            const pdfUrl = `${supabaseUrl}/storage/v1/object/public/ticket-vouchers/${voucher.pdf_path}`
+            attachmentUrls.push(pdfUrl)
+          }
+        }
+      }
 
       // Generate daily list
       let dailyListData: string | undefined
@@ -1410,6 +1482,8 @@ EnRoma.com Team`
       await fetchEmailLogs(selectedDate)
       // Fetch meeting points for activities
       await fetchMeetingPoints(allActivityIds)
+      // Fetch vouchers for the day
+      await fetchVouchers(selectedDate)
     }
   }
 
@@ -1738,6 +1812,8 @@ EnRoma.com Team`
     await fetchStaffAndAttachments(date, selectedActivities)
     // Fetch email logs for the new date
     await fetchEmailLogs(date)
+    // Fetch vouchers for the new date
+    await fetchVouchers(date)
   }
 
   // Group data by tour and time slot
@@ -2628,6 +2704,10 @@ EnRoma.com Team`
                     const slotEscorts = slotStaff?.staff.escorts || []
                     const slotAvailabilityId = slotStaff?.availId
 
+                    // Get vouchers for this time slot
+                    const vouchersForSlot = slotAvailabilityId ? slotVouchers.get(slotAvailabilityId) || [] : []
+                    const totalTicketsInSlot = vouchersForSlot.reduce((sum, v) => sum + v.total_tickets, 0)
+
                     return (
                       <div key={timeSlot.time} className="border rounded-lg p-3 bg-gray-50">
                       {/* Time Slot Header */}
@@ -2640,6 +2720,19 @@ EnRoma.com Team`
                             <span className="text-sm font-medium text-gray-700 bg-gray-200 px-2 py-1 rounded">
                               {timeSlot.totalParticipants} participants
                             </span>
+                            {/* Voucher Tickets Badge */}
+                            {vouchersForSlot.length > 0 && (
+                              <span className={`text-sm font-medium px-2 py-1 rounded flex items-center gap-1 ${
+                                totalTicketsInSlot === timeSlot.totalParticipants
+                                  ? 'bg-green-100 text-green-700'
+                                  : totalTicketsInSlot < timeSlot.totalParticipants
+                                    ? 'bg-orange-100 text-orange-700'
+                                    : 'bg-red-100 text-red-700'
+                              }`}>
+                                <Ticket className="w-4 h-4" />
+                                {totalTicketsInSlot} tickets ({vouchersForSlot.length} voucher{vouchersForSlot.length !== 1 ? 's' : ''})
+                              </span>
+                            )}
                             {/* Upload PDF Button */}
                             <label className="cursor-pointer">
                               <input
@@ -2719,6 +2812,29 @@ EnRoma.com Team`
                                   >
                                     <X className="w-3 h-3" />
                                   </button>
+                                </span>
+                              ))}
+                            </div>
+                          )}
+                          {/* Vouchers */}
+                          {vouchersForSlot.length > 0 && (
+                            <div className="flex items-center gap-2">
+                              <Ticket className="w-4 h-4 text-orange-600" />
+                              <span className="text-orange-700 font-medium">Vouchers:</span>
+                              {vouchersForSlot.map(v => (
+                                <span key={v.id} className="inline-flex items-center gap-1 bg-orange-100 text-orange-800 px-2 py-0.5 rounded">
+                                  {v.pdf_path ? (
+                                    <a
+                                      href={supabase.storage.from('ticket-vouchers').getPublicUrl(v.pdf_path).data.publicUrl}
+                                      target="_blank"
+                                      rel="noopener noreferrer"
+                                      className="hover:underline"
+                                    >
+                                      {v.booking_number} ({v.total_tickets})
+                                    </a>
+                                  ) : (
+                                    <span>{v.booking_number} ({v.total_tickets})</span>
+                                  )}
                                 </span>
                               ))}
                             </div>
@@ -3084,6 +3200,21 @@ EnRoma.com Team`
                   <Download className="w-4 h-4 text-gray-400" />
                   Include Daily List (Excel with bookings)
                 </label>
+                {(() => {
+                  const voucherCount = slotVouchers.get(emailTimeSlot.availabilityId)?.length || 0
+                  return voucherCount > 0 ? (
+                    <label className="flex items-center gap-2 text-sm">
+                      <input
+                        type="checkbox"
+                        checked={includeVouchers}
+                        onChange={(e) => setIncludeVouchers(e.target.checked)}
+                        className="rounded"
+                      />
+                      <FileText className="w-4 h-4 text-gray-400" />
+                      Include {voucherCount} Ticket Voucher(s)
+                    </label>
+                  ) : null
+                })()}
               </div>
 
               {/* Actions */}
