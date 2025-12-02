@@ -2,7 +2,7 @@
 'use client'
 
 import React, { useState } from 'react'
-import { Menu, ChevronRight, Users, FileBarChart, LayoutDashboard, FileText, FileSpreadsheet, BarChart3, DollarSign, TrendingUp, RefreshCw, Percent, UserCog, Calendar, UserCheck, FolderOpen, MapPin, Ticket, Upload, List, Tags, Link2 } from 'lucide-react'
+import { Menu, ChevronRight, Users, FileBarChart, LayoutDashboard, FileText, FileSpreadsheet, BarChart3, DollarSign, TrendingUp, RefreshCw, Percent, UserCog, Calendar, UserCheck, FolderOpen, MapPin, Ticket, Upload, List, Tags, Link2, Bell } from 'lucide-react'
 import { SidebarProvider, SidebarTrigger } from "@/components/ui/sidebar"
 import { Sidebar, SidebarContent, SidebarGroup, SidebarHeader, SidebarMenu, SidebarMenuButton, SidebarMenuItem, SidebarMenuSub, SidebarMenuSubButton, SidebarMenuSubItem } from "@/components/ui/sidebar"
 import RecapPage from '@/components/RecapPage'
@@ -24,6 +24,7 @@ import VouchersListPage from '@/components/VouchersListPage'
 import TicketCategoriesPage from '@/components/TicketCategoriesPage'
 import ProductActivityMappingsPage from '@/components/ProductActivityMappingsPage'
 import TicketTypeMappingsPage from '@/components/TicketTypeMappingsPage'
+import NotificationsPage from '@/components/NotificationsPage'
 
 // Custom Sidebar Component
 function AppSidebar({ currentView, onNavigate }: {
@@ -68,6 +69,11 @@ function AppSidebar({ currentView, onNavigate }: {
           title: "Sync Now",
           icon: RefreshCw,
           view: "availability-sync",
+        },
+        {
+          title: "Notifications",
+          icon: Bell,
+          view: "notifications",
         },
       ],
     },
@@ -285,6 +291,8 @@ export default function DashboardLayout() {
         return <ProductActivityMappingsPage />
       case 'type-mappings':
         return <TicketTypeMappingsPage />
+      case 'notifications':
+        return <NotificationsPage />
       default:
         return <RecapPage />
     }
@@ -330,13 +338,15 @@ export default function DashboardLayout() {
         return 'Product-Activity Mappings'
       case 'type-mappings':
         return 'Ticket Type Mappings'
+      case 'notifications':
+        return 'Notifications'
       default:
         return 'Dashboard'
     }
   }
 
   const getBreadcrumbSection = () => {
-    if (['recap', 'consumed', 'pax-names', 'daily-list', 'availability-sync'].includes(currentView)) {
+    if (['recap', 'consumed', 'pax-names', 'daily-list', 'availability-sync', 'notifications'].includes(currentView)) {
       return 'Operations'
     }
     if (['voucher-upload', 'vouchers-list', 'ticket-categories', 'product-mappings', 'type-mappings'].includes(currentView)) {
