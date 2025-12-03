@@ -13,6 +13,16 @@ interface AssignmentReport {
   status: string
 }
 
+interface AvailabilityRecord {
+  id: number
+  local_date: string
+  local_time: string
+  vacancy_sold: number | null
+  vacancy_opening: number | null
+  status: string | null
+  activity_id: string
+}
+
 // GET - Generate staff assignment report
 export async function GET(request: NextRequest) {
   const { user, error: authError } = await verifySession()
@@ -71,7 +81,7 @@ export async function GET(request: NextRequest) {
           return acc
         }, {})
 
-        const availabilitiesMap = (availabilities || []).reduce((acc: Record<number, typeof availabilities[0]>, a) => {
+        const availabilitiesMap = (availabilities || []).reduce((acc: Record<number, AvailabilityRecord>, a) => {
           acc[a.id] = a
           return acc
         }, {})
@@ -129,7 +139,7 @@ export async function GET(request: NextRequest) {
           return acc
         }, {})
 
-        const availabilitiesMap = (availabilities || []).reduce((acc: Record<number, typeof availabilities[0]>, a) => {
+        const availabilitiesMap = (availabilities || []).reduce((acc: Record<number, AvailabilityRecord>, a) => {
           acc[a.id] = a
           return acc
         }, {})
@@ -187,7 +197,7 @@ export async function GET(request: NextRequest) {
           return acc
         }, {})
 
-        const availabilitiesMap = (availabilities || []).reduce((acc: Record<number, typeof availabilities[0]>, a) => {
+        const availabilitiesMap = (availabilities || []).reduce((acc: Record<number, AvailabilityRecord>, a) => {
           acc[a.id] = a
           return acc
         }, {})
