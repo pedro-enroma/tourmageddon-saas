@@ -10,7 +10,7 @@ import {
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
 
-// Available template variables
+// Available template variables for single emails
 const TEMPLATE_VARIABLES = [
   { key: '{{name}}', label: 'Recipient Name', description: 'Guide or escort name (personalized per recipient)' },
   { key: '{{tour_title}}', label: 'Tour Title', description: 'Activity/tour name' },
@@ -26,7 +26,30 @@ const TEMPLATE_VARIABLES = [
   { key: '{{meeting_point}}', label: 'Meeting Point', description: 'Default meeting point for the activity' },
 ]
 
+// Available template variables for consolidated emails
+const CONSOLIDATED_TEMPLATE_VARIABLES = [
+  { key: '{{name}}', label: 'Recipient Name', description: 'Escort or headphone contact name' },
+  { key: '{{date}}', label: 'Date', description: 'Service date (e.g., Wednesday, November 26, 2025)' },
+  { key: '{{services_list}}', label: 'Services List', description: 'List of all services with details (auto-generated)' },
+  { key: '{{services_count}}', label: 'Services Count', description: 'Total number of services for the day' },
+]
+
+// Template for services_list item
+const CONSOLIDATED_SERVICE_VARIABLES = [
+  { key: '{{service.title}}', label: 'Tour Title', description: 'Activity/tour name' },
+  { key: '{{service.time}}', label: 'Time', description: 'Service start time' },
+  { key: '{{service.meeting_point}}', label: 'Meeting Point', description: 'Meeting location' },
+  { key: '{{service.pax_count}}', label: 'Pax Count', description: 'Number of participants' },
+  { key: '{{service.guide_name}}', label: 'Guide Name', description: 'Assigned guide name' },
+  { key: '{{service.guide_phone}}', label: 'Guide Phone', description: 'Guide phone number' },
+  { key: '{{service.escort_name}}', label: 'Escort Name', description: 'Assigned escort name (for headphones template)' },
+  { key: '{{service.escort_phone}}', label: 'Escort Phone', description: 'Escort phone number (for headphones template)' },
+  { key: '{{service.headphone_name}}', label: 'Headphone Name', description: 'Headphone contact name (for escort template)' },
+  { key: '{{service.headphone_phone}}', label: 'Headphone Phone', description: 'Headphone phone number (for escort template)' },
+]
+
 type TemplateType = 'guide' | 'escort' | 'headphone'
+type ConsolidatedTemplateType = 'escort_consolidated' | 'headphone_consolidated'
 
 interface EmailTemplate {
   id: string
@@ -34,6 +57,17 @@ interface EmailTemplate {
   subject: string
   body: string
   template_type: TemplateType
+  is_default: boolean
+  created_at: string
+}
+
+interface ConsolidatedEmailTemplate {
+  id: string
+  name: string
+  subject: string
+  body: string
+  service_item_template: string
+  template_type: ConsolidatedTemplateType
   is_default: boolean
   created_at: string
 }
@@ -68,7 +102,7 @@ interface ActivityMeetingPoint {
   is_default: boolean
 }
 
-type Tab = 'templates' | 'meeting-points' | 'assignments' | 'template-defaults'
+type Tab = 'templates' | 'meeting-points' | 'assignments' | 'template-defaults' | 'consolidated-templates'
 
 export default function ContentPage() {
   const [activeTab, setActiveTab] = useState<Tab>('templates')
@@ -112,6 +146,20 @@ export default function ContentPage() {
   const [mpGoogleMapsUrl, setMpGoogleMapsUrl] = useState('')
   const [mpInstructions, setMpInstructions] = useState('')
 
+  // Consolidated templates state
+  const [consolidatedTemplates, setConsolidatedTemplates] = useState<ConsolidatedEmailTemplate[]>([])
+  const [editingConsolidatedTemplate, setEditingConsolidatedTemplate] = useState<ConsolidatedEmailTemplate | null>(null)
+  const [showConsolidatedTemplateModal, setShowConsolidatedTemplateModal] = useState(false)
+  const [consolidatedTemplateName, setConsolidatedTemplateName] = useState('')
+  const [consolidatedTemplateSubject, setConsolidatedTemplateSubject] = useState('')
+  const [consolidatedTemplateBody, setConsolidatedTemplateBody] = useState('')
+  const [consolidatedServiceItemTemplate, setConsolidatedServiceItemTemplate] = useState('')
+  const [consolidatedTemplateType, setConsolidatedTemplateType] = useState<ConsolidatedTemplateType>('escort_consolidated')
+  const [consolidatedTemplateIsDefault, setConsolidatedTemplateIsDefault] = useState(false)
+  const [consolidatedTemplateTypeFilter, setConsolidatedTemplateTypeFilter] = useState<ConsolidatedTemplateType | 'all'>('all')
+  const consolidatedBodyRef = useRef<HTMLTextAreaElement>(null)
+  const consolidatedServiceRef = useRef<HTMLTextAreaElement>(null)
+
   useEffect(() => {
     fetchData()
   }, [])
@@ -124,7 +172,8 @@ export default function ContentPage() {
         fetchMeetingPoints(),
         fetchActivities(),
         fetchActivityMeetingPoints(),
-        fetchActivityTemplateAssignments()
+        fetchActivityTemplateAssignments(),
+        fetchConsolidatedTemplates()
       ])
     } catch (err) {
       console.error('Error fetching data:', err)
@@ -180,6 +229,21 @@ export default function ContentPage() {
       setActivityTemplateAssignments(result.data || [])
     } catch (err) {
       console.error('Error fetching activity template assignments:', err)
+    }
+  }
+
+  const fetchConsolidatedTemplates = async () => {
+    try {
+      const response = await fetch('/api/content/consolidated-templates')
+      const result = await response.json()
+
+      if (!response.ok) {
+        console.error('Error fetching consolidated templates:', result.error)
+        return
+      }
+      setConsolidatedTemplates(result.data || [])
+    } catch (err) {
+      console.error('Error fetching consolidated templates:', err)
     }
   }
 
@@ -270,6 +334,107 @@ export default function ContentPage() {
       console.error('Error deleting template:', err)
       setError(err instanceof Error ? err.message : 'Failed to delete template')
     }
+  }
+
+  // Consolidated Template CRUD
+  const openNewConsolidatedTemplate = () => {
+    setEditingConsolidatedTemplate(null)
+    setConsolidatedTemplateName('')
+    setConsolidatedTemplateSubject('')
+    setConsolidatedTemplateBody('')
+    setConsolidatedServiceItemTemplate('')
+    setConsolidatedTemplateIsDefault(false)
+    setConsolidatedTemplateType('escort_consolidated')
+    setShowConsolidatedTemplateModal(true)
+  }
+
+  const openEditConsolidatedTemplate = (template: ConsolidatedEmailTemplate) => {
+    setEditingConsolidatedTemplate(template)
+    setConsolidatedTemplateName(template.name)
+    setConsolidatedTemplateSubject(template.subject)
+    setConsolidatedTemplateBody(template.body)
+    setConsolidatedServiceItemTemplate(template.service_item_template || '')
+    setConsolidatedTemplateIsDefault(template.is_default)
+    setConsolidatedTemplateType(template.template_type)
+    setShowConsolidatedTemplateModal(true)
+  }
+
+  const saveConsolidatedTemplate = async () => {
+    if (!consolidatedTemplateName.trim() || !consolidatedTemplateSubject.trim() || !consolidatedTemplateBody.trim()) {
+      setError('Please fill in all template fields')
+      return
+    }
+
+    try {
+      const payload = {
+        name: consolidatedTemplateName,
+        subject: consolidatedTemplateSubject,
+        body: consolidatedTemplateBody,
+        service_item_template: consolidatedServiceItemTemplate,
+        is_default: consolidatedTemplateIsDefault,
+        template_type: consolidatedTemplateType,
+        ...(editingConsolidatedTemplate && { id: editingConsolidatedTemplate.id })
+      }
+
+      const response = await fetch('/api/content/consolidated-templates', {
+        method: editingConsolidatedTemplate ? 'PUT' : 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(payload)
+      })
+
+      const result = await response.json()
+
+      if (!response.ok) {
+        throw new Error(result.error || 'Failed to save template')
+      }
+
+      setShowConsolidatedTemplateModal(false)
+      await fetchConsolidatedTemplates()
+    } catch (err: unknown) {
+      console.error('Error saving consolidated template:', err)
+      const errorMessage = err instanceof Error ? err.message : 'Failed to save template'
+      setError(errorMessage)
+    }
+  }
+
+  const deleteConsolidatedTemplate = async (id: string) => {
+    if (!confirm('Delete this consolidated template?')) return
+
+    try {
+      const response = await fetch(`/api/content/consolidated-templates?id=${id}`, {
+        method: 'DELETE'
+      })
+
+      const result = await response.json()
+
+      if (!response.ok) {
+        throw new Error(result.error || 'Failed to delete template')
+      }
+
+      await fetchConsolidatedTemplates()
+    } catch (err) {
+      console.error('Error deleting consolidated template:', err)
+      setError(err instanceof Error ? err.message : 'Failed to delete template')
+    }
+  }
+
+  const insertConsolidatedVariable = (variableKey: string, target: 'body' | 'service') => {
+    const ref = target === 'body' ? consolidatedBodyRef : consolidatedServiceRef
+    const setter = target === 'body' ? setConsolidatedTemplateBody : setConsolidatedServiceItemTemplate
+    const currentValue = target === 'body' ? consolidatedTemplateBody : consolidatedServiceItemTemplate
+
+    if (!ref.current) return
+
+    const textarea = ref.current
+    const start = textarea.selectionStart
+    const end = textarea.selectionEnd
+    const newValue = currentValue.substring(0, start) + variableKey + currentValue.substring(end)
+    setter(newValue)
+
+    setTimeout(() => {
+      textarea.focus()
+      textarea.setSelectionRange(start + variableKey.length, start + variableKey.length)
+    }, 0)
   }
 
   // Meeting Point CRUD
@@ -526,6 +691,19 @@ export default function ContentPage() {
           <div className="flex items-center gap-2">
             <Link2 className="w-4 h-4" />
             Activity Template Defaults
+          </div>
+        </button>
+        <button
+          onClick={() => setActiveTab('consolidated-templates')}
+          className={`px-4 py-2 text-sm font-medium border-b-2 transition-colors ${
+            activeTab === 'consolidated-templates'
+              ? 'border-blue-600 text-blue-600'
+              : 'border-transparent text-gray-500 hover:text-gray-700'
+          }`}
+        >
+          <div className="flex items-center gap-2">
+            <FileText className="w-4 h-4" />
+            Consolidated Templates
           </div>
         </button>
       </div>
@@ -905,6 +1083,79 @@ export default function ContentPage() {
         </div>
       )}
 
+      {/* Consolidated Templates Tab */}
+      {activeTab === 'consolidated-templates' && (
+        <div>
+          <div className="flex justify-between items-center mb-4">
+            <div className="flex items-center gap-4">
+              <p className="text-sm text-gray-500">Create consolidated email templates for daily summaries</p>
+              <select
+                value={consolidatedTemplateTypeFilter}
+                onChange={(e) => setConsolidatedTemplateTypeFilter(e.target.value as ConsolidatedTemplateType | 'all')}
+                className="text-sm border rounded-md px-3 py-1.5"
+              >
+                <option value="all">All Types</option>
+                <option value="escort_consolidated">Escort Consolidated</option>
+                <option value="headphone_consolidated">Headphone Consolidated</option>
+              </select>
+            </div>
+            <Button onClick={openNewConsolidatedTemplate}>
+              <Plus className="w-4 h-4 mr-2" />
+              New Consolidated Template
+            </Button>
+          </div>
+
+          <div className="bg-blue-50 border border-blue-200 rounded-lg p-4 mb-4">
+            <p className="text-sm text-blue-800">
+              <strong>Consolidated templates</strong> are used to send a single daily email containing all services for a staff member.
+              The email body uses <code className="bg-blue-100 px-1 rounded">{'{{services_list}}'}</code> which is replaced with the rendered service items.
+            </p>
+          </div>
+
+          {consolidatedTemplates.filter(t => consolidatedTemplateTypeFilter === 'all' || t.template_type === consolidatedTemplateTypeFilter).length === 0 ? (
+            <div className="bg-white rounded-lg border p-8 text-center text-gray-500">
+              No consolidated templates yet. Create your first template.
+            </div>
+          ) : (
+            <div className="space-y-3">
+              {consolidatedTemplates
+                .filter(t => consolidatedTemplateTypeFilter === 'all' || t.template_type === consolidatedTemplateTypeFilter)
+                .map(template => (
+                <div key={template.id} className="bg-white rounded-lg border p-4">
+                  <div className="flex items-start justify-between">
+                    <div className="flex-1">
+                      <div className="flex items-center gap-2">
+                        <h3 className="font-medium">{template.name}</h3>
+                        <span className={`px-2 py-0.5 text-xs rounded ${
+                          template.template_type === 'escort_consolidated'
+                            ? 'bg-orange-100 text-orange-800'
+                            : 'bg-purple-100 text-purple-800'
+                        }`}>
+                          {template.template_type === 'escort_consolidated' ? 'Escort' : 'Headphone'}
+                        </span>
+                        {template.is_default && (
+                          <span className="px-2 py-0.5 text-xs bg-green-100 text-green-800 rounded">Default</span>
+                        )}
+                      </div>
+                      <p className="text-sm text-gray-500 mt-1">Subject: {template.subject}</p>
+                      <p className="text-xs text-gray-400 mt-2 line-clamp-2">{template.body}</p>
+                    </div>
+                    <div className="flex gap-2">
+                      <Button variant="outline" size="sm" onClick={() => openEditConsolidatedTemplate(template)}>
+                        <Pencil className="w-4 h-4" />
+                      </Button>
+                      <Button variant="outline" size="sm" onClick={() => deleteConsolidatedTemplate(template.id)}>
+                        <Trash2 className="w-4 h-4 text-red-600" />
+                      </Button>
+                    </div>
+                  </div>
+                </div>
+              ))}
+            </div>
+          )}
+        </div>
+      )}
+
       {/* Template Modal */}
       {showTemplateModal && (
         <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50 p-4">
@@ -1080,6 +1331,153 @@ export default function ContentPage() {
                 <Button onClick={saveMeetingPoint}>
                   <Save className="w-4 h-4 mr-2" />
                   Save Meeting Point
+                </Button>
+              </div>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Consolidated Template Modal */}
+      {showConsolidatedTemplateModal && (
+        <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50 p-4">
+          <div className="bg-white rounded-lg shadow-xl max-w-6xl w-full max-h-[90vh] overflow-y-auto">
+            <div className="p-6 border-b flex justify-between items-start">
+              <h2 className="text-xl font-semibold">
+                {editingConsolidatedTemplate ? 'Edit Consolidated Template' : 'New Consolidated Template'}
+              </h2>
+              <button onClick={() => setShowConsolidatedTemplateModal(false)} className="text-gray-500 hover:text-gray-700">
+                <X className="w-6 h-6" />
+              </button>
+            </div>
+
+            <div className="p-6">
+              <div className="grid grid-cols-1 lg:grid-cols-4 gap-6">
+                {/* Form */}
+                <div className="lg:col-span-3 space-y-4">
+                  <div className="grid grid-cols-2 gap-4">
+                    <div>
+                      <label className="block text-sm font-medium mb-2">Template Name</label>
+                      <Input
+                        value={consolidatedTemplateName}
+                        onChange={(e) => setConsolidatedTemplateName(e.target.value)}
+                        placeholder="e.g., Daily Escort Summary"
+                      />
+                    </div>
+                    <div>
+                      <label className="block text-sm font-medium mb-2">Template Type</label>
+                      <select
+                        value={consolidatedTemplateType}
+                        onChange={(e) => setConsolidatedTemplateType(e.target.value as ConsolidatedTemplateType)}
+                        className="w-full px-3 py-2 border rounded-md text-sm"
+                      >
+                        <option value="escort_consolidated">Escort Consolidated</option>
+                        <option value="headphone_consolidated">Headphone Consolidated</option>
+                      </select>
+                    </div>
+                  </div>
+
+                  <div>
+                    <label className="block text-sm font-medium mb-2">Subject Line</label>
+                    <Input
+                      value={consolidatedTemplateSubject}
+                      onChange={(e) => setConsolidatedTemplateSubject(e.target.value)}
+                      placeholder="e.g., Your services for {{date}}"
+                    />
+                  </div>
+
+                  <div>
+                    <label className="block text-sm font-medium mb-2">
+                      Email Body
+                      <span className="text-gray-400 font-normal ml-2">
+                        (Use {'{{services_list}}'} where service items should appear)
+                      </span>
+                    </label>
+                    <textarea
+                      ref={consolidatedBodyRef}
+                      value={consolidatedTemplateBody}
+                      onChange={(e) => setConsolidatedTemplateBody(e.target.value)}
+                      rows={8}
+                      className="w-full px-3 py-2 border rounded-md text-sm font-mono"
+                      placeholder="Write your email template here... Use {{services_list}} to insert the list of services."
+                    />
+                  </div>
+
+                  <div className="border-t pt-4">
+                    <label className="block text-sm font-medium mb-2">
+                      Service Item Template
+                      <span className="text-gray-400 font-normal ml-2">
+                        (Template for each service in the list)
+                      </span>
+                    </label>
+                    <textarea
+                      ref={consolidatedServiceRef}
+                      value={consolidatedServiceItemTemplate}
+                      onChange={(e) => setConsolidatedServiceItemTemplate(e.target.value)}
+                      rows={6}
+                      className="w-full px-3 py-2 border rounded-md text-sm font-mono"
+                      placeholder="Template for each service item..."
+                    />
+                  </div>
+
+                  <div>
+                    <label className="flex items-center gap-2 text-sm">
+                      <input
+                        type="checkbox"
+                        checked={consolidatedTemplateIsDefault}
+                        onChange={(e) => setConsolidatedTemplateIsDefault(e.target.checked)}
+                        className="rounded"
+                      />
+                      Set as default template for this type
+                    </label>
+                  </div>
+                </div>
+
+                {/* Variables Panel */}
+                <div className="space-y-4">
+                  <div className="bg-gray-50 rounded-lg p-4">
+                    <h3 className="font-medium text-sm mb-3">Email Body Variables</h3>
+                    <p className="text-xs text-gray-500 mb-3">Click to insert</p>
+                    <div className="space-y-2">
+                      {CONSOLIDATED_TEMPLATE_VARIABLES.map(variable => (
+                        <button
+                          key={variable.key}
+                          onClick={() => insertConsolidatedVariable(variable.key, 'body')}
+                          className="w-full text-left px-2 py-1.5 bg-white border rounded hover:bg-brand-orange-light hover:border-orange-300 transition-colors"
+                        >
+                          <div className="font-mono text-xs text-brand-orange">{variable.key}</div>
+                          <div className="text-xs text-gray-500">{variable.description}</div>
+                        </button>
+                      ))}
+                    </div>
+                  </div>
+
+                  <div className="bg-blue-50 rounded-lg p-4">
+                    <h3 className="font-medium text-sm mb-3 text-blue-800">Service Item Variables</h3>
+                    <p className="text-xs text-blue-600 mb-3">For service item template</p>
+                    <div className="space-y-2 max-h-64 overflow-y-auto">
+                      {CONSOLIDATED_SERVICE_VARIABLES.map(variable => (
+                        <button
+                          key={variable.key}
+                          onClick={() => insertConsolidatedVariable(variable.key, 'service')}
+                          className="w-full text-left px-2 py-1.5 bg-white border rounded hover:bg-blue-100 hover:border-blue-300 transition-colors"
+                        >
+                          <div className="font-mono text-xs text-blue-700">{variable.key}</div>
+                          <div className="text-xs text-gray-500">{variable.description}</div>
+                        </button>
+                      ))}
+                    </div>
+                  </div>
+                </div>
+              </div>
+
+              <div className="flex justify-end gap-3 pt-6 mt-6 border-t">
+                <Button variant="outline" onClick={() => setShowConsolidatedTemplateModal(false)}>
+                  Cancel
+                </Button>
+                <Button onClick={saveConsolidatedTemplate}>
+                  <Save className="w-4 h-4 mr-2" />
+                  Save Template
                 </Button>
               </div>
             </div>
