@@ -76,18 +76,17 @@ export default function HeadphoneAssignmentsPage() {
 
       const availabilityIds = avails?.map(a => a.id) || []
 
-      // Fetch headphone assignments
-      const { data: headphoneAssignmentsData } = await supabase
-        .from('headphone_assignments')
-        .select(`
-          assignment_id,
-          activity_availability_id,
-          headphone:headphones (
-            headphone_id,
-            name
-          )
-        `)
-        .in('activity_availability_id', availabilityIds)
+      // Fetch headphone assignments via API (to bypass RLS)
+      let headphoneAssignmentsData: { assignment_id: string; activity_availability_id: number; headphone: { headphone_id: string; name: string } }[] = []
+      if (availabilityIds.length > 0) {
+        const assignmentsResponse = await fetch(`/api/assignments/availability/list?availability_ids=${availabilityIds.join(',')}`, {
+          credentials: 'include'
+        })
+        const assignmentsResult = await assignmentsResponse.json()
+        if (assignmentsResult.data?.headphones) {
+          headphoneAssignmentsData = assignmentsResult.data.headphones
+        }
+      }
 
       // Fetch actual bookings
       const { data: bookingsData } = await supabase

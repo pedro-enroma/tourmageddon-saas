@@ -78,19 +78,17 @@ export default function EscortAssignmentsPage() {
 
       const availabilityIds = avails?.map(a => a.id) || []
 
-      // Fetch escort assignments
-      const { data: escortAssignmentsData } = await supabase
-        .from('escort_assignments')
-        .select(`
-          assignment_id,
-          activity_availability_id,
-          escort:escorts (
-            escort_id,
-            first_name,
-            last_name
-          )
-        `)
-        .in('activity_availability_id', availabilityIds)
+      // Fetch escort assignments via API (to bypass RLS)
+      let escortAssignmentsData: { assignment_id: string; activity_availability_id: number; escort: { escort_id: string; first_name: string; last_name: string } }[] = []
+      if (availabilityIds.length > 0) {
+        const assignmentsResponse = await fetch(`/api/assignments/availability/list?availability_ids=${availabilityIds.join(',')}`, {
+          credentials: 'include'
+        })
+        const assignmentsResult = await assignmentsResponse.json()
+        if (assignmentsResult.data?.escorts) {
+          escortAssignmentsData = assignmentsResult.data.escorts
+        }
+      }
 
       // Fetch actual bookings
       const { data: bookingsData } = await supabase
