@@ -88,7 +88,8 @@ export async function GET(request: NextRequest) {
 
         guideAssignments.forEach(assignment => {
           const availability = availabilitiesMap[assignment.activity_availability_id]
-          const guide = assignment.guide as { guide_id: string; first_name: string; last_name: string } | null
+          const guideData = assignment.guide as unknown as { guide_id: string; first_name: string; last_name: string } | { guide_id: string; first_name: string; last_name: string }[] | null
+          const guide = Array.isArray(guideData) ? guideData[0] : guideData
 
           if (availability && guide) {
             reportData.push({
@@ -146,7 +147,8 @@ export async function GET(request: NextRequest) {
 
         escortAssignments.forEach(assignment => {
           const availability = availabilitiesMap[assignment.activity_availability_id]
-          const escort = assignment.escort as { escort_id: string; first_name: string; last_name: string } | null
+          const escortData = assignment.escort as unknown as { escort_id: string; first_name: string; last_name: string } | { escort_id: string; first_name: string; last_name: string }[] | null
+          const escort = Array.isArray(escortData) ? escortData[0] : escortData
 
           if (availability && escort) {
             reportData.push({
@@ -204,7 +206,8 @@ export async function GET(request: NextRequest) {
 
         headphoneAssignments.forEach(assignment => {
           const availability = availabilitiesMap[assignment.activity_availability_id]
-          const headphone = assignment.headphone as { headphone_id: string; name: string } | null
+          const headphoneData = assignment.headphone as unknown as { headphone_id: string; name: string } | { headphone_id: string; name: string }[] | null
+          const headphone = Array.isArray(headphoneData) ? headphoneData[0] : headphoneData
 
           if (availability && headphone) {
             reportData.push({
