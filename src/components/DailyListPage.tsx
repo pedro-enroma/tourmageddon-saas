@@ -3,7 +3,7 @@
 import { useState, useEffect, useRef } from 'react'
 import { supabase } from '@/lib/supabase'
 import { attachmentsApi } from '@/lib/api-client'
-import { Download, ChevronDown, Search, X, GripVertical, ChevronRight, User, UserCheck, Paperclip, Upload, Mail, Send, Loader2, MapPin, Ticket, FileText } from 'lucide-react'
+import { Download, ChevronDown, Search, X, GripVertical, ChevronRight, User, UserCheck, Paperclip, Upload, Mail, Send, Loader2, MapPin, Ticket, FileText, Headphones } from 'lucide-react'
 import { format } from 'date-fns'
 import * as XLSX from 'xlsx-js-style'
 
@@ -116,6 +116,7 @@ interface StaffAssignment {
   localTime: string
   guides: Person[]
   escorts: Person[]
+  headphones: Person[]
 }
 
 interface Attachment {
@@ -137,7 +138,7 @@ interface EmailLog {
   id: string
   recipient_email: string
   recipient_name: string | null
-  recipient_type: 'guide' | 'escort' | null
+  recipient_type: 'guide' | 'escort' | 'headphone' | null
   subject: string
   status: 'pending' | 'sent' | 'delivered' | 'read' | 'replied' | 'failed'
   error_message: string | null
@@ -199,11 +200,12 @@ export default function DailyListPage() {
   // Bulk email state
   const [sendingBulkGuides, setSendingBulkGuides] = useState(false)
   const [sendingBulkEscorts, setSendingBulkEscorts] = useState(false)
+  const [sendingBulkHeadphones, setSendingBulkHeadphones] = useState(false)
   const [bulkEmailProgress, setBulkEmailProgress] = useState<{ sent: number; total: number } | null>(null)
 
   // Bulk email drawer state
   const [showBulkEmailDrawer, setShowBulkEmailDrawer] = useState(false)
-  const [bulkEmailType, setBulkEmailType] = useState<'guides' | 'escorts'>('guides')
+  const [bulkEmailType, setBulkEmailType] = useState<'guides' | 'escorts' | 'headphones'>('guides')
   const [bulkSelectedRecipients, setBulkSelectedRecipients] = useState<Set<string>>(new Set())
   const [includeMeetingPoint, setIncludeMeetingPoint] = useState(true)
 
@@ -347,6 +349,16 @@ export default function DailyListPage() {
       `)
       .in('activity_availability_id', availabilityIds)
 
+    // Fetch headphone assignments
+    const { data: headphoneAssignments } = await supabase
+      .from('headphone_assignments')
+      .select(`
+        assignment_id,
+        activity_availability_id,
+        headphone:headphones (headphone_id, name, email, phone_number)
+      `)
+      .in('activity_availability_id', availabilityIds)
+
     // Fetch attachments
     const { data: attachmentsData } = await supabase
       .from('service_attachments')
@@ -364,7 +376,8 @@ export default function DailyListPage() {
         activityId: avail.activity_id,
         localTime: avail.local_time,
         guides: [],
-        escorts: []
+        escorts: [],
+        headphones: []
       })
     })
 
@@ -388,6 +401,18 @@ export default function DailyListPage() {
           first_name: escort.first_name,
           last_name: escort.last_name,
           email: escort.email
+        })
+      }
+    })
+
+    headphoneAssignments?.forEach(ha => {
+      const headphone = Array.isArray(ha.headphone) ? ha.headphone[0] : ha.headphone
+      if (headphone && staffMap.has(ha.activity_availability_id)) {
+        staffMap.get(ha.activity_availability_id)!.headphones.push({
+          id: headphone.headphone_id,
+          first_name: headphone.name,
+          last_name: '',
+          email: headphone.email
         })
       }
     })
@@ -720,6 +745,7 @@ export default function DailyListPage() {
     const recipients: string[] = []
     staff?.guides.forEach(g => { if (g.email) recipients.push(`guide:${g.id}`) })
     staff?.escorts.forEach(e => { if (e.email) recipients.push(`escort:${e.id}`) })
+    staff?.headphones.forEach(h => { if (h.email) recipients.push(`headphone:${h.id}`) })
     setSelectedRecipients(recipients)
 
     setIncludeAttachments(true)
@@ -743,7 +769,7 @@ export default function DailyListPage() {
 
     try {
       const staff = staffAssignments.get(emailTimeSlot.availabilityId)
-      const recipients: { email: string; name: string; type: 'guide' | 'escort'; id: string }[] = []
+      const recipients: { email: string; name: string; type: 'guide' | 'escort' | 'headphone'; id: string }[] = []
 
       selectedRecipients.forEach(key => {
         const [type, id] = key.split(':')
@@ -756,6 +782,11 @@ export default function DailyListPage() {
           const escort = staff?.escorts.find(e => e.id === id)
           if (escort?.email) {
             recipients.push({ email: escort.email, name: `${escort.first_name} ${escort.last_name}`, type: 'escort', id: escort.id })
+          }
+        } else if (type === 'headphone') {
+          const headphone = staff?.headphones.find(h => h.id === id)
+          if (headphone?.email) {
+            recipients.push({ email: headphone.email, name: `${headphone.first_name} ${headphone.last_name}`, type: 'headphone', id: headphone.id })
           }
         }
       })
@@ -1075,6 +1106,246 @@ export default function DailyListPage() {
     }
   }
 
+  // Generate consolidated Excel for headphone with all their services
+  // Each service is formatted as a separate styled table (same as escort Excel)
+  const generateConsolidatedHeadphoneExcel = async (
+    headphoneName: string,
+    services: { tour: TourGroup; timeSlot: TimeSlotGroup; guideName: string; escortNames: string[] }[]
+  ): Promise<{ data: string; fileName: string } | null> => {
+    try {
+      if (services.length === 0) return null
+
+      const excelData: any[][] = []
+      const dateStr = format(new Date(selectedDate), 'dd/MM/yyyy')
+
+      // Track row positions for styling
+      interface ServiceRowInfo {
+        titleRow: number
+        headerRow: number
+        dataStartRow: number
+        dataEndRow: number
+        participantsRow: number
+        totalPaxRow: number
+        totalCols: number
+      }
+      const serviceRowInfos: ServiceRowInfo[] = []
+
+      let maxCols = 6 // Minimum columns
+
+      // Main title for the consolidated file
+      excelData.push([`Services for ${headphoneName} - ${dateStr}`])
+      excelData.push([]) // Empty row after main title
+
+      let currentRow = 2 // Start after main title and empty row
+
+      for (let i = 0; i < services.length; i++) {
+        const { tour, timeSlot, guideName, escortNames } = services[i]
+        const firstBooking = timeSlot.bookings[0]
+        if (!firstBooking) continue
+
+        const participantCategories = await getAllParticipantCategoriesForActivity(firstBooking.activity_id)
+        const totalCols = participantCategories.length + 4
+        if (totalCols > maxCols) maxCols = totalCols
+
+        const titleRowIdx = currentRow
+
+        // Service title row (purple background for headphones)
+        const bookingDate = new Date(firstBooking.booking_date).toLocaleDateString('it-IT')
+        const serviceTitle = `${tour.tourTitle} - ${bookingDate} - ${timeSlot.time}`
+        excelData.push([serviceTitle])
+        currentRow++
+
+        // Header row (gray background)
+        const headerRowIdx = currentRow
+        const headers = ['Data', 'Ora', ...participantCategories, 'Nome e Cognome', 'Telefono']
+        excelData.push(headers)
+        currentRow++
+
+        // Data rows
+        const dataStartRowIdx = currentRow
+        const totals: { [key: string]: number } = {}
+        participantCategories.forEach(cat => totals[cat] = 0)
+
+        timeSlot.bookings.forEach(booking => {
+          const fullName = `${booking.customer?.first_name || ''} ${booking.customer?.last_name || ''}`.trim()
+          const participantCounts = getParticipantCounts(booking)
+
+          const row: any[] = [
+            new Date(booking.booking_date).toLocaleDateString('it-IT'),
+            booking.start_time
+          ]
+
+          participantCategories.forEach(category => {
+            const count = participantCounts[category] || 0
+            row.push(count)
+            totals[category] += count
+          })
+
+          row.push(fullName)
+          row.push(booking.customer?.phone_number || '')
+          excelData.push(row)
+          currentRow++
+        })
+        const dataEndRowIdx = currentRow - 1
+
+        // Participants row (gray background)
+        const participantsRowIdx = currentRow
+        const participantsRow: any[] = ['', 'Participants']
+        participantCategories.forEach(category => participantsRow.push(totals[category]))
+        participantsRow.push('', '')
+        excelData.push(participantsRow)
+        currentRow++
+
+        // Total PAX row (purple background) with guide and escort info
+        const totalPaxRowIdx = currentRow
+        const totalParticipants = participantCategories.reduce((sum, cat) => sum + totals[cat], 0)
+        const totalPaxRow: any[] = ['', 'TOTAL PAX', totalParticipants]
+        for (let j = 0; j < participantCategories.length - 1; j++) totalPaxRow.push('')
+        totalPaxRow.push('guide / escorts')
+        totalPaxRow.push(`${guideName}${escortNames.length > 0 ? ' / ' + escortNames.join(', ') : ''}`)
+        excelData.push(totalPaxRow)
+        currentRow++
+
+        // Store row info for styling
+        serviceRowInfos.push({
+          titleRow: titleRowIdx,
+          headerRow: headerRowIdx,
+          dataStartRow: dataStartRowIdx,
+          dataEndRow: dataEndRowIdx,
+          participantsRow: participantsRowIdx,
+          totalPaxRow: totalPaxRowIdx,
+          totalCols
+        })
+
+        // Add spacing between services
+        if (i < services.length - 1) {
+          excelData.push([])
+          excelData.push([])
+          currentRow += 2
+        }
+      }
+
+      const wb = XLSX.utils.book_new()
+      const ws = XLSX.utils.aoa_to_sheet(excelData)
+      if (!ws['!merges']) ws['!merges'] = []
+
+      // Style the main consolidated title (row 0) - purple for headphones
+      for (let col = 0; col < maxCols; col++) {
+        const cellAddress = XLSX.utils.encode_cell({ r: 0, c: col })
+        if (!ws[cellAddress]) ws[cellAddress] = { t: 's', v: '' }
+        ws[cellAddress].s = {
+          font: { bold: true, sz: 16, color: { rgb: "FFFFFF" } },
+          fill: { fgColor: { rgb: "7C3AED" } }, // Purple for headphones
+          alignment: { horizontal: "center", vertical: "center" }
+        }
+      }
+      ws['!merges'].push({
+        s: { r: 0, c: 0 },
+        e: { r: 0, c: maxCols - 1 }
+      })
+
+      // Style each service section
+      for (const info of serviceRowInfos) {
+        const { titleRow, headerRow, dataStartRow, dataEndRow, participantsRow, totalPaxRow, totalCols } = info
+
+        // Service title row - purple background, white text, 18pt (merged)
+        for (let col = 0; col < totalCols; col++) {
+          const cellAddress = XLSX.utils.encode_cell({ r: titleRow, c: col })
+          if (!ws[cellAddress]) ws[cellAddress] = { t: 's', v: '' }
+          ws[cellAddress].s = {
+            font: { bold: true, sz: 18, color: { rgb: "FFFFFF" } },
+            fill: { fgColor: { rgb: "9333EA" } }, // Purple for service titles
+            alignment: { horizontal: "center", vertical: "center" }
+          }
+        }
+        ws['!merges'].push({
+          s: { r: titleRow, c: 0 },
+          e: { r: titleRow, c: totalCols - 1 }
+        })
+
+        // Header row - bold, gray background
+        for (let col = 0; col < totalCols; col++) {
+          const cellAddress = XLSX.utils.encode_cell({ r: headerRow, c: col })
+          const cell = ws[cellAddress]
+          if (cell) {
+            cell.s = {
+              font: { bold: true, sz: 13 },
+              fill: { fgColor: { rgb: "D9D9D9" } },
+              alignment: { horizontal: "center", vertical: "center" }
+            }
+          }
+        }
+
+        // Data rows - font size 13, centered
+        for (let row = dataStartRow; row <= dataEndRow; row++) {
+          for (let col = 0; col < totalCols; col++) {
+            const cellAddress = XLSX.utils.encode_cell({ r: row, c: col })
+            const cell = ws[cellAddress]
+            if (cell) {
+              cell.s = {
+                font: { sz: 13 },
+                alignment: { horizontal: "center", vertical: "center" }
+              }
+            }
+          }
+        }
+
+        // Participants row - bold, gray background
+        for (let col = 0; col < totalCols; col++) {
+          const cellAddress = XLSX.utils.encode_cell({ r: participantsRow, c: col })
+          const cell = ws[cellAddress]
+          if (cell) {
+            cell.s = {
+              font: { bold: true, sz: 13 },
+              fill: { fgColor: { rgb: "D9D9D9" } },
+              alignment: { horizontal: "center", vertical: "center" }
+            }
+          }
+        }
+
+        // Total PAX row - purple background, white text
+        for (let col = 0; col < totalCols; col++) {
+          const cellAddress = XLSX.utils.encode_cell({ r: totalPaxRow, c: col })
+          if (!ws[cellAddress]) ws[cellAddress] = { t: 's', v: '' }
+          ws[cellAddress].s = {
+            font: { bold: true, sz: 13, color: { rgb: "FFFFFF" } },
+            fill: { fgColor: { rgb: "9333EA" } }, // Purple for total row
+            alignment: { horizontal: "center", vertical: "center" }
+          }
+        }
+      }
+
+      // Set column widths
+      const colWidths = [
+        { wch: 12 }, // Data
+        { wch: 10 }, // Ora
+        ...Array(maxCols - 4).fill({ wch: 15 }), // Participant columns
+        { wch: 25 }, // Nome e Cognome
+        { wch: 20 }, // Telefono
+      ]
+      ws['!cols'] = colWidths
+
+      // Set row heights
+      if (!ws['!rows']) ws['!rows'] = []
+      ws['!rows'][0] = { hpt: 25 } // Main title
+      for (const info of serviceRowInfos) {
+        ws['!rows'][info.titleRow] = { hpt: 30 } // Service title row height
+        ws['!rows'][info.headerRow] = { hpt: 20 } // Header row height
+      }
+
+      XLSX.utils.book_append_sheet(wb, ws, 'Services')
+
+      const buffer = XLSX.write(wb, { type: 'base64', bookType: 'xlsx' })
+      const cleanName = headphoneName.replace(/[/\\?%*:|"<>]/g, '-')
+      const fileName = `Services_${cleanName}_${format(new Date(selectedDate), 'yyyy-MM-dd')}.xlsx`
+
+      return { data: buffer, fileName }
+    } catch (error) {
+      console.error('Error generating consolidated headphone Excel:', error)
+      return null
+    }
+  }
+
   // Get all guides with email addresses for the drawer
   const getGuidesWithServices = () => {
     const guideServices = new Map<string, {
@@ -1181,6 +1452,63 @@ export default function DailyListPage() {
     return escortServices
   }
 
+  // Get all headphones with email addresses for the drawer
+  const getHeadphonesWithServices = () => {
+    const headphoneServices = new Map<string, {
+      headphone: Person;
+      services: { tour: TourGroup; timeSlot: TimeSlotGroup; availabilityId: number; guideName: string; escortNames: string[] }[]
+    }>()
+
+    for (const tour of groupedTours) {
+      for (const timeSlot of tour.timeSlots) {
+        const firstBooking = timeSlot.bookings[0]
+        if (!firstBooking) continue
+
+        const normalizeTime = (t: string) => t.substring(0, 5)
+        const slotTimeNorm = normalizeTime(timeSlot.time)
+
+        let availabilityId: number | null = null
+        let assignedGuides: Person[] = []
+        let assignedEscorts: Person[] = []
+        let assignedHeadphones: Person[] = []
+
+        for (const [id, staff] of staffAssignments.entries()) {
+          const staffTimeNorm = normalizeTime(staff.localTime)
+          if (staff.activityId === firstBooking.activity_id && staffTimeNorm === slotTimeNorm) {
+            availabilityId = id
+            assignedGuides = staff.guides
+            assignedEscorts = staff.escorts
+            assignedHeadphones = staff.headphones
+            break
+          }
+        }
+
+        if (!availabilityId) continue
+
+        const guideName = assignedGuides.map(g => `${g.first_name} ${g.last_name}`).join(', ')
+        const escortNames = assignedEscorts.map(e => `${e.first_name} ${e.last_name}`)
+
+        for (const headphone of assignedHeadphones) {
+          if (!headphone.email) continue
+
+          const key = headphone.id
+          if (!headphoneServices.has(key)) {
+            headphoneServices.set(key, { headphone, services: [] })
+          }
+          headphoneServices.get(key)!.services.push({
+            tour,
+            timeSlot,
+            availabilityId,
+            guideName,
+            escortNames
+          })
+        }
+      }
+    }
+
+    return headphoneServices
+  }
+
   // Open the bulk email drawer for guides
   const openBulkEmailDrawerForGuides = () => {
     const guideServices = getGuidesWithServices()
@@ -1204,6 +1532,19 @@ export default function DailyListPage() {
     // Select all escorts by default
     setBulkSelectedRecipients(new Set(escortServices.keys()))
     setBulkEmailType('escorts')
+    setShowBulkEmailDrawer(true)
+  }
+
+  // Open the bulk email drawer for headphones
+  const openBulkEmailDrawerForHeadphones = () => {
+    const headphoneServices = getHeadphonesWithServices()
+    if (headphoneServices.size === 0) {
+      alert('No headphones with email addresses assigned to any services')
+      return
+    }
+    // Select all headphones by default
+    setBulkSelectedRecipients(new Set(headphoneServices.keys()))
+    setBulkEmailType('headphones')
     setShowBulkEmailDrawer(true)
   }
 
@@ -1445,6 +1786,129 @@ EnRoma.com Team`
       alert(`Sent ${sentCount} emails. ${errors.length} failed:\n${errors.join('\n')}`)
     } else {
       alert(`Successfully sent consolidated emails to ${sentCount} escort(s)`)
+    }
+  }
+
+  // Send bulk emails to selected headphones
+  const handleSendToSelectedHeadphones = async () => {
+    if (bulkSelectedRecipients.size === 0) {
+      alert('Please select at least one headphone')
+      return
+    }
+
+    setShowBulkEmailDrawer(false)
+    setSendingBulkHeadphones(true)
+    setBulkEmailProgress({ sent: 0, total: bulkSelectedRecipients.size })
+
+    const headphoneServices = getHeadphonesWithServices()
+    let sentCount = 0
+    const errors: string[] = []
+
+    for (const [headphoneId, { headphone, services }] of headphoneServices.entries()) {
+      if (!bulkSelectedRecipients.has(headphoneId)) continue
+
+      try {
+        const headphoneName = `${headphone.first_name} ${headphone.last_name}`
+        const sortedServices = [...services].sort((a, b) =>
+          a.timeSlot.time.localeCompare(b.timeSlot.time)
+        )
+
+        const consolidatedExcel = await generateConsolidatedHeadphoneExcel(
+          headphoneName,
+          sortedServices.map(s => ({ tour: s.tour, timeSlot: s.timeSlot, guideName: s.guideName, escortNames: s.escortNames }))
+        )
+
+        const servicesText = sortedServices.map((service, index) => {
+          const escortsText = service.escortNames.length > 0 ? `, Escorts: ${service.escortNames.join(', ')}` : ''
+          return `**Service ${index + 1}:**
+- Activity: ${service.tour.tourTitle}
+- Time: ${service.timeSlot.time.substring(0, 5)}
+- Participants: ${service.timeSlot.totalParticipants} pax
+- Guide: ${service.guideName || 'TBD'}${escortsText}`
+        }).join('\n\n')
+
+        // Build consolidated meeting points section (unique meeting points only, shown once)
+        let meetingPointsSection = ''
+        if (includeMeetingPoint) {
+          const uniqueMeetingPoints = new Map<string, MeetingPoint>()
+          for (const service of sortedServices) {
+            // Get activity_id from the first booking in timeSlot
+            const activityId = service.timeSlot.bookings[0]?.activity_id
+            const meetingPoint = activityId ? activityMeetingPoints.get(activityId) : null
+            if (meetingPoint && !uniqueMeetingPoints.has(meetingPoint.id)) {
+              uniqueMeetingPoints.set(meetingPoint.id, meetingPoint)
+            }
+          }
+
+          if (uniqueMeetingPoints.size > 0) {
+            const meetingPointsText = Array.from(uniqueMeetingPoints.values()).map(mp => {
+              let mpText = `• **${mp.name}**`
+              if (mp.address) mpText += `\n  ${mp.address}`
+              if (mp.google_maps_url) mpText += `\n  Map: ${mp.google_maps_url}`
+              if (mp.instructions) mpText += `\n  ${mp.instructions}`
+              return mpText
+            }).join('\n\n')
+
+            meetingPointsSection = `\n\n**Meeting Points:**\n${meetingPointsText}`
+          }
+        }
+
+        const emailBodyText = `Hello ${headphone.first_name},
+
+You have been assigned headphones for the following services on ${format(new Date(selectedDate), 'EEEE, MMMM d, yyyy')}:
+
+${servicesText}${meetingPointsSection}
+
+Please find attached the consolidated list with all bookings for your services.
+
+Best regards,
+EnRoma.com Team`
+
+        const allAttachmentUrls: string[] = []
+        for (const service of services) {
+          const slotAttachments = attachments.filter(a => a.activity_availability_id === service.availabilityId)
+          allAttachmentUrls.push(...slotAttachments.map(a => a.file_path))
+        }
+
+        const response = await fetch('/api/email/send', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            recipients: [{
+              email: headphone.email,
+              name: headphoneName,
+              type: 'headphone',
+              id: headphone.id
+            }],
+            subject: `Headphone Assignments: ${format(new Date(selectedDate), 'MMM d, yyyy')} - ${services.length} service(s)`,
+            body: emailBodyText,
+            attachmentUrls: allAttachmentUrls,
+            dailyListData: consolidatedExcel?.data,
+            dailyListFileName: consolidatedExcel?.fileName
+          })
+        })
+
+        if (!response.ok) {
+          const result = await response.json()
+          throw new Error(result.error || 'Failed to send email')
+        }
+
+        sentCount++
+        setBulkEmailProgress({ sent: sentCount, total: bulkSelectedRecipients.size })
+      } catch (err) {
+        console.error('Error sending to headphone:', headphone.email, err)
+        errors.push(`${headphone.first_name} ${headphone.last_name}: ${err instanceof Error ? err.message : 'Unknown error'}`)
+      }
+    }
+
+    setSendingBulkHeadphones(false)
+    setBulkEmailProgress(null)
+    await fetchEmailLogs(selectedDate)
+
+    if (errors.length > 0) {
+      alert(`Sent ${sentCount} emails. ${errors.length} failed:\n${errors.join('\n')}`)
+    } else {
+      alert(`Successfully sent consolidated emails to ${sentCount} headphone(s)`)
     }
   }
 
@@ -2689,6 +3153,7 @@ EnRoma.com Team`
                     const slotAttachments = slotStaff ? attachments.filter(a => a.activity_availability_id === slotStaff.availId) : []
                     const slotGuides = slotStaff?.staff.guides || []
                     const slotEscorts = slotStaff?.staff.escorts || []
+                    const slotHeadphones = slotStaff?.staff.headphones || []
                     const slotAvailabilityId = slotStaff?.availId
 
                     // Get vouchers for this time slot
@@ -2780,9 +3245,21 @@ EnRoma.com Team`
                               ))}
                             </div>
                           )}
+                          {/* Headphones */}
+                          {slotHeadphones.length > 0 && (
+                            <div className="flex items-center gap-2">
+                              <Headphones className="w-4 h-4 text-purple-600" />
+                              <span className="text-purple-700 font-medium">Headphones:</span>
+                              {slotHeadphones.map((h) => (
+                                <span key={h.id} className="bg-purple-100 text-purple-800 px-2 py-0.5 rounded">
+                                  {h.first_name} {h.last_name}
+                                </span>
+                              ))}
+                            </div>
+                          )}
                           {/* No staff assigned */}
-                          {slotGuides.length === 0 && slotEscorts.length === 0 && (
-                            <span className="text-gray-500 italic">No guides or escorts assigned</span>
+                          {slotGuides.length === 0 && slotEscorts.length === 0 && slotHeadphones.length === 0 && (
+                            <span className="text-gray-500 italic">No guides, escorts, or headphones assigned</span>
                           )}
                           {/* Attachments */}
                           {slotAttachments.length > 0 && (
@@ -2882,7 +3359,7 @@ EnRoma.com Team`
           <div className="flex flex-wrap gap-4">
             <Button
               onClick={openBulkEmailDrawerForGuides}
-              disabled={sendingBulkGuides || sendingBulkEscorts}
+              disabled={sendingBulkGuides || sendingBulkEscorts || sendingBulkHeadphones}
               className="bg-brand-green hover:bg-brand-green-dark"
             >
               {sendingBulkGuides ? (
@@ -2899,7 +3376,7 @@ EnRoma.com Team`
             </Button>
             <Button
               onClick={openBulkEmailDrawerForEscorts}
-              disabled={sendingBulkGuides || sendingBulkEscorts}
+              disabled={sendingBulkGuides || sendingBulkEscorts || sendingBulkHeadphones}
               className="bg-brand-orange hover:bg-brand-orange-dark"
             >
               {sendingBulkEscorts ? (
@@ -2914,10 +3391,28 @@ EnRoma.com Team`
                 </>
               )}
             </Button>
+            <Button
+              onClick={openBulkEmailDrawerForHeadphones}
+              disabled={sendingBulkGuides || sendingBulkEscorts || sendingBulkHeadphones}
+              className="bg-purple-600 hover:bg-purple-700"
+            >
+              {sendingBulkHeadphones ? (
+                <>
+                  <Loader2 className="w-4 h-4 mr-2 animate-spin" />
+                  Sending to Headphones... {bulkEmailProgress && `(${bulkEmailProgress.sent}/${bulkEmailProgress.total})`}
+                </>
+              ) : (
+                <>
+                  <Headphones className="w-4 h-4 mr-2" />
+                  Send to Headphones (Consolidated)
+                </>
+              )}
+            </Button>
           </div>
           <p className="text-sm text-gray-500 mt-3">
             <strong>Guides:</strong> Each guide receives one email per service with escort info included.<br/>
-            <strong>Escorts:</strong> Each escort receives one consolidated email with all their services for the day.
+            <strong>Escorts:</strong> Each escort receives one consolidated email with all their services for the day.<br/>
+            <strong>Headphones:</strong> Each headphone operator receives one consolidated email with all their services for the day.
           </p>
         </div>
       )}
@@ -3235,14 +3730,26 @@ EnRoma.com Team`
       <Sheet open={showBulkEmailDrawer} onOpenChange={setShowBulkEmailDrawer}>
         <SheetContent className="w-[450px] sm:w-[500px] flex flex-col p-0">
           {/* Header */}
-          <div className={`px-6 py-5 border-b ${bulkEmailType === 'guides' ? 'bg-brand-green-light' : 'bg-brand-orange-light'}`}>
+          <div className={`px-6 py-5 border-b ${
+            bulkEmailType === 'guides' ? 'bg-brand-green-light' :
+            bulkEmailType === 'escorts' ? 'bg-brand-orange-light' :
+            'bg-purple-100'
+          }`}>
             <div className="flex items-center gap-3">
-              <div className={`p-2 rounded-lg ${bulkEmailType === 'guides' ? 'bg-green-100' : 'bg-orange-100'}`}>
-                <Mail className={`w-5 h-5 ${bulkEmailType === 'guides' ? 'text-green-600' : 'text-orange-600'}`} />
+              <div className={`p-2 rounded-lg ${
+                bulkEmailType === 'guides' ? 'bg-green-100' :
+                bulkEmailType === 'escorts' ? 'bg-orange-100' :
+                'bg-purple-200'
+              }`}>
+                <Mail className={`w-5 h-5 ${
+                  bulkEmailType === 'guides' ? 'text-green-600' :
+                  bulkEmailType === 'escorts' ? 'text-orange-600' :
+                  'text-purple-600'
+                }`} />
               </div>
               <div>
                 <SheetTitle className="text-lg font-semibold">
-                  Send to {bulkEmailType === 'guides' ? 'Guides' : 'Escorts'}
+                  Send to {bulkEmailType === 'guides' ? 'Guides' : bulkEmailType === 'escorts' ? 'Escorts' : 'Headphones'}
                 </SheetTitle>
                 <p className="text-sm text-gray-500 mt-0.5">
                   {format(new Date(selectedDate), 'EEEE, MMM d, yyyy')}
@@ -3259,7 +3766,9 @@ EnRoma.com Team`
                 onClick={() => {
                   const allIds = bulkEmailType === 'guides'
                     ? Array.from(getGuidesWithServices().keys())
-                    : Array.from(getEscortsWithServices().keys())
+                    : bulkEmailType === 'escorts'
+                    ? Array.from(getEscortsWithServices().keys())
+                    : Array.from(getHeadphonesWithServices().keys())
                   if (bulkSelectedRecipients.size === allIds.length) {
                     setBulkSelectedRecipients(new Set())
                   } else {
@@ -3268,7 +3777,11 @@ EnRoma.com Team`
                 }}
                 className="text-xs text-blue-600 hover:text-blue-700 font-medium"
               >
-                {bulkSelectedRecipients.size === (bulkEmailType === 'guides' ? getGuidesWithServices().size : getEscortsWithServices().size)
+                {bulkSelectedRecipients.size === (
+                  bulkEmailType === 'guides' ? getGuidesWithServices().size :
+                  bulkEmailType === 'escorts' ? getEscortsWithServices().size :
+                  getHeadphonesWithServices().size
+                )
                   ? 'Deselect all'
                   : 'Select all'}
               </button>
@@ -3310,7 +3823,7 @@ EnRoma.com Team`
                       </div>
                     </label>
                   ))
-                ) : (
+                ) : bulkEmailType === 'escorts' ? (
                   Array.from(getEscortsWithServices().entries()).map(([escortId, { escort, services }]) => (
                     <label
                       key={escortId}
@@ -3344,6 +3857,40 @@ EnRoma.com Team`
                       </div>
                     </label>
                   ))
+                ) : (
+                  Array.from(getHeadphonesWithServices().entries()).map(([headphoneId, { headphone, services }]) => (
+                    <label
+                      key={headphoneId}
+                      htmlFor={`headphone-${headphoneId}`}
+                      className={`flex items-center gap-3 p-3 rounded-lg border cursor-pointer transition-all ${
+                        bulkSelectedRecipients.has(headphoneId)
+                          ? 'border-purple-300 bg-purple-100'
+                          : 'border-gray-200 hover:border-gray-300 hover:bg-gray-50'
+                      }`}
+                    >
+                      <Checkbox
+                        id={`headphone-${headphoneId}`}
+                        checked={bulkSelectedRecipients.has(headphoneId)}
+                        onCheckedChange={() => toggleRecipientSelection(headphoneId)}
+                        className="checkbox-purple"
+                      />
+                      <div className="flex-1 min-w-0">
+                        <div className="flex items-center gap-2">
+                          <span className="font-medium text-sm text-gray-900">
+                            {headphone.first_name} {headphone.last_name}
+                          </span>
+                          <span className={`px-1.5 py-0.5 text-xs rounded-full ${
+                            bulkSelectedRecipients.has(headphoneId)
+                              ? 'bg-purple-100 text-purple-700'
+                              : 'bg-gray-100 text-gray-600'
+                          }`}>
+                            {services.length} {services.length === 1 ? 'service' : 'services'}
+                          </span>
+                        </div>
+                        <p className="text-xs text-gray-500 truncate mt-0.5">{headphone.email}</p>
+                      </div>
+                    </label>
+                  ))
                 )}
               </div>
             </div>
@@ -3359,7 +3906,11 @@ EnRoma.com Team`
                 id="include-meeting-point"
                 checked={includeMeetingPoint}
                 onCheckedChange={(checked) => setIncludeMeetingPoint(checked === true)}
-                className={`mt-0.5 ${bulkEmailType === 'guides' ? 'checkbox-green' : 'checkbox-orange'}`}
+                className={`mt-0.5 ${
+                  bulkEmailType === 'guides' ? 'checkbox-green' :
+                  bulkEmailType === 'escorts' ? 'checkbox-orange' :
+                  'checkbox-purple'
+                }`}
               />
               <div>
                 <div className="flex items-center gap-2">
@@ -3386,12 +3937,18 @@ EnRoma.com Team`
                 Cancel
               </Button>
               <Button
-                onClick={bulkEmailType === 'guides' ? handleSendToSelectedGuides : handleSendToSelectedEscorts}
+                onClick={
+                  bulkEmailType === 'guides' ? handleSendToSelectedGuides :
+                  bulkEmailType === 'escorts' ? handleSendToSelectedEscorts :
+                  handleSendToSelectedHeadphones
+                }
                 disabled={bulkSelectedRecipients.size === 0}
                 className={`${
                   bulkEmailType === 'guides'
                     ? 'bg-brand-green hover:bg-brand-green-dark'
-                    : 'bg-brand-orange hover:bg-brand-orange-dark'
+                    : bulkEmailType === 'escorts'
+                    ? 'bg-brand-orange hover:bg-brand-orange-dark'
+                    : 'bg-purple-600 hover:bg-purple-700'
                 } text-white px-6`}
               >
                 <Send className="w-4 h-4 mr-2" />

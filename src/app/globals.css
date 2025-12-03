@@ -176,6 +176,11 @@
     border-color: var(--brand-orange) !important;
     color: white !important;
   }
+  .checkbox-purple[data-state="checked"] {
+    background-color: #9333EA !important;
+    border-color: #9333EA !important;
+    color: white !important;
+  }
 
   /* Gradient backgrounds */
   .bg-brand-gradient {
