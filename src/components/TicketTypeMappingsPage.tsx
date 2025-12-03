@@ -2,6 +2,7 @@
 
 import { useState, useEffect } from 'react'
 import { supabase } from '@/lib/supabase'
+import { mappingsApi } from '@/lib/api-client'
 import { Plus, Edit, Trash2, Search, X, ChevronDown, ArrowRight } from 'lucide-react'
 import { Button } from '@/components/ui/button'
 import { Label } from '@/components/ui/label'
@@ -144,28 +145,26 @@ export default function TicketTypeMappingsPage() {
 
     try {
       if (editingMapping) {
-        const { error } = await supabase
-          .from('ticket_type_mappings')
-          .update({
-            category_id: formData.category_id,
-            activity_id: formData.activity_id,
-            ticket_type: formData.ticket_type,
-            booked_titles: formData.booked_titles
-          })
-          .eq('id', editingMapping.id)
+        // Update via API
+        const result = await mappingsApi.ticketType.update({
+          id: editingMapping.id,
+          category_id: formData.category_id,
+          activity_id: formData.activity_id,
+          ticket_type: formData.ticket_type,
+          booked_titles: formData.booked_titles
+        })
 
-        if (error) throw error
+        if (result.error) throw new Error(result.error)
       } else {
-        const { error } = await supabase
-          .from('ticket_type_mappings')
-          .insert([{
-            category_id: formData.category_id,
-            activity_id: formData.activity_id,
-            ticket_type: formData.ticket_type,
-            booked_titles: formData.booked_titles
-          }])
+        // Create via API
+        const result = await mappingsApi.ticketType.create({
+          category_id: formData.category_id,
+          activity_id: formData.activity_id,
+          ticket_type: formData.ticket_type,
+          booked_titles: formData.booked_titles
+        })
 
-        if (error) throw error
+        if (result.error) throw new Error(result.error)
       }
 
       handleCloseModal()
@@ -182,12 +181,9 @@ export default function TicketTypeMappingsPage() {
     if (!confirm('Are you sure you want to delete this mapping?')) return
 
     try {
-      const { error } = await supabase
-        .from('ticket_type_mappings')
-        .delete()
-        .eq('id', mappingId)
-
-      if (error) throw error
+      // Delete via API
+      const result = await mappingsApi.ticketType.delete(mappingId)
+      if (result.error) throw new Error(result.error)
       fetchData()
     } catch (err) {
       console.error('Error deleting mapping:', err)

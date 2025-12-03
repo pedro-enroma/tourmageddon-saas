@@ -1,6 +1,10 @@
 import { NextRequest, NextResponse } from 'next/server'
 import OpenAI from 'openai'
 import { extractText } from 'unpdf'
+import { verifySession } from '@/lib/supabase-server'
+
+// Maximum file size: 10MB for PDFs
+const MAX_FILE_SIZE = 10 * 1024 * 1024
 
 const getOpenAI = () => {
   const apiKey = process.env.OPENAI_API_KEY
@@ -28,12 +32,23 @@ interface ExtractedVoucher {
 }
 
 export async function POST(request: NextRequest) {
+  // Verify authentication
+  const { user, error: authError } = await verifySession()
+  if (authError || !user) {
+    return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
+  }
+
   try {
     const formData = await request.formData()
     const file = formData.get('file') as File | null
 
     if (!file) {
       return NextResponse.json({ error: 'No file provided' }, { status: 400 })
+    }
+
+    // Check file size
+    if (file.size > MAX_FILE_SIZE) {
+      return NextResponse.json({ error: 'File too large. Maximum size is 10MB.' }, { status: 413 })
     }
 
     if (file.type !== 'application/pdf') {

@@ -2,6 +2,7 @@
 
 import { useState, useEffect, useCallback } from 'react'
 import { supabase } from '@/lib/supabase'
+import { vouchersApi } from '@/lib/api-client'
 import { Upload, FileText, Check, AlertTriangle, X, ChevronDown, Search, Loader2 } from 'lucide-react'
 import { Button } from '@/components/ui/button'
 import { Label } from '@/components/ui/label'
@@ -459,47 +460,24 @@ export default function VoucherUploadPage() {
     setError(null)
 
     try {
-      // 1. Upload PDF to Supabase storage
-      const fileName = `${extractedData.booking_number}_${Date.now()}.pdf`
-      const { error: uploadError } = await supabase.storage
-        .from('ticket-vouchers')
-        .upload(fileName, file)
-
-      if (uploadError) throw uploadError
-
-      // 2. Create voucher record
-      const { data: voucher, error: voucherError } = await supabase
-        .from('vouchers')
-        .insert({
-          booking_number: extractedData.booking_number,
-          booking_date: extractedData.booking_date,
-          category_id: selectedCategoryId,
-          visit_date: extractedData.visit_date,
-          entry_time: extractedData.entry_time,
-          product_name: extractedData.product_name,
-          pdf_path: fileName,
-          activity_availability_id: selectedAvailabilityId,
-          total_tickets: extractedData.tickets.length
-        })
-        .select()
-        .single()
-
-      if (voucherError) throw voucherError
-
-      // 3. Create ticket records
-      const ticketRecords = extractedData.tickets.map(ticket => ({
-        voucher_id: voucher.id,
-        ticket_code: ticket.ticket_code,
-        holder_name: ticket.holder_name,
-        ticket_type: ticket.ticket_type,
-        price: ticket.price
+      // Create FormData with file and voucher data
+      const formData = new FormData()
+      formData.append('file', file)
+      formData.append('voucherData', JSON.stringify({
+        booking_number: extractedData.booking_number,
+        booking_date: extractedData.booking_date,
+        category_id: selectedCategoryId,
+        visit_date: extractedData.visit_date,
+        entry_time: extractedData.entry_time,
+        product_name: extractedData.product_name,
+        activity_availability_id: selectedAvailabilityId,
+        tickets: extractedData.tickets
       }))
 
-      const { error: ticketsError } = await supabase
-        .from('tickets')
-        .insert(ticketRecords)
+      // Call API to upload PDF, create voucher and tickets
+      const result = await vouchersApi.create(formData)
 
-      if (ticketsError) throw ticketsError
+      if (result.error) throw new Error(result.error)
 
       setSuccess(true)
       // Reset form

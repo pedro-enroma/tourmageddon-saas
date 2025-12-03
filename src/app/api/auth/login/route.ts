@@ -1,6 +1,8 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { createServerClient } from '@supabase/ssr'
 import { cookies } from 'next/headers'
+import { getServiceRoleClient } from '@/lib/supabase-server'
+import { logAudit, getRequestContext } from '@/lib/audit-logger'
 
 // Simple in-memory rate limiting (use Redis in production)
 const loginAttempts = new Map<string, { count: number; lastAttempt: number }>()
@@ -127,6 +129,17 @@ export async function POST(request: NextRequest) {
     })
 
     if (error) {
+      // Log failed login attempt
+      const { ip: clientIp, userAgent } = getRequestContext(request)
+      await logAudit({
+        userEmail: email,
+        action: 'LOGIN_FAILED',
+        entityType: 'session',
+        changes: { new: { reason: 'Invalid credentials' } },
+        ipAddress: clientIp,
+        userAgent
+      })
+
       // Don't reveal if email exists or not
       return NextResponse.json(
         { error: 'Invalid email or password' },
@@ -137,7 +150,59 @@ export async function POST(request: NextRequest) {
     // Successful login - reset rate limit
     resetRateLimit(ip, email)
 
-    // Log successful login (security logging)
+    // Check if user has MFA enabled
+    const { data: factors } = await supabase.auth.mfa.listFactors()
+
+    if (factors && factors.totp && factors.totp.length > 0) {
+      // User has MFA enabled - create challenge
+      const { data: challenge, error: challengeError } = await supabase.auth.mfa.challenge({
+        factorId: factors.totp[0].id
+      })
+
+      if (challengeError) {
+        console.error('[SECURITY] MFA challenge error:', challengeError)
+        return NextResponse.json(
+          { error: 'Failed to create MFA challenge' },
+          { status: 500 }
+        )
+      }
+
+      // Return that MFA is required
+      return NextResponse.json(
+        {
+          requiresMfa: true,
+          factorId: factors.totp[0].id,
+          challengeId: challenge.id,
+          user: {
+            id: data.user?.id,
+            email: data.user?.email,
+          }
+        },
+        { status: 200 }
+      )
+    }
+
+    // No MFA - log successful login and update last_login_at
+    const { ip: clientIp, userAgent } = getRequestContext(request)
+    await logAudit({
+      userId: data.user?.id,
+      userEmail: data.user?.email,
+      action: 'LOGIN',
+      entityType: 'session',
+      changes: { new: { method: 'password' } },
+      ipAddress: clientIp,
+      userAgent
+    })
+
+    // Update last_login_at in app_users
+    if (data.user) {
+      const serviceSupabase = getServiceRoleClient()
+      await serviceSupabase
+        .from('app_users')
+        .update({ last_login_at: new Date().toISOString() })
+        .eq('id', data.user.id)
+    }
+
     console.log(`[SECURITY] Successful login for user: ${data.user?.id} from IP: ${ip}`)
 
     return NextResponse.json(

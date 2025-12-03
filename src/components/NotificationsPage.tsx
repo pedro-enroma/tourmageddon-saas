@@ -3,6 +3,7 @@
 import React, { useState, useEffect, useCallback } from 'react'
 import { Bell, AlertTriangle, CheckCircle, Info, RefreshCw, Check, X, ChevronDown, ChevronUp, Calendar, User, Clock, Mail, Plus } from 'lucide-react'
 import { supabase } from '@/lib/supabase'
+import { notificationsApi } from '@/lib/api-client'
 import { Button } from "@/components/ui/button"
 import { format } from 'date-fns'
 
@@ -133,10 +134,9 @@ export default function NotificationsPage() {
 
   const markAsRead = async (id: string) => {
     try {
-      await supabase
-        .from('booking_notifications')
-        .update({ is_read: true })
-        .eq('id', id)
+      // Update via API
+      const result = await notificationsApi.update({ id, is_read: true })
+      if (result.error) throw new Error(result.error)
       fetchNotifications()
     } catch (error) {
       console.error('Error marking as read:', error)
@@ -145,14 +145,12 @@ export default function NotificationsPage() {
 
   const markAsResolved = async (id: string) => {
     try {
-      await supabase
-        .from('booking_notifications')
-        .update({
-          is_resolved: true,
-          resolved_at: new Date().toISOString(),
-          resolved_by: 'admin'
-        })
-        .eq('id', id)
+      // Update via API
+      const result = await notificationsApi.update({
+        id,
+        is_resolved: true
+      })
+      if (result.error) throw new Error(result.error)
       fetchNotifications()
     } catch (error) {
       console.error('Error marking as resolved:', error)
@@ -196,20 +194,16 @@ export default function NotificationsPage() {
 
     setCreating(true)
     try {
-      const { error } = await supabase
-        .from('booking_notifications')
-        .insert({
-          activity_booking_id: createForm.activity_booking_id ? parseInt(createForm.activity_booking_id) : null,
-          notification_type: createForm.notification_type,
-          severity: createForm.severity,
-          title: createForm.title,
-          message: createForm.message,
-          details: {},
-          is_read: false,
-          is_resolved: false
-        })
+      // Create via API
+      const result = await notificationsApi.create({
+        activity_booking_id: createForm.activity_booking_id ? createForm.activity_booking_id : undefined,
+        notification_type: createForm.notification_type,
+        message: `${createForm.title}: ${createForm.message}`,
+        is_read: false,
+        is_resolved: false
+      })
 
-      if (error) throw error
+      if (result.error) throw new Error(result.error)
 
       alert('Notification created successfully!')
       setCreateForm({

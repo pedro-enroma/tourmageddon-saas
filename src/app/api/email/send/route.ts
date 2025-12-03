@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { Resend } from 'resend'
+import { verifySession } from '@/lib/supabase-server'
 import { createClient } from '@supabase/supabase-js'
 
 // Initialize Resend on each request to ensure env vars are read
@@ -138,6 +139,12 @@ function textToHtml(text: string, hasAttachments: boolean): string {
 }
 
 export async function POST(request: NextRequest) {
+  // Verify authentication
+  const { user, error: authError } = await verifySession()
+  if (authError || !user) {
+    return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
+  }
+
   try {
     const body: EmailRequest = await request.json()
     const { recipients, subject, body: emailBody, activityAvailabilityId, attachmentUrls, dailyListData, dailyListFileName } = body
@@ -211,7 +218,7 @@ export async function POST(request: NextRequest) {
         const { data, error } = await resend.emails.send({
           from: process.env.RESEND_FROM_EMAIL || 'EnRoma.com <noreply@enroma.com>',
           to: recipient.email,
-          bcc: 'visitasguiadas@enroma.com',
+          bcc: process.env.EMAIL_BCC_ADDRESS,
           subject: personalizedSubject,
           html: htmlContent,
           attachments: hasAttachments ? attachments : undefined

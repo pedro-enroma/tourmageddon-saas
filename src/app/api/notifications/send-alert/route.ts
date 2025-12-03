@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { Resend } from 'resend'
 import { createClient } from '@supabase/supabase-js'
+import { verifySession } from '@/lib/supabase-server'
 
 const getResend = () => {
   const apiKey = process.env.RESEND_API_KEY
@@ -175,6 +176,12 @@ function generateAlertHtml(notification: Notification): string {
 }
 
 export async function POST(request: NextRequest) {
+  // Verify authentication
+  const { user, error: authError } = await verifySession()
+  if (authError || !user) {
+    return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
+  }
+
   try {
     const body = await request.json()
     const { notificationId, recipientEmail } = body
@@ -203,8 +210,11 @@ export async function POST(request: NextRequest) {
       return NextResponse.json({ error: 'Notification not found' }, { status: 404 })
     }
 
-    // Use provided email or default to admin email
-    const toEmail = recipientEmail || process.env.ADMIN_ALERT_EMAIL || 'pedro@enroma.com'
+    // Use provided email or default to admin email from env
+    const toEmail = recipientEmail || process.env.ADMIN_ALERT_EMAIL
+    if (!toEmail) {
+      return NextResponse.json({ error: 'No recipient email configured. Set ADMIN_ALERT_EMAIL environment variable.' }, { status: 500 })
+    }
 
     // Generate email HTML
     const html = generateAlertHtml(notification as Notification)

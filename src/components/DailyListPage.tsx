@@ -2,6 +2,7 @@
 'use client'
 import { useState, useEffect, useRef } from 'react'
 import { supabase } from '@/lib/supabase'
+import { attachmentsApi } from '@/lib/api-client'
 import { Download, ChevronDown, Search, X, GripVertical, ChevronRight, User, UserCheck, Paperclip, Upload, Mail, Send, Loader2, MapPin, Ticket, FileText } from 'lucide-react'
 import { format } from 'date-fns'
 import * as XLSX from 'xlsx-js-style'
@@ -464,26 +465,16 @@ export default function DailyListPage() {
       for (const file of Array.from(files)) {
         if (file.type !== 'application/pdf') continue
 
-        const fileName = `${availabilityId}/${Date.now()}_${file.name}`
-        const { error: uploadError } = await supabase.storage
-          .from('service-attachments')
-          .upload(fileName, file)
+        // Use API to upload file
+        const formData = new FormData()
+        formData.append('file', file)
+        formData.append('activity_availability_id', String(availabilityId))
 
-        if (uploadError) {
-          console.error('Upload error:', uploadError)
+        const result = await attachmentsApi.upload(formData)
+        if (result.error) {
+          console.error('Upload error:', result.error)
           continue
         }
-
-        const { data: urlData } = supabase.storage
-          .from('service-attachments')
-          .getPublicUrl(fileName)
-
-        await supabase.from('service_attachments').insert({
-          activity_availability_id: availabilityId,
-          file_name: file.name,
-          file_path: urlData.publicUrl,
-          file_size: file.size
-        })
       }
 
       // Refresh attachments
@@ -500,14 +491,10 @@ export default function DailyListPage() {
   const handleDeleteAttachment = async (attachment: Attachment) => {
     if (!confirm(`Delete ${attachment.file_name}?`)) return
 
-    const urlParts = attachment.file_path.split('/service-attachments/')
-    const storagePath = urlParts[1]
-
-    if (storagePath) {
-      await supabase.storage.from('service-attachments').remove([storagePath])
+    const result = await attachmentsApi.delete(attachment.id, attachment.file_path)
+    if (result.error) {
+      console.error('Delete error:', result.error)
     }
-
-    await supabase.from('service_attachments').delete().eq('id', attachment.id)
     await fetchStaffAndAttachments(selectedDate, selectedActivities)
   }
 

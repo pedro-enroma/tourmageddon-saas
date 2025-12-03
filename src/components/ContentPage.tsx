@@ -2,6 +2,7 @@
 
 import { useState, useEffect, useRef } from 'react'
 import { supabase } from '@/lib/supabase'
+import { contentApi } from '@/lib/api-client'
 import {
   FileText, MapPin, Plus, Pencil, Trash2, X, Save,
   ChevronRight, ExternalLink, Search
@@ -190,44 +191,31 @@ export default function ContentPage() {
 
     try {
       if (editingTemplate) {
-        const { error } = await supabase
-          .from('email_templates')
-          .update({
-            name: templateName,
-            subject: templateSubject,
-            body: templateBody,
-            is_default: templateIsDefault,
-            updated_at: new Date().toISOString()
-          })
-          .eq('id', editingTemplate.id)
+        const result = await contentApi.templates.update({
+          id: editingTemplate.id,
+          name: templateName,
+          subject: templateSubject,
+          body: templateBody,
+          is_default: templateIsDefault
+        })
 
-        if (error) throw error
+        if (result.error) throw new Error(result.error)
       } else {
-        const { error } = await supabase
-          .from('email_templates')
-          .insert({
-            name: templateName,
-            subject: templateSubject,
-            body: templateBody,
-            is_default: templateIsDefault
-          })
+        const result = await contentApi.templates.create({
+          name: templateName,
+          subject: templateSubject,
+          body: templateBody,
+          is_default: templateIsDefault
+        })
 
-        if (error) throw error
-      }
-
-      // If this is set as default, unset other defaults
-      if (templateIsDefault) {
-        await supabase
-          .from('email_templates')
-          .update({ is_default: false })
-          .neq('id', editingTemplate?.id || '')
+        if (result.error) throw new Error(result.error)
       }
 
       setShowTemplateModal(false)
       await fetchTemplates()
     } catch (err) {
       console.error('Error saving template:', err)
-      setError('Failed to save template')
+      setError(err instanceof Error ? err.message : 'Failed to save template')
     }
   }
 
@@ -235,16 +223,12 @@ export default function ContentPage() {
     if (!confirm('Delete this template?')) return
 
     try {
-      const { error } = await supabase
-        .from('email_templates')
-        .delete()
-        .eq('id', id)
-
-      if (error) throw error
+      const result = await contentApi.templates.delete(id)
+      if (result.error) throw new Error(result.error)
       await fetchTemplates()
     } catch (err) {
       console.error('Error deleting template:', err)
-      setError('Failed to delete template')
+      setError(err instanceof Error ? err.message : 'Failed to delete template')
     }
   }
 
@@ -277,38 +261,33 @@ export default function ContentPage() {
 
     try {
       if (editingMeetingPoint) {
-        const { error } = await supabase
-          .from('meeting_points')
-          .update({
-            name: mpName,
-            description: mpDescription || null,
-            address: mpAddress || null,
-            google_maps_url: mpGoogleMapsUrl || null,
-            instructions: mpInstructions || null,
-            updated_at: new Date().toISOString()
-          })
-          .eq('id', editingMeetingPoint.id)
+        const result = await contentApi.meetingPoints.update({
+          id: editingMeetingPoint.id,
+          name: mpName,
+          description: mpDescription || null,
+          address: mpAddress || null,
+          google_maps_url: mpGoogleMapsUrl || null,
+          instructions: mpInstructions || null
+        })
 
-        if (error) throw error
+        if (result.error) throw new Error(result.error)
       } else {
-        const { error } = await supabase
-          .from('meeting_points')
-          .insert({
-            name: mpName,
-            description: mpDescription || null,
-            address: mpAddress || null,
-            google_maps_url: mpGoogleMapsUrl || null,
-            instructions: mpInstructions || null
-          })
+        const result = await contentApi.meetingPoints.create({
+          name: mpName,
+          description: mpDescription || null,
+          address: mpAddress || null,
+          google_maps_url: mpGoogleMapsUrl || null,
+          instructions: mpInstructions || null
+        })
 
-        if (error) throw error
+        if (result.error) throw new Error(result.error)
       }
 
       setShowMeetingPointModal(false)
       await fetchMeetingPoints()
     } catch (err) {
       console.error('Error saving meeting point:', err)
-      setError('Failed to save meeting point')
+      setError(err instanceof Error ? err.message : 'Failed to save meeting point')
     }
   }
 
@@ -316,17 +295,13 @@ export default function ContentPage() {
     if (!confirm('Delete this meeting point? It will be removed from all assigned activities.')) return
 
     try {
-      const { error } = await supabase
-        .from('meeting_points')
-        .delete()
-        .eq('id', id)
-
-      if (error) throw error
+      const result = await contentApi.meetingPoints.delete(id)
+      if (result.error) throw new Error(result.error)
       await fetchMeetingPoints()
       await fetchActivityMeetingPoints()
     } catch (err) {
       console.error('Error deleting meeting point:', err)
-      setError('Failed to delete meeting point')
+      setError(err instanceof Error ? err.message : 'Failed to delete meeting point')
     }
   }
 
@@ -338,52 +313,41 @@ export default function ContentPage() {
 
     try {
       if (existing) {
-        // Remove assignment
-        const { error } = await supabase
-          .from('activity_meeting_points')
-          .delete()
-          .eq('id', existing.id)
-
-        if (error) throw error
+        // Remove assignment via API
+        const result = await contentApi.activityMeetingPoints.delete(existing.id)
+        if (result.error) throw new Error(result.error)
       } else {
-        // Add assignment
-        const { error } = await supabase
-          .from('activity_meeting_points')
-          .insert({
-            activity_id: activityId,
-            meeting_point_id: meetingPointId,
-            is_default: false
-          })
-
-        if (error) throw error
+        // Add assignment via API
+        const result = await contentApi.activityMeetingPoints.create({
+          activity_id: activityId,
+          meeting_point_id: meetingPointId,
+          is_default: false
+        })
+        if (result.error) throw new Error(result.error)
       }
 
       await fetchActivityMeetingPoints()
     } catch (err) {
       console.error('Error toggling assignment:', err)
-      setError('Failed to update assignment')
+      setError(err instanceof Error ? err.message : 'Failed to update assignment')
     }
   }
 
   const setDefaultMeetingPoint = async (activityId: string, meetingPointId: string) => {
     try {
-      // First unset all defaults for this activity
-      await supabase
-        .from('activity_meeting_points')
-        .update({ is_default: false })
-        .eq('activity_id', activityId)
-
-      // Then set the new default
-      await supabase
-        .from('activity_meeting_points')
-        .update({ is_default: true })
-        .eq('activity_id', activityId)
-        .eq('meeting_point_id', meetingPointId)
+      // Use API to update with unset_others flag
+      const result = await contentApi.activityMeetingPoints.update({
+        activity_id: activityId,
+        meeting_point_id: meetingPointId,
+        is_default: true,
+        unset_others: true
+      })
+      if (result.error) throw new Error(result.error)
 
       await fetchActivityMeetingPoints()
     } catch (err) {
       console.error('Error setting default:', err)
-      setError('Failed to set default meeting point')
+      setError(err instanceof Error ? err.message : 'Failed to set default meeting point')
     }
   }
 

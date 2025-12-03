@@ -2,7 +2,7 @@
 'use client'
 
 import React, { useState } from 'react'
-import { Menu, ChevronRight, Users, FileBarChart, LayoutDashboard, FileText, FileSpreadsheet, BarChart3, DollarSign, TrendingUp, RefreshCw, Percent, UserCog, Calendar, UserCheck, FolderOpen, MapPin, Ticket, Upload, List, Tags, Link2, Bell } from 'lucide-react'
+import { Menu, ChevronRight, Users, FileBarChart, LayoutDashboard, FileText, FileSpreadsheet, BarChart3, DollarSign, TrendingUp, RefreshCw, Percent, UserCog, Calendar, UserCheck, FolderOpen, MapPin, Ticket, Upload, List, Tags, Link2, Bell, Settings, Shield, ClipboardList } from 'lucide-react'
 import { SidebarProvider, SidebarTrigger } from "@/components/ui/sidebar"
 import { Sidebar, SidebarContent, SidebarGroup, SidebarHeader, SidebarMenu, SidebarMenuButton, SidebarMenuItem, SidebarMenuSub, SidebarMenuSubButton, SidebarMenuSubItem } from "@/components/ui/sidebar"
 import RecapPage from '@/components/RecapPage'
@@ -25,6 +25,8 @@ import TicketCategoriesPage from '@/components/TicketCategoriesPage'
 import ProductActivityMappingsPage from '@/components/ProductActivityMappingsPage'
 import TicketTypeMappingsPage from '@/components/TicketTypeMappingsPage'
 import NotificationsPage from '@/components/NotificationsPage'
+import UserManagementPage from '@/components/UserManagementPage'
+import AuditLogsPage from '@/components/AuditLogsPage'
 
 // Custom Sidebar Component
 function AppSidebar({ currentView, onNavigate }: {
@@ -37,6 +39,7 @@ function AppSidebar({ currentView, onNavigate }: {
   const [reportsOpen, setReportsOpen] = useState(true)
   const [financeOpen, setFinanceOpen] = useState(true)
   const [contentOpen, setContentOpen] = useState(true)
+  const [settingsOpen, setSettingsOpen] = useState(true)
 
   const menuItems = [
     {
@@ -187,6 +190,24 @@ function AppSidebar({ currentView, onNavigate }: {
         },
       ],
     },
+    {
+      title: "Settings",
+      icon: Settings,
+      isOpen: settingsOpen,
+      setOpen: setSettingsOpen,
+      items: [
+        {
+          title: "Users",
+          icon: Shield,
+          view: "user-management",
+        },
+        {
+          title: "Audit Logs",
+          icon: ClipboardList,
+          view: "audit-logs",
+        },
+      ],
+    },
   ]
 
   return (
@@ -293,6 +314,10 @@ export default function DashboardLayout() {
         return <TicketTypeMappingsPage />
       case 'notifications':
         return <NotificationsPage />
+      case 'user-management':
+        return <UserManagementPage />
+      case 'audit-logs':
+        return <AuditLogsPage />
       default:
         return <RecapPage />
     }
@@ -340,6 +365,10 @@ export default function DashboardLayout() {
         return 'Ticket Type Mappings'
       case 'notifications':
         return 'Notifications'
+      case 'user-management':
+        return 'User Management'
+      case 'audit-logs':
+        return 'Audit Logs'
       default:
         return 'Dashboard'
     }
@@ -363,6 +392,9 @@ export default function DashboardLayout() {
     }
     if (currentView === 'content') {
       return 'Content'
+    }
+    if (['user-management', 'audit-logs'].includes(currentView)) {
+      return 'Settings'
     }
     return 'Dashboard'
   }

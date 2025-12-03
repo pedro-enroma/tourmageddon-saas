@@ -2,6 +2,7 @@
 
 import { useState, useEffect } from 'react'
 import { supabase } from '@/lib/supabase'
+import { mappingsApi } from '@/lib/api-client'
 import { Plus, Trash2, Search, X, Link2, ChevronDown, Edit } from 'lucide-react'
 import { Button } from '@/components/ui/button'
 import { Label } from '@/components/ui/label'
@@ -154,32 +155,29 @@ export default function ProductActivityMappingsPage() {
 
     try {
       if (editingProductName) {
-        // Edit mode: delete existing mappings and create new ones
-        const { error: deleteError } = await supabase
-          .from('product_activity_mappings')
-          .delete()
-          .eq('product_name', editingProductName)
-
-        if (deleteError) {
-          console.error('Delete error:', deleteError)
-          throw new Error(deleteError.message || 'Failed to delete existing mappings')
+        // Edit mode: delete existing mappings via API
+        const existingMappings = groupedMappings[editingProductName]?.activities || []
+        for (const mapping of existingMappings) {
+          const deleteResult = await mappingsApi.productActivity.delete(mapping.id)
+          if (deleteResult.error) {
+            console.error('Delete error:', deleteResult.error)
+            throw new Error(deleteResult.error || 'Failed to delete existing mappings')
+          }
         }
       }
 
-      // Create mappings for each selected activity
-      const insertData = formData.activity_ids.map(activity_id => ({
-        product_name: formData.product_name,
-        category_id: formData.category_id,
-        activity_id
-      }))
+      // Create mappings for each selected activity via API
+      for (const activity_id of formData.activity_ids) {
+        const createResult = await mappingsApi.productActivity.create({
+          product_name: formData.product_name,
+          category_id: formData.category_id,
+          activity_id
+        })
 
-      const { error: insertError } = await supabase
-        .from('product_activity_mappings')
-        .insert(insertData)
-
-      if (insertError) {
-        console.error('Insert error:', insertError)
-        throw new Error(insertError.message || 'Failed to save mappings')
+        if (createResult.error) {
+          console.error('Insert error:', createResult.error)
+          throw new Error(createResult.error || 'Failed to save mappings')
+        }
       }
 
       handleCloseModal()
@@ -197,12 +195,9 @@ export default function ProductActivityMappingsPage() {
     if (!confirm('Are you sure you want to delete this mapping?')) return
 
     try {
-      const { error } = await supabase
-        .from('product_activity_mappings')
-        .delete()
-        .eq('id', mappingId)
-
-      if (error) throw error
+      // Delete via API
+      const result = await mappingsApi.productActivity.delete(mappingId)
+      if (result.error) throw new Error(result.error)
       fetchData()
     } catch (err) {
       console.error('Error deleting mapping:', err)

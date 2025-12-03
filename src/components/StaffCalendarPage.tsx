@@ -2,6 +2,7 @@
 
 import { useState, useEffect } from 'react'
 import { supabase } from '@/lib/supabase'
+import { calendarSettingsApi, availabilityAssignmentsApi } from '@/lib/api-client'
 import { Calendar as CalendarIcon, ChevronLeft, ChevronRight, Clock, Users, MapPin, X, Settings, Pencil, User, UserCheck } from 'lucide-react'
 import { format, addWeeks, startOfWeek, endOfWeek, eachDayOfInterval, isSameDay } from 'date-fns'
 import { Button } from '@/components/ui/button'
@@ -550,55 +551,29 @@ export default function StaffCalendarPage() {
       const guidesToAdd = selectedGuides.filter(id => !existingGuideIds.includes(id))
       const guidesToRemove = existingGuideIds.filter(id => !selectedGuides.includes(id))
 
-      if (guidesToRemove.length > 0) {
-        const { error: deleteError } = await supabase
-          .from('guide_assignments')
-          .delete()
-          .eq('activity_availability_id', selectedSlot.id)
-          .in('guide_id', guidesToRemove)
-
-        if (deleteError) throw deleteError
-      }
-
-      if (guidesToAdd.length > 0) {
-        const newAssignments = guidesToAdd.map(guideId => ({
-          guide_id: guideId,
-          activity_availability_id: selectedSlot.id
-        }))
-
-        const { error: insertError } = await supabase
-          .from('guide_assignments')
-          .insert(newAssignments)
-
-        if (insertError) throw insertError
-      }
-
       // Handle escort assignments
       const existingEscortIds = selectedSlot.escort_assignments?.map(ea => ea.escort.escort_id) || []
       const escortsToAdd = selectedEscorts.filter(id => !existingEscortIds.includes(id))
       const escortsToRemove = existingEscortIds.filter(id => !selectedEscorts.includes(id))
 
-      if (escortsToRemove.length > 0) {
-        const { error: deleteError } = await supabase
-          .from('escort_assignments')
-          .delete()
-          .eq('activity_availability_id', selectedSlot.id)
-          .in('escort_id', escortsToRemove)
-
-        if (deleteError) throw deleteError
+      // Delete removed assignments via API
+      if (guidesToRemove.length > 0 || escortsToRemove.length > 0) {
+        const deleteResult = await availabilityAssignmentsApi.delete(
+          selectedSlot.id,
+          guidesToRemove.length > 0 ? guidesToRemove : undefined,
+          escortsToRemove.length > 0 ? escortsToRemove : undefined
+        )
+        if (deleteResult.error) throw new Error(deleteResult.error)
       }
 
-      if (escortsToAdd.length > 0) {
-        const newAssignments = escortsToAdd.map(escortId => ({
-          escort_id: escortId,
-          activity_availability_id: selectedSlot.id
-        }))
-
-        const { error: insertError } = await supabase
-          .from('escort_assignments')
-          .insert(newAssignments)
-
-        if (insertError) throw insertError
+      // Add new assignments via API
+      if (guidesToAdd.length > 0 || escortsToAdd.length > 0) {
+        const createResult = await availabilityAssignmentsApi.create(
+          selectedSlot.id,
+          guidesToAdd.length > 0 ? guidesToAdd : undefined,
+          escortsToAdd.length > 0 ? escortsToAdd : undefined
+        )
+        if (createResult.error) throw new Error(createResult.error)
       }
 
       handleCloseModal()
@@ -634,24 +609,14 @@ export default function StaffCalendarPage() {
 
   const handleSaveSettings = async () => {
     try {
-      const { error } = await supabase
-        .from('guide_calendar_settings')
-        .upsert({
-          setting_key: 'excluded_activity_ids',
-          setting_value: tempExcludedIds,
-          updated_at: new Date().toISOString()
-        }, {
-          onConflict: 'setting_key'
-        })
-        .select()
-
-      if (error) throw error
+      const result = await calendarSettingsApi.update('excluded_activity_ids', tempExcludedIds)
+      if (result.error) throw new Error(result.error)
 
       await fetchExcludedActivities()
       setSettingsOpen(false)
       setSettingsSearchText('')
-    } catch {
-      setError('Failed to save settings')
+    } catch (err) {
+      setError(err instanceof Error ? err.message : 'Failed to save settings')
     }
   }
 
@@ -691,17 +656,8 @@ export default function StaffCalendarPage() {
     }
 
     try {
-      const { error } = await supabase
-        .from('guide_calendar_settings')
-        .upsert({
-          setting_key: 'activity_groups',
-          setting_value: updatedGroups,
-          updated_at: new Date().toISOString()
-        }, {
-          onConflict: 'setting_key'
-        })
-
-      if (error) throw error
+      const result = await calendarSettingsApi.update('activity_groups', updatedGroups)
+      if (result.error) throw new Error(result.error)
 
       setActivityGroups(updatedGroups)
       setNewGroupName('')
@@ -709,7 +665,7 @@ export default function StaffCalendarPage() {
       setEditingGroup(null)
     } catch (err) {
       console.error('Error saving group:', err)
-      setError('Failed to save group')
+      setError(err instanceof Error ? err.message : 'Failed to save group')
     }
   }
 
@@ -728,21 +684,12 @@ export default function StaffCalendarPage() {
     const updatedGroups = activityGroups.filter(g => g.name !== groupName)
 
     try {
-      const { error } = await supabase
-        .from('guide_calendar_settings')
-        .upsert({
-          setting_key: 'activity_groups',
-          setting_value: updatedGroups,
-          updated_at: new Date().toISOString()
-        }, {
-          onConflict: 'setting_key'
-        })
-
-      if (error) throw error
+      const result = await calendarSettingsApi.update('activity_groups', updatedGroups)
+      if (result.error) throw new Error(result.error)
       setActivityGroups(updatedGroups)
     } catch (err) {
       console.error('Error deleting group:', err)
-      setError('Failed to delete group')
+      setError(err instanceof Error ? err.message : 'Failed to delete group')
     }
   }
 

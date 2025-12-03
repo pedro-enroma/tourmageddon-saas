@@ -2,6 +2,7 @@
 
 import { useState, useEffect } from 'react'
 import { supabase } from '@/lib/supabase'
+import { ticketCategoriesApi } from '@/lib/api-client'
 import { Plus, Edit, Trash2, Search, X, Tag, UserCheck, UserX } from 'lucide-react'
 import { Button } from '@/components/ui/button'
 import { Label } from '@/components/ui/label'
@@ -108,28 +109,26 @@ export default function TicketCategoriesPage() {
 
     try {
       if (editingCategory) {
-        const { error } = await supabase
-          .from('ticket_categories')
-          .update({
-            name: formData.name,
-            description: formData.description || null,
-            product_names: formData.product_names,
-            guide_requires_ticket: formData.guide_requires_ticket
-          })
-          .eq('id', editingCategory.id)
+        // Update via API
+        const result = await ticketCategoriesApi.update({
+          id: editingCategory.id,
+          name: formData.name,
+          description: formData.description || undefined,
+          product_names: formData.product_names,
+          guide_requires_ticket: formData.guide_requires_ticket
+        })
 
-        if (error) throw error
+        if (result.error) throw new Error(result.error)
       } else {
-        const { error } = await supabase
-          .from('ticket_categories')
-          .insert([{
-            name: formData.name,
-            description: formData.description || null,
-            product_names: formData.product_names,
-            guide_requires_ticket: formData.guide_requires_ticket
-          }])
+        // Create via API
+        const result = await ticketCategoriesApi.create({
+          name: formData.name,
+          description: formData.description || undefined,
+          product_names: formData.product_names,
+          guide_requires_ticket: formData.guide_requires_ticket
+        })
 
-        if (error) throw error
+        if (result.error) throw new Error(result.error)
       }
 
       handleCloseModal()
@@ -146,12 +145,9 @@ export default function TicketCategoriesPage() {
     if (!confirm('Are you sure you want to delete this category? This may affect linked vouchers.')) return
 
     try {
-      const { error } = await supabase
-        .from('ticket_categories')
-        .delete()
-        .eq('id', categoryId)
-
-      if (error) throw error
+      // Delete via API
+      const result = await ticketCategoriesApi.delete(categoryId)
+      if (result.error) throw new Error(result.error)
       fetchCategories()
     } catch (err) {
       console.error('Error deleting category:', err)

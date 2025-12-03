@@ -3,6 +3,7 @@
 import React, { useState, useEffect, useCallback } from 'react'
 import { ChevronDown, ChevronRight, Plus, X, Save, RefreshCw, Download, Edit2, Trash2, Settings } from 'lucide-react'
 import { supabase } from '@/lib/supabase'
+import { tourGroupsApi } from '@/lib/api-client'
 import { Switch } from "@/components/ui/switch"
 import { Drawer, DrawerClose, DrawerContent, DrawerDescription, DrawerFooter, DrawerHeader, DrawerTitle, DrawerTrigger } from "@/components/ui/drawer"
 import { Button } from "@/components/ui/button"
@@ -463,16 +464,14 @@ export default function RecapPage() {
   const migrateLocalGroupsToDb = async (localGroups: TourGroup[]) => {
     try {
       for (const group of localGroups) {
-        const { error } = await supabase
-          .from('tour_groups')
-          .upsert({
-            id: group.id,
-            name: group.name,
-            tour_ids: group.tour_ids || []
-          })
-        
-        if (error) {
-          console.error('Error migrating group to DB:', error)
+        const result = await tourGroupsApi.create({
+          id: group.id,
+          name: group.name,
+          tour_ids: group.tour_ids || []
+        })
+
+        if (result.error) {
+          console.error('Error migrating group to DB:', result.error)
         }
       }
       console.log('Groups migrated to database successfully')
@@ -858,44 +857,35 @@ export default function RecapPage() {
       alert('Inserisci un nome e seleziona almeno un tour')
       return
     }
-    
+
     try {
       if (editingGroup) {
-        // Aggiorna gruppo esistente
-        const { data, error } = await supabase
-          .from('tour_groups')
-          .update({
-            name: newGroupName,
-            tour_ids: selectedTours,
-            updated_at: new Date().toISOString()
-          })
-          .eq('id', editingGroup.id)
-          .select()
-          .single()
-        
-        if (error) throw error
-        
-        if (data) {
-          setTourGroups(tourGroups.map(g => g.id === editingGroup.id ? data : g))
+        // Aggiorna gruppo esistente via API
+        const result = await tourGroupsApi.update({
+          id: editingGroup.id,
+          name: newGroupName,
+          tour_ids: selectedTours
+        })
+
+        if (result.error) throw new Error(result.error)
+
+        if (result.data) {
+          setTourGroups(tourGroups.map(g => g.id === editingGroup.id ? result.data! : g))
         }
       } else {
-        // Crea nuovo gruppo
-        const { data, error } = await supabase
-          .from('tour_groups')
-          .insert({
-            name: newGroupName,
-            tour_ids: selectedTours
-          })
-          .select()
-          .single()
-        
-        if (error) throw error
-        
-        if (data) {
-          setTourGroups([...tourGroups, data])
+        // Crea nuovo gruppo via API
+        const result = await tourGroupsApi.create({
+          name: newGroupName,
+          tour_ids: selectedTours
+        })
+
+        if (result.error) throw new Error(result.error)
+
+        if (result.data) {
+          setTourGroups([...tourGroups, result.data])
         }
       }
-      
+
       setShowGroupModal(false)
       setNewGroupName('')
       setSelectedTours([])
@@ -911,13 +901,10 @@ export default function RecapPage() {
   const deleteGroup = async (groupId: string) => {
     if (confirm('Sei sicuro di voler eliminare questo gruppo?')) {
       try {
-        const { error } = await supabase
-          .from('tour_groups')
-          .delete()
-          .eq('id', groupId)
-        
-        if (error) throw error
-        
+        const result = await tourGroupsApi.delete(groupId)
+
+        if (result.error) throw new Error(result.error)
+
         setTourGroups(tourGroups.filter(g => g.id !== groupId))
         if (selectedFilter === `group-${groupId}`) {
           setSelectedFilter('all')

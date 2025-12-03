@@ -2,6 +2,7 @@
 
 import { useState, useEffect } from 'react'
 import { supabase } from '@/lib/supabase'
+import { escortsApi } from '@/lib/api-client'
 import { Plus, Edit, Trash2, Search, X } from 'lucide-react'
 import { Button } from '@/components/ui/button'
 import { Label } from '@/components/ui/label'
@@ -105,36 +106,32 @@ export default function EscortsListPage() {
 
     try {
       if (editingEscort) {
-        // Update existing escort
-        const { error } = await supabase
-          .from('escorts')
-          .update({
-            first_name: formData.first_name,
-            last_name: formData.last_name,
-            email: formData.email,
-            phone_number: formData.phone_number || null,
-            license_number: formData.license_number || null,
-            languages: formData.languages,
-            active: formData.active
-          })
-          .eq('escort_id', editingEscort.escort_id)
+        // Update existing escort via API
+        const result = await escortsApi.update({
+          escort_id: editingEscort.escort_id,
+          first_name: formData.first_name,
+          last_name: formData.last_name,
+          email: formData.email,
+          phone_number: formData.phone_number || undefined,
+          license_number: formData.license_number || undefined,
+          languages: formData.languages,
+          active: formData.active
+        })
 
-        if (error) throw error
+        if (result.error) throw new Error(result.error)
       } else {
-        // Create new escort
-        const { error } = await supabase
-          .from('escorts')
-          .insert([{
-            first_name: formData.first_name,
-            last_name: formData.last_name,
-            email: formData.email,
-            phone_number: formData.phone_number || null,
-            license_number: formData.license_number || null,
-            languages: formData.languages,
-            active: formData.active
-          }])
+        // Create new escort via API
+        const result = await escortsApi.create({
+          first_name: formData.first_name,
+          last_name: formData.last_name,
+          email: formData.email,
+          phone_number: formData.phone_number || undefined,
+          license_number: formData.license_number || undefined,
+          languages: formData.languages,
+          active: formData.active
+        })
 
-        if (error) throw error
+        if (result.error) throw new Error(result.error)
       }
 
       handleCloseModal()
@@ -151,12 +148,9 @@ export default function EscortsListPage() {
     if (!confirm('Are you sure you want to delete this escort?')) return
 
     try {
-      const { error } = await supabase
-        .from('escorts')
-        .delete()
-        .eq('escort_id', escortId)
-
-      if (error) throw error
+      // Delete via API
+      const result = await escortsApi.delete(escortId)
+      if (result.error) throw new Error(result.error)
       fetchEscorts()
     } catch (err) {
       console.error('Error deleting escort:', err)
