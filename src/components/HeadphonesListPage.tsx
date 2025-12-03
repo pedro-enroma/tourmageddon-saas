@@ -1,21 +1,11 @@
 'use client'
 
 import { useState, useEffect } from 'react'
-import { headphonesApi } from '@/lib/api-client'
+import { headphonesApi, Headphone } from '@/lib/api-client'
 import { Plus, Edit, Trash2, Search, X, Headphones } from 'lucide-react'
 import { Button } from '@/components/ui/button'
 import { Label } from '@/components/ui/label'
 import { Checkbox } from '@/components/ui/checkbox'
-
-interface Headphone {
-  headphone_id: string
-  name: string
-  email: string | null
-  phone_number: string | null
-  active: boolean
-  created_at: string
-  updated_at: string
-}
 
 export default function HeadphonesListPage() {
   const [headphones, setHeadphones] = useState<Headphone[]>([])
