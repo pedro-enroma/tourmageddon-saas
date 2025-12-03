@@ -332,32 +332,22 @@ export default function DailyListPage() {
     const availabilityIds = availabilities.map(a => a.id)
 
     // Fetch guide assignments
-    const { data: guideAssignments } = await supabase
-      .from('guide_assignments')
-      .select(`
-        activity_availability_id,
-        guide:guides (guide_id, first_name, last_name, email)
-      `)
-      .in('activity_availability_id', availabilityIds)
+    // Fetch all assignments via API (to bypass RLS)
+    let guideAssignments: { activity_availability_id: number; guide: { guide_id: string; first_name: string; last_name: string; email?: string } }[] = []
+    let escortAssignments: { activity_availability_id: number; escort: { escort_id: string; first_name: string; last_name: string; email?: string } }[] = []
+    let headphoneAssignments: { activity_availability_id: number; headphone: { headphone_id: string; name: string; email?: string; phone_number?: string } }[] = []
 
-    // Fetch escort assignments
-    const { data: escortAssignments } = await supabase
-      .from('escort_assignments')
-      .select(`
-        activity_availability_id,
-        escort:escorts (escort_id, first_name, last_name, email)
-      `)
-      .in('activity_availability_id', availabilityIds)
-
-    // Fetch headphone assignments
-    const { data: headphoneAssignments } = await supabase
-      .from('headphone_assignments')
-      .select(`
-        assignment_id,
-        activity_availability_id,
-        headphone:headphones (headphone_id, name, email, phone_number)
-      `)
-      .in('activity_availability_id', availabilityIds)
+    if (availabilityIds.length > 0) {
+      const assignmentsResponse = await fetch(`/api/assignments/availability/list?availability_ids=${availabilityIds.join(',')}`, {
+        credentials: 'include'
+      })
+      const assignmentsResult = await assignmentsResponse.json()
+      if (assignmentsResult.data) {
+        guideAssignments = assignmentsResult.data.guides || []
+        escortAssignments = assignmentsResult.data.escorts || []
+        headphoneAssignments = assignmentsResult.data.headphones || []
+      }
+    }
 
     // Fetch attachments
     const { data: attachmentsData } = await supabase

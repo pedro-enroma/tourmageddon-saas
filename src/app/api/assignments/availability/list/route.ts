@@ -33,7 +33,8 @@ export async function GET(request: NextRequest) {
         guide:guides (
           guide_id,
           first_name,
-          last_name
+          last_name,
+          email
         )
       `)
       .in('activity_availability_id', availabilityIds)
@@ -51,7 +52,8 @@ export async function GET(request: NextRequest) {
         escort:escorts (
           escort_id,
           first_name,
-          last_name
+          last_name,
+          email
         )
       `)
       .in('activity_availability_id', availabilityIds)
@@ -68,7 +70,9 @@ export async function GET(request: NextRequest) {
         activity_availability_id,
         headphone:headphones (
           headphone_id,
-          name
+          name,
+          email,
+          phone_number
         )
       `)
       .in('activity_availability_id', availabilityIds)
