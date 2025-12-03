@@ -2,6 +2,7 @@
 
 import { useState, useEffect } from 'react'
 import { supabase } from '@/lib/supabase'
+import { headphonesApi } from '@/lib/api-client'
 import { Calendar as CalendarIcon, ChevronLeft, ChevronRight, Clock, Users, Headphones, Search, Save } from 'lucide-react'
 import { format, addDays } from 'date-fns'
 import { Button } from '@/components/ui/button'
@@ -143,15 +144,13 @@ export default function HeadphoneAssignmentsPage() {
       const filtered = enrichedData.filter(a => a.actual_booking_count > 0)
       setAvailabilities(filtered)
 
-      // Fetch all active headphones
-      const { data: headphonesData, error: headphonesError } = await supabase
-        .from('headphones')
-        .select('headphone_id, name, email, phone_number, active')
-        .eq('active', true)
-        .order('name', { ascending: true })
-
-      if (headphonesError) throw headphonesError
-      setHeadphones(headphonesData || [])
+      // Fetch all active headphones via API
+      const headphonesResult = await headphonesApi.list()
+      if (headphonesResult.error) throw new Error(headphonesResult.error)
+      const activeHeadphones = (headphonesResult.data || [])
+        .filter(h => h.active)
+        .sort((a, b) => a.name.localeCompare(b.name))
+      setHeadphones(activeHeadphones as Headphone[])
     } catch (err) {
       console.error('Error fetching data:', err)
       setError('Failed to load data')

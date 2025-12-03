@@ -2,6 +2,7 @@
 
 import { useState, useEffect } from 'react'
 import { supabase } from '@/lib/supabase'
+import { escortsApi } from '@/lib/api-client'
 import { Calendar as CalendarIcon, ChevronLeft, ChevronRight, Clock, Users, UserCheck, Search, Save } from 'lucide-react'
 import { format, addDays } from 'date-fns'
 import { Button } from '@/components/ui/button'
@@ -146,15 +147,13 @@ export default function EscortAssignmentsPage() {
       const filtered = enrichedData.filter(a => a.actual_booking_count > 0)
       setAvailabilities(filtered)
 
-      // Fetch all active escorts
-      const { data: escortsData, error: escortsError } = await supabase
-        .from('escorts')
-        .select('escort_id, first_name, last_name, email, languages, active')
-        .eq('active', true)
-        .order('first_name', { ascending: true })
-
-      if (escortsError) throw escortsError
-      setEscorts(escortsData || [])
+      // Fetch all active escorts via API
+      const escortsResult = await escortsApi.list()
+      if (escortsResult.error) throw new Error(escortsResult.error)
+      const activeEscorts = (escortsResult.data || [])
+        .filter(e => e.active)
+        .sort((a, b) => a.first_name.localeCompare(b.first_name))
+      setEscorts(activeEscorts as Escort[])
     } catch (err) {
       console.error('Error fetching data:', err)
       setError('Failed to load data')
