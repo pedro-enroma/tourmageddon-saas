@@ -1,7 +1,7 @@
 'use client'
 
 import { useState, useEffect } from 'react'
-import { Plus, Search, Shield, ShieldCheck, UserX, UserCheck, UserPlus, Mail } from 'lucide-react'
+import { Search, Shield, ShieldCheck, UserX, UserCheck, UserPlus, Mail } from 'lucide-react'
 import { Button } from '@/components/ui/button'
 import { Label } from '@/components/ui/label'
 import { usersApi, AppUser } from '@/lib/api-client'
