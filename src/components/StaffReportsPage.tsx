@@ -24,7 +24,7 @@ interface Escort {
 interface Headphone {
   headphone_id: string
   name: string
-  email: string
+  email?: string
   phone_number?: string
 }
 
