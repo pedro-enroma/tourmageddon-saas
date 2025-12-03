@@ -52,16 +52,25 @@ function SetPasswordForm() {
         const type = searchParams.get('type')
 
         if (tokenHash && type === 'invite') {
-          // Verify the token hash with Supabase
-          const { error } = await supabase.auth.verifyOtp({
+          // Verify the token hash with Supabase - this creates a session
+          // Try 'invite' type first, then 'email' as fallback
+          let verifyResult = await supabase.auth.verifyOtp({
             token_hash: tokenHash,
             type: 'invite'
           })
 
-          if (!error) {
+          // If invite type fails, try with 'email' type
+          if (verifyResult.error) {
+            verifyResult = await supabase.auth.verifyOtp({
+              token_hash: tokenHash,
+              type: 'email'
+            })
+          }
+
+          if (!verifyResult.error && verifyResult.data.session) {
             setTokenValid(true)
           } else {
-            console.error('Token verification error:', error)
+            console.error('Token verification error:', verifyResult.error)
             setError('Invalid or expired invitation link. Please request a new invitation.')
           }
           setValidatingToken(false)
