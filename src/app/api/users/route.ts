@@ -184,3 +184,74 @@ export async function PUT(request: NextRequest) {
     return NextResponse.json({ error: 'Invalid request body' }, { status: 400 })
   }
 }
+
+// DELETE - Delete user
+export async function DELETE(request: NextRequest) {
+  const { user, error: authError } = await verifySession()
+  if (authError || !user) {
+    return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
+  }
+
+  const userIsAdmin = await isAdmin(user.id)
+  if (!userIsAdmin) {
+    return NextResponse.json({ error: 'Only administrators can delete users' }, { status: 403 })
+  }
+
+  try {
+    const { searchParams } = new URL(request.url)
+    const id = searchParams.get('id')
+
+    if (!id) {
+      return NextResponse.json({ error: 'id is required' }, { status: 400 })
+    }
+
+    // Prevent self-deletion
+    if (id === user.id) {
+      return NextResponse.json({ error: 'You cannot delete your own account' }, { status: 400 })
+    }
+
+    const supabase = getServiceRoleClient()
+
+    // Get user data for audit log
+    const { data: userData } = await supabase
+      .from('app_users')
+      .select('*')
+      .eq('id', id)
+      .single()
+
+    // Delete from app_users
+    const { error: deleteError } = await supabase
+      .from('app_users')
+      .delete()
+      .eq('id', id)
+
+    if (deleteError) {
+      console.error('Error deleting user from app_users:', deleteError)
+      return NextResponse.json({ error: 'Failed to delete user' }, { status: 500 })
+    }
+
+    // Delete from Supabase auth
+    const { error: authDeleteError } = await supabase.auth.admin.deleteUser(id)
+    if (authDeleteError) {
+      console.error('Error deleting user from auth:', authDeleteError)
+      // User is already deleted from app_users, so we continue
+    }
+
+    const { ip, userAgent } = getRequestContext(request)
+    await logAudit({
+      userId: user.id,
+      userEmail: user.email,
+      action: 'DELETE',
+      entityType: 'user',
+      entityId: id,
+      changes: { old: userData },
+      ipAddress: ip,
+      userAgent
+    })
+
+    return NextResponse.json({ success: true })
+  } catch (err) {
+    console.error('Unexpected error:', err)
+    return NextResponse.json({ error: 'Invalid request' }, { status: 400 })
+  }
+}

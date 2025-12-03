@@ -2,7 +2,7 @@
 'use client'
 
 import React, { useState } from 'react'
-import { Menu, ChevronRight, Users, FileBarChart, LayoutDashboard, FileText, FileSpreadsheet, BarChart3, DollarSign, TrendingUp, RefreshCw, Percent, UserCog, Calendar, UserCheck, FolderOpen, MapPin, Ticket, Upload, List, Tags, Link2, Bell, Settings, Shield, ClipboardList } from 'lucide-react'
+import { Menu, ChevronRight, Users, FileBarChart, LayoutDashboard, FileText, FileSpreadsheet, BarChart3, DollarSign, TrendingUp, RefreshCw, Percent, UserCog, Calendar, UserCheck, FolderOpen, MapPin, Ticket, Upload, List, Tags, Link2, Bell, Settings, Shield, ClipboardList, Headphones } from 'lucide-react'
 import { SidebarProvider, SidebarTrigger } from "@/components/ui/sidebar"
 import { Sidebar, SidebarContent, SidebarGroup, SidebarHeader, SidebarMenu, SidebarMenuButton, SidebarMenuItem, SidebarMenuSub, SidebarMenuSubButton, SidebarMenuSubItem } from "@/components/ui/sidebar"
 import RecapPage from '@/components/RecapPage'
@@ -27,6 +27,9 @@ import TicketTypeMappingsPage from '@/components/TicketTypeMappingsPage'
 import NotificationsPage from '@/components/NotificationsPage'
 import UserManagementPage from '@/components/UserManagementPage'
 import AuditLogsPage from '@/components/AuditLogsPage'
+import HeadphonesListPage from '@/components/HeadphonesListPage'
+import EscortAssignmentsPage from '@/components/EscortAssignmentsPage'
+import HeadphoneAssignmentsPage from '@/components/HeadphoneAssignmentsPage'
 
 // Custom Sidebar Component
 function AppSidebar({ currentView, onNavigate }: {
@@ -114,25 +117,40 @@ function AppSidebar({ currentView, onNavigate }: {
       ],
     },
     {
-      title: "Guides & Escorts",
+      title: "Staff",
       icon: UserCog,
       isOpen: staffOpen,
       setOpen: setStaffOpen,
       items: [
         {
-          title: "Guides List",
+          title: "Guides",
           icon: Users,
           view: "guides-list",
         },
         {
-          title: "Escorts List",
+          title: "Escorts",
           icon: UserCheck,
           view: "escorts-list",
         },
         {
-          title: "Assignments",
+          title: "Headphones",
+          icon: Headphones,
+          view: "headphones-list",
+        },
+        {
+          title: "Guide Assignments",
           icon: Calendar,
-          view: "staff-calendar",
+          view: "guide-assignments",
+        },
+        {
+          title: "Escort Assignments",
+          icon: Calendar,
+          view: "escort-assignments",
+        },
+        {
+          title: "Headphone Assignments",
+          icon: Calendar,
+          view: "headphone-assignments",
         },
         {
           title: "Reports",
@@ -286,8 +304,14 @@ export default function DashboardLayout() {
         return <GuidesListPage />
       case 'escorts-list':
         return <EscortsListPage />
-      case 'staff-calendar':
+      case 'headphones-list':
+        return <HeadphonesListPage />
+      case 'guide-assignments':
         return <StaffCalendarPage />
+      case 'escort-assignments':
+        return <EscortAssignmentsPage />
+      case 'headphone-assignments':
+        return <HeadphoneAssignmentsPage />
       case 'staff-reports':
         return <StaffReportsPage />
       case 'marketing-export':
@@ -337,8 +361,14 @@ export default function DashboardLayout() {
         return 'Guides List'
       case 'escorts-list':
         return 'Escorts List'
-      case 'staff-calendar':
-        return 'Assignments'
+      case 'headphones-list':
+        return 'Headphones'
+      case 'guide-assignments':
+        return 'Guide Assignments'
+      case 'escort-assignments':
+        return 'Escort Assignments'
+      case 'headphone-assignments':
+        return 'Headphone Assignments'
       case 'staff-reports':
         return 'Staff Reports'
       case 'marketing-export':
@@ -381,8 +411,8 @@ export default function DashboardLayout() {
     if (['voucher-upload', 'vouchers-list', 'ticket-categories', 'product-mappings', 'type-mappings'].includes(currentView)) {
       return 'Tickets'
     }
-    if (['guides-list', 'escorts-list', 'staff-calendar', 'staff-reports'].includes(currentView)) {
-      return 'Guides & Escorts'
+    if (['guides-list', 'escorts-list', 'headphones-list', 'guide-assignments', 'escort-assignments', 'headphone-assignments', 'staff-reports'].includes(currentView)) {
+      return 'Staff'
     }
     if (currentView === 'marketing-export') {
       return 'Reports'

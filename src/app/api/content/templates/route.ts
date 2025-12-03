@@ -11,7 +11,7 @@ export async function POST(request: NextRequest) {
 
   try {
     const body = await request.json()
-    const { name, subject, body: templateBody, is_default } = body
+    const { name, subject, body: templateBody, is_default, template_type } = body
 
     if (!name || !subject || !templateBody) {
       return NextResponse.json({ error: 'Name, subject, and body are required' }, { status: 400 })
@@ -19,17 +19,28 @@ export async function POST(request: NextRequest) {
 
     const supabase = getServiceRoleClient()
 
-    // If this is set as default, unset other defaults first
+    // If this is set as default, unset other defaults first (within same type)
     if (is_default) {
-      await supabase
+      let query = supabase
         .from('email_templates')
         .update({ is_default: false })
         .eq('is_default', true)
+
+      if (template_type) {
+        query = query.eq('template_type', template_type)
+      }
+      await query
     }
 
     const { data, error } = await supabase
       .from('email_templates')
-      .insert([{ name, subject, body: templateBody, is_default: is_default || false }])
+      .insert([{
+        name,
+        subject,
+        body: templateBody,
+        is_default: is_default || false,
+        template_type: template_type || 'guide'
+      }])
       .select()
       .single()
 
@@ -57,7 +68,7 @@ export async function PUT(request: NextRequest) {
 
   try {
     const body = await request.json()
-    const { id, name, subject, body: templateBody, is_default } = body
+    const { id, name, subject, body: templateBody, is_default, template_type } = body
 
     if (!id) {
       return NextResponse.json({ error: 'Template ID is required' }, { status: 400 })
@@ -72,12 +83,14 @@ export async function PUT(request: NextRequest) {
       .eq('id', id)
       .single()
 
-    // If this is set as default, unset other defaults first
+    // If this is set as default, unset other defaults first (within same type)
     if (is_default) {
+      const typeToUse = template_type || oldData?.template_type || 'guide'
       await supabase
         .from('email_templates')
         .update({ is_default: false })
         .neq('id', id)
+        .eq('template_type', typeToUse)
     }
 
     const updateData: Record<string, unknown> = { updated_at: new Date().toISOString() }
@@ -85,6 +98,7 @@ export async function PUT(request: NextRequest) {
     if (subject !== undefined) updateData.subject = subject
     if (templateBody !== undefined) updateData.body = templateBody
     if (is_default !== undefined) updateData.is_default = is_default
+    if (template_type !== undefined) updateData.template_type = template_type
 
     const { data, error } = await supabase
       .from('email_templates')

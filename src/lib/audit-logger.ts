@@ -28,8 +28,10 @@ export type AuditAction =
 export type AuditEntityType =
   | 'guide'
   | 'escort'
+  | 'headphone'
   | 'guide_assignment'
   | 'escort_assignment'
+  | 'headphone_assignment'
   | 'voucher'
   | 'ticket'
   | 'ticket_category'
@@ -42,6 +44,7 @@ export type AuditEntityType =
   | 'email_template'
   | 'meeting_point'
   | 'activity_meeting_point'
+  | 'activity_template_assignment'
   | 'booking_swap'
   | 'user'
   | 'calendar_settings'

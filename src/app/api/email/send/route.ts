@@ -22,7 +22,7 @@ interface EmailRequest {
   recipients: {
     email: string
     name: string
-    type: 'guide' | 'escort'
+    type: 'guide' | 'escort' | 'headphone'
     id: string
   }[]
   subject: string
@@ -31,6 +31,20 @@ interface EmailRequest {
   attachmentUrls?: string[]
   dailyListData?: string // Base64 encoded Excel file
   dailyListFileName?: string
+  // Additional context for template variables
+  serviceContext?: {
+    tourTitle?: string
+    date?: string
+    time?: string
+    paxCount?: number
+    guideName?: string
+    guidePhone?: string
+    escortName?: string
+    escortPhone?: string
+    headphoneName?: string
+    headphonePhone?: string
+    meetingPoint?: string
+  }
 }
 
 // Convert plain text to styled HTML email
@@ -147,7 +161,7 @@ export async function POST(request: NextRequest) {
 
   try {
     const body: EmailRequest = await request.json()
-    const { recipients, subject, body: emailBody, activityAvailabilityId, attachmentUrls, dailyListData, dailyListFileName } = body
+    const { recipients, subject, body: emailBody, activityAvailabilityId, attachmentUrls, dailyListData, dailyListFileName, serviceContext } = body
 
     if (!recipients || recipients.length === 0) {
       return NextResponse.json({ error: 'No recipients provided' }, { status: 400 })
@@ -200,17 +214,38 @@ export async function POST(request: NextRequest) {
 
     const hasAttachments = attachments.length > 0
 
+    // Helper function to replace all template variables
+    const replaceTemplateVariables = (text: string, recipientName: string, recipientEmail: string) => {
+      let result = text
+        // Recipient-specific variables
+        .replace(/\{\{name\}\}/g, recipientName)
+        .replace(/\{\{email\}\}/g, recipientEmail)
+
+      // Service context variables
+      if (serviceContext) {
+        result = result
+          .replace(/\{\{tour_title\}\}/g, serviceContext.tourTitle || '')
+          .replace(/\{\{date\}\}/g, serviceContext.date || '')
+          .replace(/\{\{time\}\}/g, serviceContext.time || '')
+          .replace(/\{\{pax_count\}\}/g, String(serviceContext.paxCount || ''))
+          .replace(/\{\{guide_name\}\}/g, serviceContext.guideName || '')
+          .replace(/\{\{guide_phone\}\}/g, serviceContext.guidePhone || '')
+          .replace(/\{\{escort_name\}\}/g, serviceContext.escortName || '')
+          .replace(/\{\{escort_phone\}\}/g, serviceContext.escortPhone || '')
+          .replace(/\{\{headphone_name\}\}/g, serviceContext.headphoneName || '')
+          .replace(/\{\{headphone_phone\}\}/g, serviceContext.headphonePhone || '')
+          .replace(/\{\{meeting_point\}\}/g, serviceContext.meetingPoint || '')
+      }
+
+      return result
+    }
+
     // Send emails to each recipient
     for (const recipient of recipients) {
       try {
         // Replace template variables in subject and body
-        const personalizedSubject = subject
-          .replace(/\{\{name\}\}/g, recipient.name)
-          .replace(/\{\{email\}\}/g, recipient.email)
-
-        const personalizedBody = emailBody
-          .replace(/\{\{name\}\}/g, recipient.name)
-          .replace(/\{\{email\}\}/g, recipient.email)
+        const personalizedSubject = replaceTemplateVariables(subject, recipient.name, recipient.email)
+        const personalizedBody = replaceTemplateVariables(emailBody, recipient.name, recipient.email)
 
         // Convert to styled HTML
         const htmlContent = textToHtml(personalizedBody, hasAttachments)

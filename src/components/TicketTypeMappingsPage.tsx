@@ -27,11 +27,16 @@ interface TicketTypeMapping {
   ticket_categories?: TicketCategory
 }
 
+interface BookedTitleByActivity {
+  booked_title: string
+  activity_id: string
+}
+
 export default function TicketTypeMappingsPage() {
   const [mappings, setMappings] = useState<TicketTypeMapping[]>([])
   const [categories, setCategories] = useState<TicketCategory[]>([])
   const [activities, setActivities] = useState<Activity[]>([])
-  const [bookedTitles, setBookedTitles] = useState<string[]>([])
+  const [bookedTitlesByActivity, setBookedTitlesByActivity] = useState<BookedTitleByActivity[]>([])
   const [loading, setLoading] = useState(true)
   const [searchTerm, setSearchTerm] = useState('')
   const [showModal, setShowModal] = useState(false)
@@ -78,10 +83,10 @@ export default function TicketTypeMappingsPage() {
           .from('activities')
           .select('activity_id, title')
           .order('title', { ascending: true }),
-        // Get distinct booked_titles from pricing_category_bookings
+        // Get booked_titles with their activity_id via activity_bookings join
         supabase
           .from('pricing_category_bookings')
-          .select('booked_title')
+          .select('booked_title, activity_booking:activity_bookings!inner(activity_id)')
       ])
 
       if (mappingsRes.error) throw mappingsRes.error
@@ -92,10 +97,31 @@ export default function TicketTypeMappingsPage() {
       setCategories(categoriesRes.data || [])
       setActivities(activitiesRes.data || [])
 
-      // Extract unique booked_titles
+      // Extract booked_titles with activity_id
       if (titlesRes.data) {
-        const uniqueTitles = [...new Set(titlesRes.data.map(r => r.booked_title).filter(Boolean))]
-        setBookedTitles(uniqueTitles.sort())
+        const titlesWithActivity: BookedTitleByActivity[] = []
+        const seenPairs = new Set<string>()
+
+        titlesRes.data.forEach((r: { booked_title: string | null; activity_booking: { activity_id: string } | { activity_id: string }[] | null }) => {
+          if (!r.booked_title) return
+          // Handle both array and single object from Supabase join
+          const booking = r.activity_booking
+          const activityId = Array.isArray(booking)
+            ? booking[0]?.activity_id
+            : booking?.activity_id
+          if (!activityId) return
+
+          const key = `${activityId}:${r.booked_title}`
+          if (!seenPairs.has(key)) {
+            seenPairs.add(key)
+            titlesWithActivity.push({
+              booked_title: r.booked_title,
+              activity_id: activityId
+            })
+          }
+        })
+
+        setBookedTitlesByActivity(titlesWithActivity.sort((a, b) => a.booked_title.localeCompare(b.booked_title)))
       }
     } catch (err) {
       console.error('Error fetching data:', err)
@@ -202,6 +228,23 @@ export default function TicketTypeMappingsPage() {
 
   const getActivityName = (activityId: string) => {
     return activities.find(a => a.activity_id === activityId)?.title || activityId
+  }
+
+  // Get booked titles filtered by selected activity
+  const filteredBookedTitles = formData.activity_id
+    ? [...new Set(bookedTitlesByActivity
+        .filter(t => t.activity_id === formData.activity_id)
+        .map(t => t.booked_title))]
+        .sort()
+    : []
+
+  // Handle activity change - clear booked_titles when activity changes
+  const handleActivityChange = (activityId: string) => {
+    setFormData(prev => ({
+      ...prev,
+      activity_id: activityId,
+      booked_titles: [] // Clear selections when activity changes
+    }))
   }
 
   // Group mappings by category and activity
@@ -395,7 +438,7 @@ export default function TicketTypeMappingsPage() {
                   <select
                     required
                     value={formData.activity_id}
-                    onChange={(e) => setFormData({...formData, activity_id: e.target.value})}
+                    onChange={(e) => handleActivityChange(e.target.value)}
                     className="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500 appearance-none"
                   >
                     <option value="">Select an activity</option>
@@ -440,12 +483,16 @@ export default function TicketTypeMappingsPage() {
                   Select all participant categories that should match this ticket type
                 </p>
                 <div className="border border-gray-300 rounded-md max-h-48 overflow-y-auto">
-                  {bookedTitles.length === 0 ? (
+                  {!formData.activity_id ? (
                     <div className="p-3 text-sm text-gray-500">
-                      No booked titles found in the database
+                      Please select an activity first to see available booked titles
+                    </div>
+                  ) : filteredBookedTitles.length === 0 ? (
+                    <div className="p-3 text-sm text-gray-500">
+                      No booked titles found for this activity
                     </div>
                   ) : (
-                    bookedTitles.map(title => (
+                    filteredBookedTitles.map(title => (
                       <label
                         key={title}
                         className="flex items-center gap-3 px-3 py-2 hover:bg-gray-50 cursor-pointer border-b border-gray-100 last:border-b-0"

@@ -1,7 +1,7 @@
 'use client'
 
 import { useState, useEffect } from 'react'
-import { Search, Shield, ShieldCheck, UserX, UserCheck, UserPlus, Mail } from 'lucide-react'
+import { Search, Shield, ShieldCheck, UserX, UserCheck, UserPlus, Mail, Trash2 } from 'lucide-react'
 import { Button } from '@/components/ui/button'
 import { Label } from '@/components/ui/label'
 import { usersApi, AppUser } from '@/lib/api-client'
@@ -118,6 +118,22 @@ export default function UserManagementPage() {
     } catch (err) {
       console.error('Error changing user role:', err)
       setError('Failed to update user role')
+    }
+  }
+
+  const handleDeleteUser = async (user: AppUser) => {
+    if (!confirm(`Are you sure you want to permanently delete ${user.full_name}? This action cannot be undone.`)) {
+      return
+    }
+
+    try {
+      const result = await usersApi.delete(user.id)
+      if (result.error) throw new Error(result.error)
+      setSuccessMessage(`User ${user.full_name} has been deleted`)
+      fetchUsers()
+    } catch (err) {
+      console.error('Error deleting user:', err)
+      setError(err instanceof Error ? err.message : 'Failed to delete user')
     }
   }
 
@@ -335,10 +351,17 @@ export default function UserManagementPage() {
                       <div className="flex gap-2">
                         <button
                           onClick={() => handleToggleActive(user)}
-                          className={`p-1 rounded ${user.is_active ? 'text-red-600 hover:bg-red-50' : 'text-green-600 hover:bg-green-50'}`}
+                          className={`p-1 rounded ${user.is_active ? 'text-orange-600 hover:bg-orange-50' : 'text-green-600 hover:bg-green-50'}`}
                           title={user.is_active ? 'Disable user' : 'Enable user'}
                         >
                           {user.is_active ? <UserX className="w-4 h-4" /> : <UserCheck className="w-4 h-4" />}
+                        </button>
+                        <button
+                          onClick={() => handleDeleteUser(user)}
+                          className="p-1 rounded text-red-600 hover:bg-red-50"
+                          title="Delete user permanently"
+                        >
+                          <Trash2 className="w-4 h-4" />
                         </button>
                       </div>
                     </td>

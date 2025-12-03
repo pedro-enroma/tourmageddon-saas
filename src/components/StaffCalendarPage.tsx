@@ -2,8 +2,8 @@
 
 import { useState, useEffect } from 'react'
 import { supabase } from '@/lib/supabase'
-import { calendarSettingsApi, availabilityAssignmentsApi } from '@/lib/api-client'
-import { Calendar as CalendarIcon, ChevronLeft, ChevronRight, Clock, Users, MapPin, X, Settings, Pencil, User, UserCheck } from 'lucide-react'
+import { calendarSettingsApi } from '@/lib/api-client'
+import { Calendar as CalendarIcon, ChevronLeft, ChevronRight, Clock, Users, MapPin, X, Settings, Pencil, User, UserCheck, Headphones } from 'lucide-react'
 import { format, addWeeks, startOfWeek, endOfWeek, eachDayOfInterval, isSameDay } from 'date-fns'
 import { Button } from '@/components/ui/button'
 import { Checkbox } from '@/components/ui/checkbox'
@@ -43,6 +43,13 @@ interface ActivityAvailability {
       last_name: string
     }
   }[]
+  headphone_assignments: {
+    assignment_id: string
+    headphone: {
+      headphone_id: string
+      name: string
+    }
+  }[]
 }
 
 interface Guide {
@@ -54,14 +61,6 @@ interface Guide {
   active: boolean
 }
 
-interface Escort {
-  escort_id: string
-  first_name: string
-  last_name: string
-  email: string
-  languages: string[]
-  active: boolean
-}
 
 interface BusyGuideInfo {
   guide_id: string
@@ -75,17 +74,15 @@ export default function StaffCalendarPage() {
   const [availabilities, setAvailabilities] = useState<ActivityAvailability[]>([])
   const [allActivities, setAllActivities] = useState<{ activity_id: string; title: string }[]>([])
   const [guides, setGuides] = useState<Guide[]>([])
-  const [escorts, setEscorts] = useState<Escort[]>([])
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState<string | null>(null)
   const [selectedSlot, setSelectedSlot] = useState<ActivityAvailability | null>(null)
   const [selectedGuides, setSelectedGuides] = useState<string[]>([])
-  const [selectedEscorts, setSelectedEscorts] = useState<string[]>([])
   const [showModal, setShowModal] = useState(false)
 
   // Filter states
   const [selectedActivityIds, setSelectedActivityIds] = useState<string[]>([])
-  const [showOnlyWithBookings, setShowOnlyWithBookings] = useState(false)
+  const [showOnlyWithBookings, setShowOnlyWithBookings] = useState(true) // Pre-selected
   const [showOnlyUnassigned, setShowOnlyUnassigned] = useState(false)
   const [activitySearchOpen, setActivitySearchOpen] = useState(false)
   const [activitySearchText, setActivitySearchText] = useState('')
@@ -100,8 +97,6 @@ export default function StaffCalendarPage() {
   const [showGroupForm, setShowGroupForm] = useState(false)
   const [editingGroup, setEditingGroup] = useState<string | null>(null)
 
-  // Modal tab state
-  const [activeTab, setActiveTab] = useState<'guides' | 'escorts'>('guides')
 
   // Busy guides (within 3-hour window)
   const [busyGuides, setBusyGuides] = useState<BusyGuideInfo[]>([])
@@ -237,6 +232,19 @@ export default function StaffCalendarPage() {
         `)
         .in('activity_availability_id', availabilityIds)
 
+      // Fetch headphone assignments
+      const { data: headphoneAssignmentsData } = await supabase
+        .from('headphone_assignments')
+        .select(`
+          assignment_id,
+          activity_availability_id,
+          headphone:headphones (
+            headphone_id,
+            name
+          )
+        `)
+        .in('activity_availability_id', availabilityIds)
+
       // Group assignments by availability id
       const guideAssignmentsMap = new Map<number, typeof guideAssignmentsData>()
       guideAssignmentsData?.forEach(assignment => {
@@ -248,6 +256,12 @@ export default function StaffCalendarPage() {
       escortAssignmentsData?.forEach(assignment => {
         const existing = escortAssignmentsMap.get(assignment.activity_availability_id) || []
         escortAssignmentsMap.set(assignment.activity_availability_id, [...existing, assignment])
+      })
+
+      const headphoneAssignmentsMap = new Map<number, typeof headphoneAssignmentsData>()
+      headphoneAssignmentsData?.forEach(assignment => {
+        const existing = headphoneAssignmentsMap.get(assignment.activity_availability_id) || []
+        headphoneAssignmentsMap.set(assignment.activity_availability_id, [...existing, assignment])
       })
 
       // Fetch actual bookings from activity_bookings for accurate counts
@@ -274,7 +288,8 @@ export default function StaffCalendarPage() {
           ...avail,
           actual_booking_count: actualBookingCount,
           guide_assignments: guideAssignmentsMap.get(avail.id) || [],
-          escort_assignments: escortAssignmentsMap.get(avail.id) || []
+          escort_assignments: escortAssignmentsMap.get(avail.id) || [],
+          headphone_assignments: headphoneAssignmentsMap.get(avail.id) || []
         }
       })
 
@@ -313,16 +328,6 @@ export default function StaffCalendarPage() {
 
       if (guidesError) throw guidesError
       setGuides(guidesData || [])
-
-      // Fetch all active escorts
-      const { data: escortsData, error: escortsError } = await supabase
-        .from('escorts')
-        .select('escort_id, first_name, last_name, email, languages, active')
-        .eq('active', true)
-        .order('first_name', { ascending: true })
-
-      if (escortsError) throw escortsError
-      setEscorts(escortsData || [])
     } catch (err) {
       console.error('Error fetching data:', err)
       setError('Failed to load calendar data')
@@ -409,8 +414,6 @@ export default function StaffCalendarPage() {
   const handleSlotClick = async (availability: ActivityAvailability) => {
     setSelectedSlot(availability)
     setSelectedGuides(availability.guide_assignments?.map(ga => ga.guide.guide_id) || [])
-    setSelectedEscorts(availability.escort_assignments?.map(ea => ea.escort.escort_id) || [])
-    setActiveTab('guides')
     setShowModal(true)
 
     // Fetch busy guides for this time slot (within 3-hour window)
@@ -509,7 +512,6 @@ export default function StaffCalendarPage() {
     setShowModal(false)
     setSelectedSlot(null)
     setSelectedGuides([])
-    setSelectedEscorts([])
     setBusyGuides([])
     setError(null)
   }
@@ -533,46 +535,43 @@ export default function StaffCalendarPage() {
     )
   }
 
-  const toggleEscort = (escortId: string) => {
-    setSelectedEscorts(prev =>
-      prev.includes(escortId)
-        ? prev.filter(id => id !== escortId)
-        : [...prev, escortId]
-    )
-  }
 
   const handleSaveAssignments = async () => {
     if (!selectedSlot) return
 
     setError(null)
     try {
-      // Handle guide assignments
+      // Handle guide assignments only
       const existingGuideIds = selectedSlot.guide_assignments?.map(ga => ga.guide.guide_id) || []
       const guidesToAdd = selectedGuides.filter(id => !existingGuideIds.includes(id))
       const guidesToRemove = existingGuideIds.filter(id => !selectedGuides.includes(id))
 
-      // Handle escort assignments
-      const existingEscortIds = selectedSlot.escort_assignments?.map(ea => ea.escort.escort_id) || []
-      const escortsToAdd = selectedEscorts.filter(id => !existingEscortIds.includes(id))
-      const escortsToRemove = existingEscortIds.filter(id => !selectedEscorts.includes(id))
+      // Delete removed guide assignments
+      if (guidesToRemove.length > 0) {
+        const params = new URLSearchParams()
+        params.append('activity_availability_id', String(selectedSlot.id))
+        params.append('guide_ids', guidesToRemove.join(','))
 
-      // Delete removed assignments via API
-      if (guidesToRemove.length > 0 || escortsToRemove.length > 0) {
-        const deleteResult = await availabilityAssignmentsApi.delete(
-          selectedSlot.id,
-          guidesToRemove.length > 0 ? guidesToRemove : undefined,
-          escortsToRemove.length > 0 ? escortsToRemove : undefined
-        )
+        const deleteResponse = await fetch(`/api/assignments/availability?${params.toString()}`, {
+          method: 'DELETE',
+          credentials: 'include'
+        })
+        const deleteResult = await deleteResponse.json()
         if (deleteResult.error) throw new Error(deleteResult.error)
       }
 
-      // Add new assignments via API
-      if (guidesToAdd.length > 0 || escortsToAdd.length > 0) {
-        const createResult = await availabilityAssignmentsApi.create(
-          selectedSlot.id,
-          guidesToAdd.length > 0 ? guidesToAdd : undefined,
-          escortsToAdd.length > 0 ? escortsToAdd : undefined
-        )
+      // Add new guide assignments
+      if (guidesToAdd.length > 0) {
+        const createResponse = await fetch('/api/assignments/availability', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          credentials: 'include',
+          body: JSON.stringify({
+            activity_availability_id: selectedSlot.id,
+            guide_ids: guidesToAdd
+          })
+        })
+        const createResult = await createResponse.json()
         if (createResult.error) throw new Error(createResult.error)
       }
 
@@ -700,7 +699,7 @@ export default function StaffCalendarPage() {
   return (
     <div className="p-6 max-w-7xl mx-auto">
       <div className="flex justify-between items-center mb-6">
-        <h1 className="text-2xl font-bold">Assignments</h1>
+        <h1 className="text-2xl font-bold">Guide Assignments</h1>
         <div className="flex gap-2">
           <Button
             onClick={() => setViewMode('weekly')}
@@ -1037,7 +1036,7 @@ export default function StaffCalendarPage() {
                           <Users className="w-3 h-3" />
                           <span>{avail.actual_booking_count || 0} bookings</span>
                         </div>
-                        {(avail.guide_assignments?.length > 0 || avail.escort_assignments?.length > 0) && (
+                        {(avail.guide_assignments?.length > 0 || avail.escort_assignments?.length > 0 || avail.headphone_assignments?.length > 0) && (
                           <div className="flex gap-2 text-xs mt-1">
                             {avail.guide_assignments?.length > 0 && (
                               <span className="text-purple-700 flex items-center gap-1">
@@ -1049,6 +1048,12 @@ export default function StaffCalendarPage() {
                               <span className="text-green-700 flex items-center gap-1">
                                 <UserCheck className="w-3 h-3" />
                                 {avail.escort_assignments.length}
+                              </span>
+                            )}
+                            {avail.headphone_assignments?.length > 0 && (
+                              <span className="text-purple-500 flex items-center gap-1">
+                                <Headphones className="w-3 h-3" />
+                                {avail.headphone_assignments.length}
                               </span>
                             )}
                           </div>
@@ -1101,126 +1106,59 @@ export default function StaffCalendarPage() {
                 </div>
               )}
 
-              {/* Tabs */}
-              <div className="flex border-b mb-4">
-                <button
-                  onClick={() => setActiveTab('guides')}
-                  className={`px-4 py-2 text-sm font-medium border-b-2 transition-colors ${
-                    activeTab === 'guides'
-                      ? 'border-purple-600 text-purple-600'
-                      : 'border-transparent text-gray-500 hover:text-gray-700'
-                  }`}
-                >
-                  <div className="flex items-center gap-2">
-                    <User className="w-4 h-4" />
-                    Guides ({selectedGuides.length})
-                  </div>
-                </button>
-                <button
-                  onClick={() => setActiveTab('escorts')}
-                  className={`px-4 py-2 text-sm font-medium border-b-2 transition-colors ${
-                    activeTab === 'escorts'
-                      ? 'border-green-600 text-green-600'
-                      : 'border-transparent text-gray-500 hover:text-gray-700'
-                  }`}
-                >
-                  <div className="flex items-center gap-2">
-                    <UserCheck className="w-4 h-4" />
-                    Escorts ({selectedEscorts.length})
-                  </div>
-                </button>
+              <div className="flex items-center gap-2 mb-3">
+                <User className="w-4 h-4 text-blue-600" />
+                <span className="font-medium">Select Guides</span>
+                <span className="text-sm text-gray-500">({selectedGuides.length} selected)</span>
               </div>
+              <p className="text-xs text-gray-500 mb-3">Guides can only be assigned to one service within a 3-hour window</p>
 
-              {/* Guides Tab */}
-              {activeTab === 'guides' && (
-                <div>
-                  <p className="text-xs text-gray-500 mb-3">Guides can only be assigned to one service within a 3-hour window</p>
-                  {guides.length === 0 ? (
-                    <p className="text-sm text-gray-500 p-4 border rounded">No active guides available</p>
-                  ) : (
-                    <div className="border rounded-lg overflow-hidden max-h-64 overflow-y-auto">
-                      {guides.map((guide) => {
-                        const busyInfo = isGuideBusy(guide.guide_id)
-                        const isBusy = !!busyInfo && !selectedGuides.includes(guide.guide_id)
+              {guides.length === 0 ? (
+                <p className="text-sm text-gray-500 p-4 border rounded">No active guides available</p>
+              ) : (
+                <div className="border rounded-lg overflow-hidden max-h-64 overflow-y-auto">
+                  {guides.map((guide) => {
+                    const busyInfo = isGuideBusy(guide.guide_id)
+                    const isBusy = !!busyInfo && !selectedGuides.includes(guide.guide_id)
 
-                        return (
-                          <label
-                            key={guide.guide_id}
-                            className={`flex items-center gap-3 px-4 py-3 border-b last:border-b-0 ${
-                              isBusy
-                                ? 'bg-gray-100 cursor-not-allowed opacity-60'
-                                : selectedGuides.includes(guide.guide_id)
-                                  ? 'bg-brand-green-light cursor-pointer hover:bg-gray-50'
-                                  : 'cursor-pointer hover:bg-gray-50'
-                            }`}
-                          >
-                            <Checkbox
-                              checked={selectedGuides.includes(guide.guide_id)}
-                              onCheckedChange={() => toggleGuide(guide.guide_id)}
-                              disabled={isBusy}
-                            />
-                            <div className="flex-1">
-                              <span className={`text-sm font-medium ${isBusy ? 'text-gray-500' : ''}`}>
-                                {guide.first_name} {guide.last_name}
-                              </span>
-                              {isBusy && busyInfo && (
-                                <div className="text-xs text-red-600 mt-1">
-                                  Busy at {busyInfo.conflicting_time} - {busyInfo.conflicting_service}
-                                </div>
-                              )}
+                    return (
+                      <label
+                        key={guide.guide_id}
+                        className={`flex items-center gap-3 px-4 py-3 border-b last:border-b-0 ${
+                          isBusy
+                            ? 'bg-gray-100 cursor-not-allowed opacity-60'
+                            : selectedGuides.includes(guide.guide_id)
+                              ? 'bg-blue-50 cursor-pointer hover:bg-gray-50'
+                              : 'cursor-pointer hover:bg-gray-50'
+                        }`}
+                      >
+                        <Checkbox
+                          checked={selectedGuides.includes(guide.guide_id)}
+                          onCheckedChange={() => toggleGuide(guide.guide_id)}
+                          disabled={isBusy}
+                        />
+                        <div className="flex-1">
+                          <span className={`text-sm font-medium ${isBusy ? 'text-gray-500' : ''}`}>
+                            {guide.first_name} {guide.last_name}
+                          </span>
+                          {isBusy && busyInfo && (
+                            <div className="text-xs text-red-600 mt-1">
+                              Busy at {busyInfo.conflicting_time} - {busyInfo.conflicting_service}
                             </div>
-                            <div className="flex items-center gap-1">
-                              {guide.languages.map(lang => (
-                                <span key={lang} className={`px-2 py-1 text-xs rounded ${
-                                  isBusy ? 'bg-gray-200 text-gray-500' : 'bg-brand-green-light text-green-800'
-                                }`}>
-                                  {lang}
-                                </span>
-                              ))}
-                            </div>
-                          </label>
-                        )
-                      })}
-                    </div>
-                  )}
-                </div>
-              )}
-
-              {/* Escorts Tab */}
-              {activeTab === 'escorts' && (
-                <div>
-                  <p className="text-xs text-gray-500 mb-3">Escorts can be assigned to multiple services at the same time</p>
-                  {escorts.length === 0 ? (
-                    <p className="text-sm text-gray-500 p-4 border rounded">No active escorts available</p>
-                  ) : (
-                    <div className="border rounded-lg overflow-hidden max-h-64 overflow-y-auto">
-                      {escorts.map((escort) => (
-                        <label
-                          key={escort.escort_id}
-                          className={`flex items-center gap-3 px-4 py-3 hover:bg-gray-50 cursor-pointer border-b last:border-b-0 ${
-                            selectedEscorts.includes(escort.escort_id) ? 'bg-green-50' : ''
-                          }`}
-                        >
-                          <Checkbox
-                            checked={selectedEscorts.includes(escort.escort_id)}
-                            onCheckedChange={() => toggleEscort(escort.escort_id)}
-                          />
-                          <div className="flex-1">
-                            <span className="text-sm font-medium">
-                              {escort.first_name} {escort.last_name}
+                          )}
+                        </div>
+                        <div className="flex items-center gap-1">
+                          {guide.languages.map(lang => (
+                            <span key={lang} className={`px-2 py-1 text-xs rounded ${
+                              isBusy ? 'bg-gray-200 text-gray-500' : 'bg-blue-100 text-blue-800'
+                            }`}>
+                              {lang}
                             </span>
-                          </div>
-                          <div className="flex items-center gap-1">
-                            {escort.languages.map(lang => (
-                              <span key={lang} className="px-2 py-1 text-xs bg-green-100 text-green-800 rounded">
-                                {lang}
-                              </span>
-                            ))}
-                          </div>
-                        </label>
-                      ))}
-                    </div>
-                  )}
+                          ))}
+                        </div>
+                      </label>
+                    )
+                  })}
                 </div>
               )}
 
@@ -1229,7 +1167,7 @@ export default function StaffCalendarPage() {
                   Cancel
                 </Button>
                 <Button type="button" onClick={handleSaveAssignments}>
-                  Save Assignments
+                  Save Guides
                 </Button>
               </div>
             </div>

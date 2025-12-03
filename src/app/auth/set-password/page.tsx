@@ -1,14 +1,14 @@
 'use client'
 
-import { useState, useEffect } from 'react'
-import { useRouter } from 'next/navigation'
+import { useState, useEffect, Suspense } from 'react'
+import { useRouter, useSearchParams } from 'next/navigation'
 import { createClientComponentClient } from '@supabase/auth-helpers-nextjs'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
 import { Label } from '@/components/ui/label'
 import { Eye, EyeOff, Check, X, Loader2 } from 'lucide-react'
 
-export default function SetPasswordPage() {
+function SetPasswordForm() {
   const [password, setPassword] = useState('')
   const [confirmPassword, setConfirmPassword] = useState('')
   const [showPassword, setShowPassword] = useState(false)
@@ -20,6 +20,7 @@ export default function SetPasswordPage() {
   const [tokenValid, setTokenValid] = useState(false)
 
   const router = useRouter()
+  const searchParams = useSearchParams()
   const supabase = createClientComponentClient()
 
   // Password requirements
@@ -34,36 +35,59 @@ export default function SetPasswordPage() {
   const passwordsMatch = password === confirmPassword && confirmPassword.length > 0
 
   useEffect(() => {
-    // Check if user arrived via invite link (they should have a session)
+    // Check if user arrived via invite link
     const checkSession = async () => {
       try {
+        // First check if already have a session
         const { data: { session } } = await supabase.auth.getSession()
 
         if (session) {
           setTokenValid(true)
-        } else {
-          // Try to exchange the token from URL hash
-          const hashParams = new URLSearchParams(window.location.hash.substring(1))
-          const accessToken = hashParams.get('access_token')
-          const refreshToken = hashParams.get('refresh_token')
-          const type = hashParams.get('type')
+          setValidatingToken(false)
+          return
+        }
 
-          if (accessToken && type === 'invite') {
-            // Set the session from the tokens
-            const { error } = await supabase.auth.setSession({
-              access_token: accessToken,
-              refresh_token: refreshToken || ''
-            })
+        // Check for token_hash in query params (from email template)
+        const tokenHash = searchParams.get('token_hash')
+        const type = searchParams.get('type')
 
-            if (!error) {
-              setTokenValid(true)
-            } else {
-              console.error('Session error:', error)
-              setError('Invalid or expired invitation link. Please request a new invitation.')
-            }
+        if (tokenHash && type === 'invite') {
+          // Verify the token hash with Supabase
+          const { error } = await supabase.auth.verifyOtp({
+            token_hash: tokenHash,
+            type: 'invite'
+          })
+
+          if (!error) {
+            setTokenValid(true)
           } else {
-            setError('Invalid invitation link. Please request a new invitation.')
+            console.error('Token verification error:', error)
+            setError('Invalid or expired invitation link. Please request a new invitation.')
           }
+          setValidatingToken(false)
+          return
+        }
+
+        // Try to exchange the token from URL hash (legacy format)
+        const hashParams = new URLSearchParams(window.location.hash.substring(1))
+        const accessToken = hashParams.get('access_token')
+        const refreshToken = hashParams.get('refresh_token')
+        const hashType = hashParams.get('type')
+
+        if (accessToken && hashType === 'invite') {
+          const { error } = await supabase.auth.setSession({
+            access_token: accessToken,
+            refresh_token: refreshToken || ''
+          })
+
+          if (!error) {
+            setTokenValid(true)
+          } else {
+            console.error('Session error:', error)
+            setError('Invalid or expired invitation link. Please request a new invitation.')
+          }
+        } else {
+          setError('Invalid invitation link. Please request a new invitation.')
         }
       } catch (err) {
         console.error('Session check error:', err)
@@ -74,7 +98,7 @@ export default function SetPasswordPage() {
     }
 
     checkSession()
-  }, [supabase.auth])
+  }, [supabase.auth, searchParams])
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault()
@@ -251,5 +275,20 @@ export default function SetPasswordPage() {
         </form>
       </div>
     </div>
+  )
+}
+
+export default function SetPasswordPage() {
+  return (
+    <Suspense fallback={
+      <div className="min-h-screen flex items-center justify-center bg-gray-100">
+        <div className="bg-white p-8 rounded-lg shadow-md text-center">
+          <Loader2 className="w-8 h-8 animate-spin text-orange-600 mx-auto mb-4" />
+          <p className="text-gray-600">Loading...</p>
+        </div>
+      </div>
+    }>
+      <SetPasswordForm />
+    </Suspense>
   )
 }

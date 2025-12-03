@@ -37,7 +37,7 @@ export async function POST(request: NextRequest) {
 
   try {
     const body = await request.json()
-    const { ticket_type, category_id } = body
+    const { ticket_type, category_id, activity_id, booked_titles } = body
 
     if (!ticket_type || !category_id) {
       return NextResponse.json({ error: 'ticket_type and category_id are required' }, { status: 400 })
@@ -48,7 +48,9 @@ export async function POST(request: NextRequest) {
       .from('ticket_type_mappings')
       .insert([{
         ticket_type,
-        category_id
+        category_id,
+        activity_id: activity_id || null,
+        booked_titles: booked_titles || []
       }])
       .select()
       .single()
@@ -79,7 +81,7 @@ export async function PUT(request: NextRequest) {
 
   try {
     const body = await request.json()
-    const { id, ticket_type, category_id } = body
+    const { id, ticket_type, category_id, activity_id, booked_titles } = body
 
     if (!id) {
       return NextResponse.json({ error: 'id is required' }, { status: 400 })
@@ -101,7 +103,9 @@ export async function PUT(request: NextRequest) {
       .from('ticket_type_mappings')
       .update({
         ticket_type,
-        category_id
+        category_id,
+        activity_id: activity_id || null,
+        booked_titles: booked_titles || []
       })
       .eq('id', id)
       .select()

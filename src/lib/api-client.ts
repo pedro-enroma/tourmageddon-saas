@@ -88,6 +88,26 @@ export const escortsApi = {
 }
 
 // ============================================
+// HEADPHONES API
+// ============================================
+export interface Headphone {
+  headphone_id: string
+  name: string
+  email?: string
+  phone_number?: string
+  active: boolean
+  created_at?: string
+  updated_at?: string
+}
+
+export const headphonesApi = {
+  list: () => apiRequest<Headphone[]>('/api/headphones'),
+  create: (headphone: Partial<Headphone>) => apiRequest<Headphone>('/api/headphones', 'POST', headphone),
+  update: (headphone: Partial<Headphone>) => apiRequest<Headphone>('/api/headphones', 'PUT', headphone),
+  delete: (headphone_id: string) => apiRequest(`/api/headphones?headphone_id=${headphone_id}`, 'DELETE'),
+}
+
+// ============================================
 // ASSIGNMENTS API
 // ============================================
 export interface GuideAssignment {
@@ -294,6 +314,8 @@ export interface EmailTemplate {
   name: string
   subject: string
   body: string
+  template_type: 'guide' | 'escort' | 'headphone'
+  is_default: boolean
   created_at: string
 }
 
@@ -381,9 +403,9 @@ export const usersApi = {
   create: (user: { email: string; full_name: string; role: string }) =>
     apiRequest<{ data: AppUser; message: string }>('/api/users', 'POST', user),
   update: (id: string, user: Partial<AppUser>) =>
-    apiRequest<AppUser>(`/api/users/${id}`, 'PUT', user),
+    apiRequest<AppUser>('/api/users', 'PUT', { id, ...user }),
   delete: (id: string) =>
-    apiRequest(`/api/users/${id}`, 'DELETE'),
+    apiRequest(`/api/users?id=${id}`, 'DELETE'),
 }
 
 // ============================================
@@ -433,4 +455,28 @@ export const mfaApi = {
     apiRequest('/api/auth/mfa/verify', 'POST', { factorId, challengeId, code }),
   unenroll: (factorId: string) =>
     apiRequest('/api/auth/mfa/unenroll', 'POST', { factorId }),
+}
+
+// ============================================
+// ACTIVITY TEMPLATE ASSIGNMENTS API
+// ============================================
+export interface ActivityTemplateAssignment {
+  id: string
+  activity_id: string
+  template_id: string
+  template_type: 'guide' | 'escort' | 'headphone'
+  created_at: string
+  // Joined fields
+  template?: EmailTemplate
+}
+
+export const activityTemplatesApi = {
+  list: (activity_id?: string) => {
+    const params = activity_id ? `?activity_id=${activity_id}` : ''
+    return apiRequest<ActivityTemplateAssignment[]>(`/api/content/activity-templates${params}`)
+  },
+  create: (assignment: { activity_id: string; template_id: string; template_type: 'guide' | 'escort' | 'headphone' }) =>
+    apiRequest<ActivityTemplateAssignment>('/api/content/activity-templates', 'POST', assignment),
+  delete: (activity_id: string, template_type: string) =>
+    apiRequest(`/api/content/activity-templates?activity_id=${activity_id}&template_type=${template_type}`, 'DELETE'),
 }

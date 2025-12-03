@@ -2,7 +2,7 @@ import { NextRequest, NextResponse } from 'next/server'
 import { getServiceRoleClient, verifySession } from '@/lib/supabase-server'
 import { auditCreate, auditDelete, getRequestContext } from '@/lib/audit-logger'
 
-// POST - Create guide/escort assignments for activity_availability
+// POST - Create guide/escort/headphone assignments for activity_availability
 export async function POST(request: NextRequest) {
   const { user, error: authError } = await verifySession()
   if (authError || !user) {
@@ -11,7 +11,7 @@ export async function POST(request: NextRequest) {
 
   try {
     const body = await request.json()
-    const { activity_availability_id, guide_ids, escort_ids } = body
+    const { activity_availability_id, guide_ids, escort_ids, headphone_ids } = body
 
     if (!activity_availability_id) {
       return NextResponse.json({ error: 'activity_availability_id is required' }, { status: 400 })
@@ -19,7 +19,7 @@ export async function POST(request: NextRequest) {
 
     const supabase = getServiceRoleClient()
     const { ip, userAgent } = getRequestContext(request)
-    const results: { guides: unknown[]; escorts: unknown[] } = { guides: [], escorts: [] }
+    const results: { guides: unknown[]; escorts: unknown[]; headphones: unknown[] } = { guides: [], escorts: [], headphones: [] }
 
     // Insert guide assignments
     if (guide_ids && guide_ids.length > 0) {
@@ -67,6 +67,29 @@ export async function POST(request: NextRequest) {
       }
     }
 
+    // Insert headphone assignments
+    if (headphone_ids && headphone_ids.length > 0) {
+      const headphoneAssignments = headphone_ids.map((headphone_id: string) => ({
+        headphone_id,
+        activity_availability_id
+      }))
+
+      const { data: headphoneData, error: headphoneError } = await supabase
+        .from('headphone_assignments')
+        .insert(headphoneAssignments)
+        .select()
+
+      if (headphoneError) {
+        console.error('Error creating headphone assignments:', headphoneError)
+        // Continue anyway, some might be duplicates
+      } else {
+        results.headphones = headphoneData || []
+        for (const assignment of headphoneData || []) {
+          await auditCreate(user.id, user.email, 'headphone_assignment', assignment.assignment_id, assignment, ip, userAgent)
+        }
+      }
+    }
+
     return NextResponse.json({ data: results }, { status: 201 })
   } catch (err) {
     console.error('Assignment creation error:', err)
@@ -74,7 +97,7 @@ export async function POST(request: NextRequest) {
   }
 }
 
-// DELETE - Remove guide/escort assignments for activity_availability
+// DELETE - Remove guide/escort/headphone assignments for activity_availability
 export async function DELETE(request: NextRequest) {
   const { user, error: authError } = await verifySession()
   if (authError || !user) {
@@ -86,6 +109,7 @@ export async function DELETE(request: NextRequest) {
     const activity_availability_id = searchParams.get('activity_availability_id')
     const guide_ids = searchParams.get('guide_ids')?.split(',').filter(Boolean)
     const escort_ids = searchParams.get('escort_ids')?.split(',').filter(Boolean)
+    const headphone_ids = searchParams.get('headphone_ids')?.split(',').filter(Boolean)
 
     if (!activity_availability_id) {
       return NextResponse.json({ error: 'activity_availability_id is required' }, { status: 400 })
@@ -138,6 +162,30 @@ export async function DELETE(request: NextRequest) {
       } else {
         for (const assignment of oldEscortData || []) {
           await auditDelete(user.id, user.email, 'escort_assignment', assignment.assignment_id, assignment, ip, userAgent)
+        }
+      }
+    }
+
+    // Delete headphone assignments
+    if (headphone_ids && headphone_ids.length > 0) {
+      // Get old data for audit
+      const { data: oldHeadphoneData } = await supabase
+        .from('headphone_assignments')
+        .select('*')
+        .eq('activity_availability_id', activity_availability_id)
+        .in('headphone_id', headphone_ids)
+
+      const { error: headphoneError } = await supabase
+        .from('headphone_assignments')
+        .delete()
+        .eq('activity_availability_id', activity_availability_id)
+        .in('headphone_id', headphone_ids)
+
+      if (headphoneError) {
+        console.error('Error deleting headphone assignments:', headphoneError)
+      } else {
+        for (const assignment of oldHeadphoneData || []) {
+          await auditDelete(user.id, user.email, 'headphone_assignment', assignment.assignment_id, assignment, ip, userAgent)
         }
       }
     }
