@@ -1,7 +1,6 @@
 'use client'
 
 import { useState, useEffect } from 'react'
-import { supabase } from '@/lib/supabase'
 import { headphonesApi } from '@/lib/api-client'
 import { Plus, Edit, Trash2, Search, X, Headphones } from 'lucide-react'
 import { Button } from '@/components/ui/button'
@@ -43,13 +42,9 @@ export default function HeadphonesListPage() {
     setLoading(true)
     setError(null)
     try {
-      const { data, error } = await supabase
-        .from('headphones')
-        .select('*')
-        .order('created_at', { ascending: false })
-
-      if (error) throw error
-      setHeadphones(data || [])
+      const result = await headphonesApi.list()
+      if (result.error) throw new Error(result.error)
+      setHeadphones(result.data || [])
     } catch (err) {
       console.error('Error fetching headphones:', err)
       setError('Failed to load headphones')
