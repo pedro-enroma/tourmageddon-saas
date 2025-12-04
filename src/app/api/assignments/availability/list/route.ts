@@ -34,7 +34,8 @@ export async function GET(request: NextRequest) {
           guide_id,
           first_name,
           last_name,
-          email
+          email,
+          phone_number
         )
       `)
       .in('activity_availability_id', availabilityIds)
@@ -53,7 +54,8 @@ export async function GET(request: NextRequest) {
           escort_id,
           first_name,
           last_name,
-          email
+          email,
+          phone_number
         )
       `)
       .in('activity_availability_id', availabilityIds)

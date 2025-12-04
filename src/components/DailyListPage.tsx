@@ -398,7 +398,8 @@ export default function DailyListPage() {
           id: guide.guide_id,
           first_name: guide.first_name,
           last_name: guide.last_name,
-          email: guide.email
+          email: guide.email,
+          phone_number: guide.phone_number
         })
       }
     })
@@ -410,7 +411,8 @@ export default function DailyListPage() {
           id: escort.escort_id,
           first_name: escort.first_name,
           last_name: escort.last_name,
-          email: escort.email
+          email: escort.email,
+          phone_number: escort.phone_number
         })
       }
     })
