@@ -314,23 +314,15 @@ export default function DailyListPage() {
     }
   }
 
-  // Fetch email logs for the selected date
+  // Fetch email logs for the selected date via API (to bypass RLS)
   const fetchEmailLogs = async (dateStr: string) => {
     setLoadingLogs(true)
     try {
-      // Get start and end of the day in UTC
-      const startOfDay = `${dateStr}T00:00:00`
-      const endOfDay = `${dateStr}T23:59:59`
+      const response = await fetch(`/api/email/logs?date=${dateStr}`)
+      const result = await response.json()
 
-      const { data, error } = await supabase
-        .from('email_logs')
-        .select('*')
-        .gte('sent_at', startOfDay)
-        .lte('sent_at', endOfDay)
-        .order('sent_at', { ascending: false })
-
-      if (!error && data) {
-        setEmailLogs(data)
+      if (response.ok && result.data) {
+        setEmailLogs(result.data)
       }
     } catch (err) {
       console.error('Error fetching email logs:', err)
@@ -1752,7 +1744,7 @@ EnRoma.com Team`
           const serviceText = serviceItemTemplate
             .replace(/\{\{service\.title\}\}/g, service.tour.tourTitle)
             .replace(/\{\{service\.time\}\}/g, service.timeSlot.time.substring(0, 5))
-            .replace(/\{\{service\.meeting_point\}\}/g, meetingPoint?.name || '')
+            .replace(/\{\{service\.meeting_point\}\}/g, meetingPoint?.address || meetingPoint?.name || '')
             .replace(/\{\{service\.pax_count\}\}/g, String(service.timeSlot.totalParticipants))
             .replace(/\{\{service\.guide_name\}\}/g, service.guideName || 'TBD')
             .replace(/\{\{service\.guide_phone\}\}/g, guidePhone)
@@ -1880,7 +1872,7 @@ EnRoma.com Team`
           const serviceText = serviceItemTemplate
             .replace(/\{\{service\.title\}\}/g, service.tour.tourTitle)
             .replace(/\{\{service\.time\}\}/g, service.timeSlot.time.substring(0, 5))
-            .replace(/\{\{service\.meeting_point\}\}/g, meetingPoint?.name || '')
+            .replace(/\{\{service\.meeting_point\}\}/g, meetingPoint?.address || meetingPoint?.name || '')
             .replace(/\{\{service\.pax_count\}\}/g, String(service.timeSlot.totalParticipants))
             .replace(/\{\{service\.guide_name\}\}/g, service.guideName || 'TBD')
             .replace(/\{\{service\.guide_phone\}\}/g, guidePhone)
