@@ -1,0 +1,28 @@
+-- Migration: Automatic email alerts for age mismatch notifications
+--
+-- This migration documents the setup needed for automatic email alerts.
+-- The actual email sending is handled by a Supabase Database Webhook.
+--
+-- SETUP INSTRUCTIONS:
+-- ===================
+-- 1. Go to Supabase Dashboard > Database > Webhooks
+-- 2. Create a new webhook with these settings:
+--    - Name: notification_alert_email
+--    - Table: booking_notifications
+--    - Events: INSERT
+--    - Type: HTTP Request
+--    - Method: POST
+--    - URL: https://tourmageddon.it/api/webhooks/notification-alert
+--    - HTTP Headers:
+--      - Content-Type: application/json
+--      - x-webhook-secret: [create a secret and add to .env as SUPABASE_WEBHOOK_SECRET]
+--
+-- 3. Add SUPABASE_WEBHOOK_SECRET to your environment variables
+--
+-- The webhook endpoint will automatically:
+-- - Filter for age_mismatch notifications only
+-- - Send email to operations@enroma.com
+-- - Log the email in email_logs table
+
+-- No database changes needed - this is documentation only
+SELECT 'Webhook setup instructions - see comments above' AS note;
