@@ -852,7 +852,8 @@ export default function DailyListPage() {
           activityAvailabilityId: emailTimeSlot.availabilityId,
           attachmentUrls,
           dailyListData,
-          dailyListFileName
+          dailyListFileName,
+          serviceDate: selectedDate
         })
       })
 
@@ -1415,7 +1416,8 @@ EnRoma.com Team`
               activityAvailabilityId: availabilityId,
               attachmentUrls,
               dailyListData: dailyList?.data,
-              dailyListFileName: dailyList?.fileName
+              dailyListFileName: dailyList?.fileName,
+              serviceDate: selectedDate
             })
           })
 
@@ -1545,7 +1547,8 @@ EnRoma.com Team`
             body: emailBody,
             attachmentUrls: [],
             dailyListData: consolidatedExcel?.data,
-            dailyListFileName: consolidatedExcel?.fileName
+            dailyListFileName: consolidatedExcel?.fileName,
+            serviceDate: selectedDate
           })
         })
 
@@ -1666,7 +1669,8 @@ EnRoma.com Team`
             }],
             subject: emailSubject,
             body: emailBody,
-            attachmentUrls: []
+            attachmentUrls: [],
+            serviceDate: selectedDate
           })
         })
 

@@ -18,15 +18,11 @@ export async function GET(request: NextRequest) {
 
     const supabase = getServiceRoleClient()
 
-    // Get start and end of the day
-    const startOfDay = `${date}T00:00:00`
-    const endOfDay = `${date}T23:59:59`
-
+    // Query by service_date (the date of the service the email relates to)
     const { data, error } = await supabase
       .from('email_logs')
       .select('*')
-      .gte('sent_at', startOfDay)
-      .lte('sent_at', endOfDay)
+      .eq('service_date', date)
       .order('sent_at', { ascending: false })
 
     if (error) {

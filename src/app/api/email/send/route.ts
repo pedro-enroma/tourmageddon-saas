@@ -25,6 +25,7 @@ interface EmailRequest {
   attachmentUrls?: string[]
   dailyListData?: string // Base64 encoded Excel file
   dailyListFileName?: string
+  serviceDate?: string // The date of the service (YYYY-MM-DD format)
   // Additional context for template variables
   serviceContext?: {
     tourTitle?: string
@@ -155,7 +156,7 @@ export async function POST(request: NextRequest) {
 
   try {
     const body: EmailRequest = await request.json()
-    const { recipients, subject, body: emailBody, activityAvailabilityId, attachmentUrls, dailyListData, dailyListFileName, serviceContext } = body
+    const { recipients, subject, body: emailBody, activityAvailabilityId, attachmentUrls, dailyListData, dailyListFileName, serviceDate, serviceContext } = body
 
     if (!recipients || recipients.length === 0) {
       return NextResponse.json({ error: 'No recipients provided' }, { status: 400 })
@@ -263,6 +264,7 @@ export async function POST(request: NextRequest) {
             recipient_type: recipient.type,
             recipient_id: recipient.id,
             activity_availability_id: activityAvailabilityId || null,
+            service_date: serviceDate || null,
             subject: personalizedSubject,
             status: 'failed',
             error_message: error.message
@@ -280,6 +282,7 @@ export async function POST(request: NextRequest) {
             recipient_type: recipient.type,
             recipient_id: recipient.id,
             activity_availability_id: activityAvailabilityId || null,
+            service_date: serviceDate || null,
             subject: personalizedSubject,
             status: 'sent'
           })
