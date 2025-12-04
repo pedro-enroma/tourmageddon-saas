@@ -1749,7 +1749,7 @@ EnRoma.com Team`
           const headphonePhone = staffAssignment?.headphones.map(h => h.phone_number).filter(Boolean).join(', ') || ''
 
           // Replace service item template variables
-          let serviceText = serviceItemTemplate
+          const serviceText = serviceItemTemplate
             .replace(/\{\{service\.title\}\}/g, service.tour.tourTitle)
             .replace(/\{\{service\.time\}\}/g, service.timeSlot.time.substring(0, 5))
             .replace(/\{\{service\.meeting_point\}\}/g, meetingPoint?.name || '')
@@ -1767,12 +1767,12 @@ EnRoma.com Team`
         // Replace main template variables
         const formattedDate = format(new Date(selectedDate), 'EEEE, MMMM d, yyyy')
 
-        let emailSubject = escortTemplate.subject
+        const emailSubject = escortTemplate.subject
           .replace(/\{\{name\}\}/g, escortName)
           .replace(/\{\{date\}\}/g, formattedDate)
           .replace(/\{\{services_count\}\}/g, String(services.length))
 
-        let emailBody = escortTemplate.body
+        const emailBody = escortTemplate.body
           .replace(/\{\{name\}\}/g, escortName)
           .replace(/\{\{date\}\}/g, formattedDate)
           .replace(/\{\{services_list\}\}/g, servicesList)
@@ -1864,7 +1864,7 @@ EnRoma.com Team`
         const serviceItemTemplate = headphoneTemplate.service_item_template ||
           'Ore: {{service.time}} - {{service.title}}\nTotale Pax: {{service.pax_count}}\nGuida: {{service.guide_name}}'
 
-        const servicesList = sortedServices.map((service, index) => {
+        const servicesList = sortedServices.map((service) => {
           // Get meeting point for this service
           const activityId = service.timeSlot.bookings[0]?.activity_id
           const meetingPoint = activityId ? activityMeetingPoints.get(activityId) : null
@@ -1877,7 +1877,7 @@ EnRoma.com Team`
           const escortPhone = service.escortPhone || ''
 
           // Replace service item template variables
-          let serviceText = serviceItemTemplate
+          const serviceText = serviceItemTemplate
             .replace(/\{\{service\.title\}\}/g, service.tour.tourTitle)
             .replace(/\{\{service\.time\}\}/g, service.timeSlot.time.substring(0, 5))
             .replace(/\{\{service\.meeting_point\}\}/g, meetingPoint?.name || '')
@@ -1895,12 +1895,12 @@ EnRoma.com Team`
         // Replace main template variables
         const formattedDate = format(new Date(selectedDate), 'EEEE, MMMM d, yyyy')
 
-        let emailSubject = headphoneTemplate.subject
+        const emailSubject = headphoneTemplate.subject
           .replace(/\{\{name\}\}/g, headphoneName)
           .replace(/\{\{date\}\}/g, formattedDate)
           .replace(/\{\{services_count\}\}/g, String(services.length))
 
-        let emailBody = headphoneTemplate.body
+        const emailBody = headphoneTemplate.body
           .replace(/\{\{name\}\}/g, headphoneName)
           .replace(/\{\{date\}\}/g, formattedDate)
           .replace(/\{\{services_list\}\}/g, servicesList)
