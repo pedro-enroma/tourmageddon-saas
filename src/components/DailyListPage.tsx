@@ -108,6 +108,7 @@ interface Person {
   first_name: string
   last_name: string
   email?: string
+  phone_number?: string
 }
 
 interface StaffAssignment {
@@ -131,6 +132,16 @@ interface EmailTemplate {
   name: string
   subject: string
   body: string
+  is_default: boolean
+}
+
+interface ConsolidatedEmailTemplate {
+  id: string
+  name: string
+  subject: string
+  body: string
+  service_item_template: string | null
+  template_type: 'escort_consolidated' | 'headphone_consolidated'
   is_default: boolean
 }
 
@@ -219,6 +230,9 @@ export default function DailyListPage() {
   // Vouchers state (activity_availability_id -> vouchers)
   const [slotVouchers, setSlotVouchers] = useState<Map<number, VoucherInfo[]>>(new Map())
 
+  // Consolidated email templates
+  const [consolidatedTemplates, setConsolidatedTemplates] = useState<ConsolidatedEmailTemplate[]>([])
+
   // File upload
   const fileInputRef = useRef<HTMLInputElement>(null)
   const [uploadingFor, setUploadingFor] = useState<number | null>(null)
@@ -234,6 +248,7 @@ export default function DailyListPage() {
   useEffect(() => {
     loadActivitiesAndFetchData()
     fetchEmailTemplates()
+    fetchConsolidatedTemplates()
   }, [])
 
   // Fetch email templates
@@ -246,6 +261,19 @@ export default function DailyListPage() {
 
     if (!error && data) {
       setEmailTemplates(data)
+    }
+  }
+
+  // Fetch consolidated email templates
+  const fetchConsolidatedTemplates = async () => {
+    try {
+      const response = await fetch('/api/content/consolidated-templates')
+      const result = await response.json()
+      if (response.ok && result.data) {
+        setConsolidatedTemplates(result.data)
+      }
+    } catch (err) {
+      console.error('Error fetching consolidated templates:', err)
     }
   }
 
@@ -402,7 +430,8 @@ export default function DailyListPage() {
           id: headphone.headphone_id,
           first_name: headphone.name,
           last_name: '',
-          email: headphone.email
+          email: headphone.email,
+          phone_number: headphone.phone_number
         })
       }
     })
@@ -1393,7 +1422,7 @@ export default function DailyListPage() {
   const getEscortsWithServices = () => {
     const escortServices = new Map<string, {
       escort: Person;
-      services: { tour: TourGroup; timeSlot: TimeSlotGroup; availabilityId: number; guideName: string }[]
+      services: { tour: TourGroup; timeSlot: TimeSlotGroup; availabilityId: number; guideName: string; guidePhone: string }[]
     }>()
 
     for (const tour of groupedTours) {
@@ -1421,6 +1450,7 @@ export default function DailyListPage() {
         if (!availabilityId) continue
 
         const guideName = assignedGuides.map(g => `${g.first_name} ${g.last_name}`).join(', ')
+        const guidePhone = assignedGuides.map(g => g.phone_number).filter(Boolean).join(', ')
 
         for (const escort of assignedEscorts) {
           if (!escort.email) continue
@@ -1433,7 +1463,8 @@ export default function DailyListPage() {
             tour,
             timeSlot,
             availabilityId,
-            guideName
+            guideName,
+            guidePhone
           })
         }
       }
@@ -1446,7 +1477,7 @@ export default function DailyListPage() {
   const getHeadphonesWithServices = () => {
     const headphoneServices = new Map<string, {
       headphone: Person;
-      services: { tour: TourGroup; timeSlot: TimeSlotGroup; availabilityId: number; guideName: string; escortNames: string[] }[]
+      services: { tour: TourGroup; timeSlot: TimeSlotGroup; availabilityId: number; guideName: string; guidePhone: string; escortNames: string[]; escortPhone: string }[]
     }>()
 
     for (const tour of groupedTours) {
@@ -1476,7 +1507,9 @@ export default function DailyListPage() {
         if (!availabilityId) continue
 
         const guideName = assignedGuides.map(g => `${g.first_name} ${g.last_name}`).join(', ')
+        const guidePhone = assignedGuides.map(g => g.phone_number).filter(Boolean).join(', ')
         const escortNames = assignedEscorts.map(e => `${e.first_name} ${e.last_name}`)
+        const escortPhone = assignedEscorts.map(e => e.phone_number).filter(Boolean).join(', ')
 
         for (const headphone of assignedHeadphones) {
           if (!headphone.email) continue
@@ -1490,7 +1523,9 @@ export default function DailyListPage() {
             timeSlot,
             availabilityId,
             guideName,
-            escortNames
+            guidePhone,
+            escortNames,
+            escortPhone
           })
         }
       }
@@ -1664,6 +1699,16 @@ EnRoma.com Team`
       return
     }
 
+    // Get default escort consolidated template
+    const escortTemplate = consolidatedTemplates.find(
+      t => t.template_type === 'escort_consolidated' && t.is_default
+    ) || consolidatedTemplates.find(t => t.template_type === 'escort_consolidated')
+
+    if (!escortTemplate) {
+      alert('No consolidated template found for escorts. Please create one in Content Management.')
+      return
+    }
+
     setShowBulkEmailDrawer(false)
     setSendingBulkEscorts(true)
     setBulkEmailProgress({ sent: 0, total: bulkSelectedRecipients.size })
@@ -1686,57 +1731,54 @@ EnRoma.com Team`
           sortedServices.map(s => ({ tour: s.tour, timeSlot: s.timeSlot, guideName: s.guideName }))
         )
 
-        const servicesText = sortedServices.map((service, index) => {
-          return `**Service ${index + 1}:**
-- Activity: ${service.tour.tourTitle}
-- Time: ${service.timeSlot.time.substring(0, 5)}
-- Participants: ${service.timeSlot.totalParticipants} pax
-- Guide: ${service.guideName || 'TBD'}`
+        // Generate services list using the service item template
+        const serviceItemTemplate = escortTemplate.service_item_template ||
+          'Ore: {{service.time}} - {{service.title}}\nTotale Pax: {{service.pax_count}}\nGuida: {{service.guide_name}}'
+
+        const servicesList = sortedServices.map((service) => {
+          // Get meeting point for this service
+          const activityId = service.timeSlot.bookings[0]?.activity_id
+          const meetingPoint = activityId ? activityMeetingPoints.get(activityId) : null
+
+          // Get guide phone if available
+          const guidePhone = service.guidePhone || ''
+
+          // Get headphone info for this slot
+          const staffAssignment = staffAssignments.get(service.availabilityId)
+          const headphoneNames = staffAssignment?.headphones.map(h => `${h.first_name} ${h.last_name}`).join(', ') || 'TBD'
+          const headphonePhone = staffAssignment?.headphones.map(h => h.phone_number).filter(Boolean).join(', ') || ''
+
+          // Replace service item template variables
+          let serviceText = serviceItemTemplate
+            .replace(/\{\{service\.title\}\}/g, service.tour.tourTitle)
+            .replace(/\{\{service\.time\}\}/g, service.timeSlot.time.substring(0, 5))
+            .replace(/\{\{service\.meeting_point\}\}/g, meetingPoint?.name || '')
+            .replace(/\{\{service\.pax_count\}\}/g, String(service.timeSlot.totalParticipants))
+            .replace(/\{\{service\.guide_name\}\}/g, service.guideName || 'TBD')
+            .replace(/\{\{service\.guide_phone\}\}/g, guidePhone)
+            .replace(/\{\{service\.escort_name\}\}/g, escortName)
+            .replace(/\{\{service\.escort_phone\}\}/g, escort.phone_number || '')
+            .replace(/\{\{service\.headphone_name\}\}/g, headphoneNames)
+            .replace(/\{\{service\.headphone_phone\}\}/g, headphonePhone)
+
+          return serviceText
         }).join('\n\n')
 
-        // Build consolidated meeting points section (unique meeting points only, shown once)
-        let meetingPointsSection = ''
-        if (includeMeetingPoint) {
-          const uniqueMeetingPoints = new Map<string, MeetingPoint>()
-          for (const service of sortedServices) {
-            // Get activity_id from the first booking in timeSlot
-            const activityId = service.timeSlot.bookings[0]?.activity_id
-            const meetingPoint = activityId ? activityMeetingPoints.get(activityId) : null
-            if (meetingPoint && !uniqueMeetingPoints.has(meetingPoint.id)) {
-              uniqueMeetingPoints.set(meetingPoint.id, meetingPoint)
-            }
-          }
+        // Replace main template variables
+        const formattedDate = format(new Date(selectedDate), 'EEEE, MMMM d, yyyy')
 
-          if (uniqueMeetingPoints.size > 0) {
-            const meetingPointsText = Array.from(uniqueMeetingPoints.values()).map(mp => {
-              let mpText = `• **${mp.name}**`
-              if (mp.address) mpText += `\n  ${mp.address}`
-              if (mp.google_maps_url) mpText += `\n  Map: ${mp.google_maps_url}`
-              if (mp.instructions) mpText += `\n  ${mp.instructions}`
-              return mpText
-            }).join('\n\n')
+        let emailSubject = escortTemplate.subject
+          .replace(/\{\{name\}\}/g, escortName)
+          .replace(/\{\{date\}\}/g, formattedDate)
+          .replace(/\{\{services_count\}\}/g, String(services.length))
 
-            meetingPointsSection = `\n\n**Meeting Points:**\n${meetingPointsText}`
-          }
-        }
+        let emailBody = escortTemplate.body
+          .replace(/\{\{name\}\}/g, escortName)
+          .replace(/\{\{date\}\}/g, formattedDate)
+          .replace(/\{\{services_list\}\}/g, servicesList)
+          .replace(/\{\{services_count\}\}/g, String(services.length))
 
-        const emailBodyText = `Hello ${escort.first_name},
-
-You have been assigned to the following services on ${format(new Date(selectedDate), 'EEEE, MMMM d, yyyy')}:
-
-${servicesText}${meetingPointsSection}
-
-Please find attached the consolidated list with all bookings for your services.
-
-Best regards,
-EnRoma.com Team`
-
-        const allAttachmentUrls: string[] = []
-        for (const service of services) {
-          const slotAttachments = attachments.filter(a => a.activity_availability_id === service.availabilityId)
-          allAttachmentUrls.push(...slotAttachments.map(a => a.file_path))
-        }
-
+        // Don't include attachments - only the Excel
         const response = await fetch('/api/email/send', {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
@@ -1747,9 +1789,9 @@ EnRoma.com Team`
               type: 'escort',
               id: escort.id
             }],
-            subject: `Service Assignments: ${format(new Date(selectedDate), 'MMM d, yyyy')} - ${services.length} service(s)`,
-            body: emailBodyText,
-            attachmentUrls: allAttachmentUrls,
+            subject: emailSubject,
+            body: emailBody,
+            attachmentUrls: [],
             dailyListData: consolidatedExcel?.data,
             dailyListFileName: consolidatedExcel?.fileName
           })
@@ -1786,6 +1828,16 @@ EnRoma.com Team`
       return
     }
 
+    // Get default headphone consolidated template
+    const headphoneTemplate = consolidatedTemplates.find(
+      t => t.template_type === 'headphone_consolidated' && t.is_default
+    ) || consolidatedTemplates.find(t => t.template_type === 'headphone_consolidated')
+
+    if (!headphoneTemplate) {
+      alert('No consolidated template found for headphones. Please create one in Content Management.')
+      return
+    }
+
     setShowBulkEmailDrawer(false)
     setSendingBulkHeadphones(true)
     setBulkEmailProgress({ sent: 0, total: bulkSelectedRecipients.size })
@@ -1808,58 +1860,53 @@ EnRoma.com Team`
           sortedServices.map(s => ({ tour: s.tour, timeSlot: s.timeSlot, guideName: s.guideName, escortNames: s.escortNames }))
         )
 
-        const servicesText = sortedServices.map((service, index) => {
-          const escortsText = service.escortNames.length > 0 ? `, Escorts: ${service.escortNames.join(', ')}` : ''
-          return `**Service ${index + 1}:**
-- Activity: ${service.tour.tourTitle}
-- Time: ${service.timeSlot.time.substring(0, 5)}
-- Participants: ${service.timeSlot.totalParticipants} pax
-- Guide: ${service.guideName || 'TBD'}${escortsText}`
+        // Generate services list using the service item template
+        const serviceItemTemplate = headphoneTemplate.service_item_template ||
+          'Ore: {{service.time}} - {{service.title}}\nTotale Pax: {{service.pax_count}}\nGuida: {{service.guide_name}}'
+
+        const servicesList = sortedServices.map((service, index) => {
+          // Get meeting point for this service
+          const activityId = service.timeSlot.bookings[0]?.activity_id
+          const meetingPoint = activityId ? activityMeetingPoints.get(activityId) : null
+
+          // Get guide phone if available
+          const guidePhone = service.guidePhone || ''
+
+          // Get escort info
+          const escortNames = service.escortNames.join(', ') || 'TBD'
+          const escortPhone = service.escortPhone || ''
+
+          // Replace service item template variables
+          let serviceText = serviceItemTemplate
+            .replace(/\{\{service\.title\}\}/g, service.tour.tourTitle)
+            .replace(/\{\{service\.time\}\}/g, service.timeSlot.time.substring(0, 5))
+            .replace(/\{\{service\.meeting_point\}\}/g, meetingPoint?.name || '')
+            .replace(/\{\{service\.pax_count\}\}/g, String(service.timeSlot.totalParticipants))
+            .replace(/\{\{service\.guide_name\}\}/g, service.guideName || 'TBD')
+            .replace(/\{\{service\.guide_phone\}\}/g, guidePhone)
+            .replace(/\{\{service\.escort_name\}\}/g, escortNames)
+            .replace(/\{\{service\.escort_phone\}\}/g, escortPhone)
+            .replace(/\{\{service\.headphone_name\}\}/g, headphoneName)
+            .replace(/\{\{service\.headphone_phone\}\}/g, headphone.phone_number || '')
+
+          return serviceText
         }).join('\n\n')
 
-        // Build consolidated meeting points section (unique meeting points only, shown once)
-        let meetingPointsSection = ''
-        if (includeMeetingPoint) {
-          const uniqueMeetingPoints = new Map<string, MeetingPoint>()
-          for (const service of sortedServices) {
-            // Get activity_id from the first booking in timeSlot
-            const activityId = service.timeSlot.bookings[0]?.activity_id
-            const meetingPoint = activityId ? activityMeetingPoints.get(activityId) : null
-            if (meetingPoint && !uniqueMeetingPoints.has(meetingPoint.id)) {
-              uniqueMeetingPoints.set(meetingPoint.id, meetingPoint)
-            }
-          }
+        // Replace main template variables
+        const formattedDate = format(new Date(selectedDate), 'EEEE, MMMM d, yyyy')
 
-          if (uniqueMeetingPoints.size > 0) {
-            const meetingPointsText = Array.from(uniqueMeetingPoints.values()).map(mp => {
-              let mpText = `• **${mp.name}**`
-              if (mp.address) mpText += `\n  ${mp.address}`
-              if (mp.google_maps_url) mpText += `\n  Map: ${mp.google_maps_url}`
-              if (mp.instructions) mpText += `\n  ${mp.instructions}`
-              return mpText
-            }).join('\n\n')
+        let emailSubject = headphoneTemplate.subject
+          .replace(/\{\{name\}\}/g, headphoneName)
+          .replace(/\{\{date\}\}/g, formattedDate)
+          .replace(/\{\{services_count\}\}/g, String(services.length))
 
-            meetingPointsSection = `\n\n**Meeting Points:**\n${meetingPointsText}`
-          }
-        }
+        let emailBody = headphoneTemplate.body
+          .replace(/\{\{name\}\}/g, headphoneName)
+          .replace(/\{\{date\}\}/g, formattedDate)
+          .replace(/\{\{services_list\}\}/g, servicesList)
+          .replace(/\{\{services_count\}\}/g, String(services.length))
 
-        const emailBodyText = `Hello ${headphone.first_name},
-
-You have been assigned headphones for the following services on ${format(new Date(selectedDate), 'EEEE, MMMM d, yyyy')}:
-
-${servicesText}${meetingPointsSection}
-
-Please find attached the consolidated list with all bookings for your services.
-
-Best regards,
-EnRoma.com Team`
-
-        const allAttachmentUrls: string[] = []
-        for (const service of services) {
-          const slotAttachments = attachments.filter(a => a.activity_availability_id === service.availabilityId)
-          allAttachmentUrls.push(...slotAttachments.map(a => a.file_path))
-        }
-
+        // Don't include attachments - only the Excel
         const response = await fetch('/api/email/send', {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
@@ -1870,9 +1917,9 @@ EnRoma.com Team`
               type: 'headphone',
               id: headphone.id
             }],
-            subject: `Headphone Assignments: ${format(new Date(selectedDate), 'MMM d, yyyy')} - ${services.length} service(s)`,
-            body: emailBodyText,
-            attachmentUrls: allAttachmentUrls,
+            subject: emailSubject,
+            body: emailBody,
+            attachmentUrls: [],
             dailyListData: consolidatedExcel?.data,
             dailyListFileName: consolidatedExcel?.fileName
           })
@@ -3886,35 +3933,31 @@ EnRoma.com Team`
             </div>
           </div>
 
-          {/* Options Section */}
-          <div className="px-6 py-4 border-t bg-gray-50">
-            <label
-              htmlFor="include-meeting-point"
-              className="flex items-start gap-3 cursor-pointer"
-            >
-              <Checkbox
-                id="include-meeting-point"
-                checked={includeMeetingPoint}
-                onCheckedChange={(checked) => setIncludeMeetingPoint(checked === true)}
-                className={`mt-0.5 ${
-                  bulkEmailType === 'guides' ? 'checkbox-green' :
-                  bulkEmailType === 'escorts' ? 'checkbox-orange' :
-                  'checkbox-purple'
-                }`}
-              />
-              <div>
-                <div className="flex items-center gap-2">
-                  <MapPin className="w-4 h-4 text-gray-500" />
-                  <span className="text-sm font-medium text-gray-700">Include meeting points</span>
+          {/* Options Section - Only show for guides */}
+          {bulkEmailType === 'guides' && (
+            <div className="px-6 py-4 border-t bg-gray-50">
+              <label
+                htmlFor="include-meeting-point"
+                className="flex items-start gap-3 cursor-pointer"
+              >
+                <Checkbox
+                  id="include-meeting-point"
+                  checked={includeMeetingPoint}
+                  onCheckedChange={(checked) => setIncludeMeetingPoint(checked === true)}
+                  className="mt-0.5 checkbox-green"
+                />
+                <div>
+                  <div className="flex items-center gap-2">
+                    <MapPin className="w-4 h-4 text-gray-500" />
+                    <span className="text-sm font-medium text-gray-700">Include meeting points</span>
+                  </div>
+                  <p className="text-xs text-gray-500 mt-1">
+                    Add meeting point details for each assigned tour
+                  </p>
                 </div>
-                <p className="text-xs text-gray-500 mt-1">
-                  {bulkEmailType === 'guides'
-                    ? 'Add meeting point details for each assigned tour'
-                    : 'Add consolidated meeting points section (shown once)'}
-                </p>
-              </div>
-            </label>
-          </div>
+              </label>
+            </div>
+          )}
 
           {/* Footer */}
           <div className="px-6 py-4 border-t bg-white">
