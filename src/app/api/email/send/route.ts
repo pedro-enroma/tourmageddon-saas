@@ -1,7 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { Resend } from 'resend'
-import { verifySession } from '@/lib/supabase-server'
-import { createClient } from '@supabase/supabase-js'
+import { verifySession, getServiceRoleClient } from '@/lib/supabase-server'
 
 // Initialize Resend on each request to ensure env vars are read
 const getResend = () => {
@@ -12,11 +11,6 @@ const getResend = () => {
   }
   return new Resend(apiKey)
 }
-
-const getSupabase = () => createClient(
-  process.env.NEXT_PUBLIC_SUPABASE_URL!,
-  process.env.SUPABASE_SERVICE_ROLE_KEY || process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!
-)
 
 interface EmailRequest {
   recipients: {
@@ -176,7 +170,7 @@ export async function POST(request: NextRequest) {
       }, { status: 500 })
     }
 
-    const supabase = getSupabase()
+    const supabase = getServiceRoleClient()
     const results = []
     const errors = []
 
@@ -263,29 +257,35 @@ export async function POST(request: NextRequest) {
           errors.push({ recipient: recipient.email, error: error.message })
 
           // Log failed email
-          await supabase.from('email_logs').insert({
+          const { error: logError } = await supabase.from('email_logs').insert({
             recipient_email: recipient.email,
             recipient_name: recipient.name,
             recipient_type: recipient.type,
             recipient_id: recipient.id,
-            activity_availability_id: activityAvailabilityId,
+            activity_availability_id: activityAvailabilityId || null,
             subject: personalizedSubject,
             status: 'failed',
             error_message: error.message
           })
+          if (logError) {
+            console.error('Failed to log email (failed):', logError)
+          }
         } else {
           results.push({ recipient: recipient.email, messageId: data?.id })
 
           // Log successful email
-          await supabase.from('email_logs').insert({
+          const { error: logError } = await supabase.from('email_logs').insert({
             recipient_email: recipient.email,
             recipient_name: recipient.name,
             recipient_type: recipient.type,
             recipient_id: recipient.id,
-            activity_availability_id: activityAvailabilityId,
+            activity_availability_id: activityAvailabilityId || null,
             subject: personalizedSubject,
             status: 'sent'
           })
+          if (logError) {
+            console.error('Failed to log email (sent):', logError)
+          }
         }
       } catch (err) {
         const errorMessage = err instanceof Error ? err.message : 'Unknown error'
