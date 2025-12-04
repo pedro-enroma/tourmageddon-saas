@@ -172,6 +172,7 @@ interface VoucherInfo {
   product_name: string
   category_name: string | null
   pdf_path: string | null
+  entry_time: string | null
 }
 
 export default function DailyListPage() {
@@ -444,6 +445,7 @@ export default function DailyListPage() {
           total_tickets,
           product_name,
           pdf_path,
+          entry_time,
           activity_availability_id,
           ticket_categories (id, name)
         `)
@@ -468,7 +470,8 @@ export default function DailyListPage() {
             category_name: Array.isArray(v.ticket_categories)
               ? (v.ticket_categories[0] as { id: string; name: string } | undefined)?.name || null
               : (v.ticket_categories as { id: string; name: string } | null)?.name || null,
-            pdf_path: v.pdf_path
+            pdf_path: v.pdf_path,
+            entry_time: v.entry_time || null
           })
           vouchersMap.set(v.activity_availability_id, existingVouchers)
         }
@@ -706,7 +709,8 @@ export default function DailyListPage() {
     time: string,
     paxCount: number,
     staff?: StaffAssignment | null,
-    activityId?: string
+    activityId?: string,
+    availabilityId?: number
   ) => {
     // Get staff info
     const guideNames = staff?.guides.map(g => `${g.first_name} ${g.last_name}`).join(', ') || ''
@@ -715,15 +719,21 @@ export default function DailyListPage() {
     const escortPhones = staff?.escorts.map(e => e.phone_number).filter(Boolean).join(', ') || ''
     const headphoneNames = staff?.headphones.map(h => `${h.first_name} ${h.last_name}`).join(', ') || ''
     const headphonePhones = staff?.headphones.map(h => h.phone_number).filter(Boolean).join(', ') || ''
+    const hasHeadphone = staff?.headphones && staff.headphones.length > 0
 
     // Get meeting point
     const meetingPoint = activityId ? activityMeetingPoints.get(activityId) : null
     const meetingPointText = meetingPoint?.address || meetingPoint?.name || ''
 
-    return text
+    // Get entry time from vouchers for this time slot
+    const vouchersForSlot = availabilityId ? slotVouchers.get(availabilityId) || [] : []
+    const entryTimeValue = vouchersForSlot.find(v => v.entry_time)?.entry_time?.substring(0, 5) || ''
+
+    let result = text
       .replace(/\{\{tour_title\}\}/g, tourTitle)
       .replace(/\{\{date\}\}/g, format(new Date(dateStr), 'EEEE, MMMM d, yyyy'))
       .replace(/\{\{time\}\}/g, time.substring(0, 5))
+      .replace(/\{\{entry_time\}\}/g, entryTimeValue)
       .replace(/\{\{pax_count\}\}/g, String(paxCount))
       .replace(/\{\{meeting_point\}\}/g, meetingPointText)
       .replace(/\{\{guide_name\}\}/g, guideNames)
@@ -732,6 +742,17 @@ export default function DailyListPage() {
       .replace(/\{\{escort_phone\}\}/g, escortPhones)
       .replace(/\{\{headphone_name\}\}/g, headphoneNames)
       .replace(/\{\{headphone_phone\}\}/g, headphonePhones)
+
+    // Handle conditional headphone block - show content only if headphone is assigned
+    if (hasHeadphone) {
+      // Remove the conditional tags but keep the content
+      result = result.replace(/\{\{#if_headphone\}\}/g, '').replace(/\{\{\/if_headphone\}\}/g, '')
+    } else {
+      // Remove the entire conditional block including content
+      result = result.replace(/\{\{#if_headphone\}\}[\s\S]*?\{\{\/if_headphone\}\}/g, '')
+    }
+
+    return result
   }
 
   // Handle template selection
@@ -745,8 +766,8 @@ export default function DailyListPage() {
     const staff = staffAssignments.get(emailTimeSlot.availabilityId)
 
     if (template && timeSlot) {
-      setEmailSubject(applyTemplateVariables(template.subject, emailTimeSlot.tourTitle, selectedDate, emailTimeSlot.time, timeSlot.totalParticipants, staff, emailTimeSlot.activityId))
-      setEmailBody(applyTemplateVariables(template.body, emailTimeSlot.tourTitle, selectedDate, emailTimeSlot.time, timeSlot.totalParticipants, staff, emailTimeSlot.activityId))
+      setEmailSubject(applyTemplateVariables(template.subject, emailTimeSlot.tourTitle, selectedDate, emailTimeSlot.time, timeSlot.totalParticipants, staff, emailTimeSlot.activityId, emailTimeSlot.availabilityId))
+      setEmailBody(applyTemplateVariables(template.body, emailTimeSlot.tourTitle, selectedDate, emailTimeSlot.time, timeSlot.totalParticipants, staff, emailTimeSlot.activityId, emailTimeSlot.availabilityId))
     }
   }
 
@@ -774,8 +795,8 @@ export default function DailyListPage() {
     const defaultTemplate = emailTemplates.find(t => t.is_default) || emailTemplates[0]
     if (defaultTemplate) {
       setSelectedTemplateId(defaultTemplate.id)
-      setEmailSubject(applyTemplateVariables(defaultTemplate.subject, tour.tourTitle, selectedDate, timeSlot.time, timeSlot.totalParticipants, staff, firstBooking.activity_id))
-      setEmailBody(applyTemplateVariables(defaultTemplate.body, tour.tourTitle, selectedDate, timeSlot.time, timeSlot.totalParticipants, staff, firstBooking.activity_id))
+      setEmailSubject(applyTemplateVariables(defaultTemplate.subject, tour.tourTitle, selectedDate, timeSlot.time, timeSlot.totalParticipants, staff, firstBooking.activity_id, availabilityId))
+      setEmailBody(applyTemplateVariables(defaultTemplate.body, tour.tourTitle, selectedDate, timeSlot.time, timeSlot.totalParticipants, staff, firstBooking.activity_id, availabilityId))
     } else {
       setSelectedTemplateId('')
       setEmailSubject(`Service Assignment: ${tour.tourTitle} - ${format(new Date(selectedDate), 'MMM d, yyyy')} at ${timeSlot.time.substring(0, 5)}`)

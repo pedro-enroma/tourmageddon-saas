@@ -282,8 +282,10 @@ IMPORTANT: You MUST return exactly ${expectedTicketCount} tickets in the tickets
 
     // Validate required fields
     if (!extractedData.booking_number || !extractedData.visit_date || !extractedData.entry_time) {
+      console.error('Missing required fields. GPT returned:', JSON.stringify(extractedData, null, 2))
       return NextResponse.json({
         error: 'Missing required fields in extracted data',
+        details: `booking_number: ${extractedData.booking_number || 'MISSING'}, visit_date: ${extractedData.visit_date || 'MISSING'}, entry_time: ${extractedData.entry_time || 'MISSING'}`,
         data: extractedData
       }, { status: 400 })
     }

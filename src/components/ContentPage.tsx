@@ -16,13 +16,16 @@ const TEMPLATE_VARIABLES = [
   { key: '{{tour_title}}', label: 'Tour Title', description: 'Activity/tour name' },
   { key: '{{date}}', label: 'Date', description: 'Service date (e.g., Wednesday, November 26, 2025)' },
   { key: '{{time}}', label: 'Time', description: 'Service start time (e.g., 10:00)' },
+  { key: '{{entry_time}}', label: 'Entry Time', description: 'Ticket entry time from voucher (e.g., 12:30)' },
   { key: '{{pax_count}}', label: 'Pax Count', description: 'Number of participants' },
   { key: '{{guide_name}}', label: 'Guide Name', description: 'Assigned guide\'s full name' },
   { key: '{{guide_phone}}', label: 'Guide Phone', description: 'Assigned guide\'s phone number' },
   { key: '{{escort_name}}', label: 'Escort Name', description: 'Assigned escort\'s full name' },
   { key: '{{escort_phone}}', label: 'Escort Phone', description: 'Assigned escort\'s phone number' },
-  { key: '{{headphone_name}}', label: 'Headphone Name', description: 'Assigned headphone contact name' },
-  { key: '{{headphone_phone}}', label: 'Headphone Phone', description: 'Assigned headphone contact phone' },
+  { key: '{{headphone_name}}', label: 'Headphone Name', description: 'Assigned headphone contact name (only if assigned)' },
+  { key: '{{headphone_phone}}', label: 'Headphone Phone', description: 'Assigned headphone contact phone (only if assigned)' },
+  { key: '{{#if_headphone}}', label: 'If Headphone', description: 'Start conditional block - content only shows if headphone assigned' },
+  { key: '{{/if_headphone}}', label: 'End If Headphone', description: 'End conditional block for headphone' },
   { key: '{{meeting_point}}', label: 'Meeting Point', description: 'Default meeting point for the activity' },
 ]
 
@@ -528,12 +531,21 @@ export default function ContentPage() {
           meeting_point_id: meetingPointId,
           is_default: false
         })
-        if (result.error) throw new Error(result.error)
+        if (result.error) {
+          // If already exists, just refresh data to sync UI
+          if (result.error.includes('already assigned')) {
+            await fetchActivityMeetingPoints()
+            return
+          }
+          throw new Error(result.error)
+        }
       }
 
       await fetchActivityMeetingPoints()
     } catch (err) {
       console.error('Error toggling assignment:', err)
+      // Refresh data to sync state in case of any error
+      await fetchActivityMeetingPoints()
       setError(err instanceof Error ? err.message : 'Failed to update assignment')
     }
   }

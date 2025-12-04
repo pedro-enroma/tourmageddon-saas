@@ -31,6 +31,10 @@ export async function POST(request: NextRequest) {
 
     if (error) {
       console.error('Error creating assignment:', error)
+      // Check for duplicate key error
+      if (error.code === '23505') {
+        return NextResponse.json({ error: 'This meeting point is already assigned to this activity' }, { status: 409 })
+      }
       return NextResponse.json({ error: 'Failed to create assignment' }, { status: 500 })
     }
 
