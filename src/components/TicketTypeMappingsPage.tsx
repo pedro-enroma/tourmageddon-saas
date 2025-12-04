@@ -63,11 +63,40 @@ export default function TicketTypeMappingsPage() {
     fetchData()
   }, [])
 
+  // Helper to fetch all rows from a table (handles pagination)
+  const fetchAllRows = async <T,>(
+    tableName: string,
+    selectFields: string,
+    pageSize = 1000
+  ): Promise<T[]> => {
+    const allRows: T[] = []
+    let offset = 0
+    let hasMore = true
+
+    while (hasMore) {
+      const { data, error } = await supabase
+        .from(tableName)
+        .select(selectFields)
+        .range(offset, offset + pageSize - 1)
+
+      if (error) throw error
+      if (data && data.length > 0) {
+        allRows.push(...(data as T[]))
+        offset += pageSize
+        hasMore = data.length === pageSize
+      } else {
+        hasMore = false
+      }
+    }
+
+    return allRows
+  }
+
   const fetchData = async () => {
     setLoading(true)
     setError(null)
     try {
-      const [mappingsRes, categoriesRes, activitiesRes, titlesRes] = await Promise.all([
+      const [mappingsRes, categoriesRes, activitiesRes] = await Promise.all([
         supabase
           .from('ticket_type_mappings')
           .select(`
@@ -82,11 +111,7 @@ export default function TicketTypeMappingsPage() {
         supabase
           .from('activities')
           .select('activity_id, title')
-          .order('title', { ascending: true }),
-        // Get booked_titles with their activity_id via activity_bookings join
-        supabase
-          .from('pricing_category_bookings')
-          .select('booked_title, activity_booking:activity_bookings!inner(activity_id)')
+          .order('title', { ascending: true })
       ])
 
       if (mappingsRes.error) throw mappingsRes.error
@@ -97,32 +122,44 @@ export default function TicketTypeMappingsPage() {
       setCategories(categoriesRes.data || [])
       setActivities(activitiesRes.data || [])
 
-      // Extract booked_titles with activity_id
-      if (titlesRes.data) {
-        const titlesWithActivity: BookedTitleByActivity[] = []
-        const seenPairs = new Set<string>()
+      // Fetch all bookings and pricing data (paginated)
+      const [bookingsData, pricingData] = await Promise.all([
+        fetchAllRows<{ activity_booking_id: number; activity_id: string }>(
+          'activity_bookings',
+          'activity_booking_id, activity_id'
+        ),
+        fetchAllRows<{ activity_booking_id: number; booked_title: string | null }>(
+          'pricing_category_bookings',
+          'activity_booking_id, booked_title'
+        )
+      ])
 
-        titlesRes.data.forEach((r: { booked_title: string | null; activity_booking: { activity_id: string } | { activity_id: string }[] | null }) => {
-          if (!r.booked_title) return
-          // Handle both array and single object from Supabase join
-          const booking = r.activity_booking
-          const activityId = Array.isArray(booking)
-            ? booking[0]?.activity_id
-            : booking?.activity_id
-          if (!activityId) return
+      // Build a map of activity_booking_id -> activity_id
+      const bookingToActivity = new Map<number, string>()
+      bookingsData.forEach((b) => {
+        bookingToActivity.set(b.activity_booking_id, b.activity_id)
+      })
 
-          const key = `${activityId}:${r.booked_title}`
-          if (!seenPairs.has(key)) {
-            seenPairs.add(key)
-            titlesWithActivity.push({
-              booked_title: r.booked_title,
-              activity_id: activityId
-            })
-          }
-        })
+      // Extract booked_titles with activity_id using the map
+      const titlesWithActivity: BookedTitleByActivity[] = []
+      const seenPairs = new Set<string>()
 
-        setBookedTitlesByActivity(titlesWithActivity.sort((a, b) => a.booked_title.localeCompare(b.booked_title)))
-      }
+      pricingData.forEach((r) => {
+        if (!r.booked_title) return
+        const activityId = bookingToActivity.get(r.activity_booking_id)
+        if (!activityId) return
+
+        const key = `${activityId}:${r.booked_title}`
+        if (!seenPairs.has(key)) {
+          seenPairs.add(key)
+          titlesWithActivity.push({
+            booked_title: r.booked_title,
+            activity_id: activityId
+          })
+        }
+      })
+
+      setBookedTitlesByActivity(titlesWithActivity.sort((a, b) => a.booked_title.localeCompare(b.booked_title)))
     } catch (err) {
       console.error('Error fetching data:', err)
       setError('Failed to load data')

@@ -7,7 +7,7 @@ import { verifySession } from '@/lib/supabase-server'
 const MAX_FILE_SIZE = 10 * 1024 * 1024
 
 // Detect PDF type based on content
-type PDFType = 'colosseum' | 'vatican' | 'unknown'
+type PDFType = 'colosseum' | 'vatican' | 'pompei' | 'unknown'
 
 function detectPDFType(text: string): PDFType {
   if (text.includes('Musei Vaticani') || text.includes('Vatican Museums')) {
@@ -15,6 +15,9 @@ function detectPDFType(text: string): PDFType {
   }
   if (text.includes('COLOSSEO') || text.includes('Parco archeologico del Colosseo') || text.includes('FULL EXPERIENCE')) {
     return 'colosseum'
+  }
+  if (text.includes('Parco Archeologico di Pompei') || text.includes('Scavi di Pompei') || text.includes('ticketone')) {
+    return 'pompei'
   }
   return 'unknown'
 }
@@ -119,6 +122,14 @@ export async function POST(request: NextRequest) {
         !/^(.)\1+$/.test(code) && // Not all same character
         !/^0+$/.test(code) // Not all zeros
       )
+    } else if (pdfType === 'pompei') {
+      // Pompei/TicketOne: TktID codes (10 digits)
+      // Pattern: TktID: 0515690053
+      const tktIdMatches = pdfText.match(/TktID:\s*(\d{10})/g) || []
+      uniqueTicketCodes = [...new Set(tktIdMatches.map(m => {
+        const match = m.match(/TktID:\s*(\d{10})/)
+        return match ? match[1] : ''
+      }))].filter(code => code.length > 0)
     } else {
       // Colosseum: 16-character codes starting with SPC
       const allCodes = pdfText.match(/[A-Z0-9]{16}/g) || []
@@ -135,8 +146,10 @@ export async function POST(request: NextRequest) {
     console.log('Sending text to GPT-4o...')
 
     // Different prompts based on PDF type
-    const systemPrompt = pdfType === 'vatican'
-      ? `You are a data extraction assistant. Extract ticket information from Vatican Museums PDF text.
+    let systemPrompt: string
+
+    if (pdfType === 'vatican') {
+      systemPrompt = `You are a data extraction assistant. Extract ticket information from Vatican Museums PDF text.
 
 The PDF contains ${expectedTicketCount} electronic tickets. Vatican tickets do NOT have individual holder names - they are generic group tickets.
 
@@ -168,7 +181,41 @@ Return JSON with this structure:
 }
 
 IMPORTANT: You MUST return exactly ${expectedTicketCount} tickets in the tickets array - one for each code listed above.`
-      : `You are a data extraction assistant. Extract ticket information from PDF text.
+    } else if (pdfType === 'pompei') {
+      systemPrompt = `You are a data extraction assistant. Extract ticket information from Pompei/TicketOne PDF text.
+
+The PDF contains ${expectedTicketCount} electronic tickets for Parco Archeologico di Pompei.
+
+For EACH ticket (one per page), extract:
+- holder_name: The person's full name. The name appears on the right side of the ticket in format "LastName" on one line, then "FirstName" below. Combine as "FirstName LastName" (Title Case).
+- ticket_type: Either "INTERO" (full price, €18-19) or "Gratuito 18 anni e alt" (free ticket, €0)
+- price: The total price (Totale) - 19.00 EUR for INTERO, 0.00 for Gratuito
+
+Also extract shared info:
+- booking_number: The "Numero ordine" (e.g., "1282101109")
+- booking_date: The "Data ordine" (convert to YYYY-MM-DD, format is DD.MM.YYYY)
+- visit_date: The "Data:" in the ticket section (convert Italian month to YYYY-MM-DD, e.g., "14 Novembre 2025" -> "2025-11-14")
+- entry_time: The "Ore:" time (e.g., "09:00")
+- product_name: "Scavi di Pompei"
+
+TICKET CODES (TktID) TO EXTRACT (${expectedTicketCount} total):
+${uniqueTicketCodes.map((code, i) => `${i + 1}. ${code}`).join('\n')}
+
+Return JSON with this structure:
+{
+  "booking_number": "...",
+  "booking_date": "...",
+  "visit_date": "...",
+  "entry_time": "...",
+  "product_name": "Scavi di Pompei",
+  "tickets": [
+    {"ticket_code": "...", "holder_name": "FirstName LastName", "ticket_type": "INTERO", "price": 19.00}
+  ]
+}
+
+IMPORTANT: You MUST return exactly ${expectedTicketCount} tickets in the tickets array - one for each TktID listed above.`
+    } else {
+      systemPrompt = `You are a data extraction assistant. Extract ticket information from PDF text.
 
 The PDF contains ${expectedTicketCount} electronic tickets. For EACH ticket code listed below, extract:
 - holder_name: The person's name (Title Case)
@@ -198,6 +245,7 @@ Return JSON with this structure:
 }
 
 IMPORTANT: You MUST return exactly ${expectedTicketCount} tickets in the tickets array - one for each code listed above.`
+    }
 
     const response = await openai.chat.completions.create({
       model: 'gpt-4o',
@@ -277,6 +325,30 @@ IMPORTANT: You MUST return exactly ${expectedTicketCount} tickets in the tickets
             } else {
               ticketType = 'Biglietto Intero'
               price = 20.00
+            }
+          } else if (pdfType === 'pompei') {
+            // Pompei/TicketOne: Extract name and ticket type
+            // Names appear as "LastName\nFirstName" pattern
+            const nameMatch = pageText.match(/Parco Archeologico di Pompei\s+([A-Za-zÀ-ÿ\s]+)\n([A-Za-zÀ-ÿ\s]+)\n/i)
+            if (nameMatch) {
+              const lastName = nameMatch[1].trim()
+              const firstName = nameMatch[2].trim()
+              holderName = `${firstName} ${lastName}`
+            }
+
+            // Check for Gratuito (free) or INTERO (full price)
+            if (pageText.includes('Gratuito') || pageText.includes('€ 0,00')) {
+              ticketType = 'Gratuito 18 anni e alt'
+              price = 0
+            } else {
+              ticketType = 'INTERO'
+              // Look for Totale price
+              const priceMatch = pageText.match(/Totale:\s*(\d+)[,.](\d{2})\s*EUR/i)
+              if (priceMatch) {
+                price = parseFloat(`${priceMatch[1]}.${priceMatch[2]}`)
+              } else {
+                price = 19.00 // Default Pompei full price
+              }
             }
           } else {
             // Colosseum: Extract holder name and ticket type
