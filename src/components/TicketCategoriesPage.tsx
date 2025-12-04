@@ -3,7 +3,7 @@
 import { useState, useEffect } from 'react'
 import { supabase } from '@/lib/supabase'
 import { ticketCategoriesApi } from '@/lib/api-client'
-import { Plus, Edit, Trash2, Search, X, Tag, UserCheck, UserX } from 'lucide-react'
+import { Plus, Edit, Trash2, Search, X, Tag, UserCheck, UserX, Hash } from 'lucide-react'
 import { Button } from '@/components/ui/button'
 import { Label } from '@/components/ui/label'
 
@@ -13,6 +13,7 @@ interface TicketCategory {
   description: string | null
   product_names: string[]
   guide_requires_ticket: boolean
+  skip_name_check: boolean
   created_at: string
   updated_at: string
 }
@@ -30,7 +31,8 @@ export default function TicketCategoriesPage() {
     name: '',
     description: '',
     product_names: [] as string[],
-    guide_requires_ticket: true
+    guide_requires_ticket: true,
+    skip_name_check: false
   })
   const [newProductName, setNewProductName] = useState('')
 
@@ -64,7 +66,8 @@ export default function TicketCategoriesPage() {
         name: category.name,
         description: category.description || '',
         product_names: category.product_names || [],
-        guide_requires_ticket: category.guide_requires_ticket ?? true
+        guide_requires_ticket: category.guide_requires_ticket ?? true,
+        skip_name_check: category.skip_name_check ?? false
       })
     } else {
       setEditingCategory(null)
@@ -72,7 +75,8 @@ export default function TicketCategoriesPage() {
         name: '',
         description: '',
         product_names: [],
-        guide_requires_ticket: true
+        guide_requires_ticket: true,
+        skip_name_check: false
       })
     }
     setNewProductName('')
@@ -115,7 +119,8 @@ export default function TicketCategoriesPage() {
           name: formData.name,
           description: formData.description || undefined,
           product_names: formData.product_names,
-          guide_requires_ticket: formData.guide_requires_ticket
+          guide_requires_ticket: formData.guide_requires_ticket,
+          skip_name_check: formData.skip_name_check
         })
 
         if (result.error) throw new Error(result.error)
@@ -125,7 +130,8 @@ export default function TicketCategoriesPage() {
           name: formData.name,
           description: formData.description || undefined,
           product_names: formData.product_names,
-          guide_requires_ticket: formData.guide_requires_ticket
+          guide_requires_ticket: formData.guide_requires_ticket,
+          skip_name_check: formData.skip_name_check
         })
 
         if (result.error) throw new Error(result.error)
@@ -241,8 +247,8 @@ export default function TicketCategoriesPage() {
                   </div>
                 </div>
 
-                {/* Guide ticket requirement */}
-                <div className="flex items-center gap-2 mb-2">
+                {/* Category settings badges */}
+                <div className="flex flex-wrap items-center gap-2 mb-2">
                   {category.guide_requires_ticket ? (
                     <span className="inline-flex items-center gap-1 text-xs bg-blue-100 text-blue-700 px-2 py-0.5 rounded-full">
                       <UserCheck className="w-3 h-3" />
@@ -252,6 +258,12 @@ export default function TicketCategoriesPage() {
                     <span className="inline-flex items-center gap-1 text-xs bg-gray-100 text-gray-600 px-2 py-0.5 rounded-full">
                       <UserX className="w-3 h-3" />
                       Guide no ticket
+                    </span>
+                  )}
+                  {category.skip_name_check && (
+                    <span className="inline-flex items-center gap-1 text-xs bg-amber-100 text-amber-700 px-2 py-0.5 rounded-full">
+                      <Hash className="w-3 h-3" />
+                      Quantity only
                     </span>
                   )}
                 </div>
@@ -332,6 +344,22 @@ export default function TicketCategoriesPage() {
                   <div>
                     <span className="text-sm font-medium">Guide requires ticket</span>
                     <p className="text-xs text-gray-500">Enable if guides need a named ticket for this venue (e.g., Colosseum)</p>
+                  </div>
+                </label>
+              </div>
+
+              {/* Skip name check toggle */}
+              <div className="mb-4">
+                <label className="flex items-center gap-3 cursor-pointer">
+                  <input
+                    type="checkbox"
+                    checked={formData.skip_name_check}
+                    onChange={(e) => setFormData({...formData, skip_name_check: e.target.checked})}
+                    className="w-4 h-4 text-orange-600 rounded"
+                  />
+                  <div>
+                    <span className="text-sm font-medium">Skip name check</span>
+                    <p className="text-xs text-gray-500">Enable for generic tickets (e.g., Vatican Museums) - only quantity validation will be performed</p>
                   </div>
                 </label>
               </div>

@@ -37,7 +37,7 @@ export async function POST(request: NextRequest) {
 
   try {
     const body = await request.json()
-    const { name, guide_requires_ticket } = body
+    const { name, description, product_names, guide_requires_ticket, skip_name_check } = body
 
     if (!name) {
       return NextResponse.json({ error: 'Name is required' }, { status: 400 })
@@ -48,7 +48,10 @@ export async function POST(request: NextRequest) {
       .from('ticket_categories')
       .insert([{
         name,
-        guide_requires_ticket: guide_requires_ticket ?? false
+        description: description || null,
+        product_names: product_names || [],
+        guide_requires_ticket: guide_requires_ticket ?? false,
+        skip_name_check: skip_name_check ?? false
       }])
       .select()
       .single()
@@ -79,7 +82,7 @@ export async function PUT(request: NextRequest) {
 
   try {
     const body = await request.json()
-    const { id, name, guide_requires_ticket } = body
+    const { id, name, description, product_names, guide_requires_ticket, skip_name_check } = body
 
     if (!id) {
       return NextResponse.json({ error: 'id is required' }, { status: 400 })
@@ -101,7 +104,10 @@ export async function PUT(request: NextRequest) {
       .from('ticket_categories')
       .update({
         name,
-        guide_requires_ticket
+        description: description || null,
+        product_names: product_names || [],
+        guide_requires_ticket,
+        skip_name_check: skip_name_check ?? false
       })
       .eq('id', id)
       .select()

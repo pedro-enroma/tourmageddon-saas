@@ -6,6 +6,19 @@ import { verifySession } from '@/lib/supabase-server'
 // Maximum file size: 10MB for PDFs
 const MAX_FILE_SIZE = 10 * 1024 * 1024
 
+// Detect PDF type based on content
+type PDFType = 'colosseum' | 'vatican' | 'unknown'
+
+function detectPDFType(text: string): PDFType {
+  if (text.includes('Musei Vaticani') || text.includes('Vatican Museums')) {
+    return 'vatican'
+  }
+  if (text.includes('COLOSSEO') || text.includes('Parco archeologico del Colosseo') || text.includes('FULL EXPERIENCE')) {
+    return 'colosseum'
+  }
+  return 'unknown'
+}
+
 const getOpenAI = () => {
   const apiKey = process.env.OPENAI_API_KEY
   if (!apiKey) {
@@ -68,12 +81,17 @@ export async function POST(request: NextRequest) {
     console.log('Extracting text from PDF with unpdf...')
     let pdfText: string
     let pdfPages: string[] = []
+    let pdfType: PDFType = 'unknown'
     try {
       const { text, totalPages } = await extractText(new Uint8Array(bytes))
       // Keep individual pages for per-ticket extraction
       pdfPages = Array.isArray(text) ? text : [text]
       pdfText = pdfPages.join('\n\n--- PAGE BREAK ---\n\n')
       console.log(`Extracted ${pdfText.length} characters from ${totalPages} pages`)
+
+      // Detect PDF type
+      pdfType = detectPDFType(pdfText)
+      console.log(`Detected PDF type: ${pdfType}`)
 
       // Count potential tickets by looking for ticket code patterns
       const ticketCodeMatches = pdfText.match(/[A-Z0-9]{16}/g) || []
@@ -90,24 +108,67 @@ export async function POST(request: NextRequest) {
       return NextResponse.json({ error: 'No text found in PDF' }, { status: 400 })
     }
 
-    // Pre-extract ticket codes
-    const allCodes = pdfText.match(/[A-Z0-9]{16}/g) || []
-    const uniqueTicketCodes = [...new Set(allCodes)].filter(code =>
-      !/^(.)\1+$/.test(code) && // Not all same character
-      /^SPC/.test(code) // Ticket codes typically start with SPC
-    )
+    // Pre-extract ticket codes based on PDF type
+    let uniqueTicketCodes: string[] = []
+
+    if (pdfType === 'vatican') {
+      // Vatican Museums: 24-character codes at the start of each ticket
+      // Pattern: alphanumeric, 24 chars, appears at start of each page
+      const vaticanCodes = pdfText.match(/[A-Z0-9]{24}/g) || []
+      uniqueTicketCodes = [...new Set(vaticanCodes)].filter(code =>
+        !/^(.)\1+$/.test(code) && // Not all same character
+        !/^0+$/.test(code) // Not all zeros
+      )
+    } else {
+      // Colosseum: 16-character codes starting with SPC
+      const allCodes = pdfText.match(/[A-Z0-9]{16}/g) || []
+      uniqueTicketCodes = [...new Set(allCodes)].filter(code =>
+        !/^(.)\1+$/.test(code) && // Not all same character
+        /^SPC/.test(code) // Ticket codes typically start with SPC
+      )
+    }
     const expectedTicketCount = uniqueTicketCodes.length
 
-    console.log(`Pre-extracted ${expectedTicketCount} ticket codes: ${uniqueTicketCodes.join(', ')}`)
+    console.log(`Pre-extracted ${expectedTicketCount} ticket codes (${pdfType}): ${uniqueTicketCodes.slice(0, 5).join(', ')}${uniqueTicketCodes.length > 5 ? '...' : ''}`)
 
     // Use GPT-4o to extract structured data - but we'll also do our own extraction
     console.log('Sending text to GPT-4o...')
-    const response = await openai.chat.completions.create({
-      model: 'gpt-4o',
-      messages: [
-        {
-          role: 'system',
-          content: `You are a data extraction assistant. Extract ticket information from PDF text.
+
+    // Different prompts based on PDF type
+    const systemPrompt = pdfType === 'vatican'
+      ? `You are a data extraction assistant. Extract ticket information from Vatican Museums PDF text.
+
+The PDF contains ${expectedTicketCount} electronic tickets. Vatican tickets do NOT have individual holder names - they are generic group tickets.
+
+For EACH ticket code listed below, extract:
+- holder_name: Set to "Ticket X" where X is the Pax number (e.g., "Ticket 1", "Ticket 2")
+- ticket_type: The ticket type - either "Biglietto Intero" (Full Price) or "Biglietto Ridotto" (Reduced)
+- price: The ticket price (20.00 for Intero, 8.00 for Ridotto - NOT including fees)
+
+Also extract shared info:
+- booking_number: The Codice/Code (e.g., "2L0ZU3V19KJMMVPDT")
+- booking_date: The Data Emissione/Issue Date (convert to YYYY-MM-DD)
+- visit_date: The Data/Date of visit (convert to YYYY-MM-DD)
+- entry_time: The Ora/Time (HH:MM format)
+- product_name: "Musei Vaticani"
+
+TICKET CODES TO EXTRACT (${expectedTicketCount} total):
+${uniqueTicketCodes.map((code, i) => `${i + 1}. ${code}`).join('\n')}
+
+Return JSON with this structure:
+{
+  "booking_number": "...",
+  "booking_date": "...",
+  "visit_date": "...",
+  "entry_time": "...",
+  "product_name": "Musei Vaticani",
+  "tickets": [
+    {"ticket_code": "...", "holder_name": "Ticket 1", "ticket_type": "Biglietto Intero", "price": 20.00}
+  ]
+}
+
+IMPORTANT: You MUST return exactly ${expectedTicketCount} tickets in the tickets array - one for each code listed above.`
+      : `You are a data extraction assistant. Extract ticket information from PDF text.
 
 The PDF contains ${expectedTicketCount} electronic tickets. For EACH ticket code listed below, extract:
 - holder_name: The person's name (Title Case)
@@ -137,6 +198,13 @@ Return JSON with this structure:
 }
 
 IMPORTANT: You MUST return exactly ${expectedTicketCount} tickets in the tickets array - one for each code listed above.`
+
+    const response = await openai.chat.completions.create({
+      model: 'gpt-4o',
+      messages: [
+        {
+          role: 'system',
+          content: systemPrompt
         },
         {
           role: 'user',
@@ -186,37 +254,53 @@ IMPORTANT: You MUST return exactly ${expectedTicketCount} tickets in the tickets
         const pageIndex = pdfPages.findIndex(page => page.includes(code))
         const pageText = pageIndex >= 0 ? pdfPages[pageIndex] : pdfText
 
-        // Try to extract holder name from the page
-        // In these tickets, names are typically in UPPERCASE on their own line
         let holderName = 'Unknown'
         let ticketType = 'Unknown'
         let price = 0
 
-        // The name is usually right after the ticket code or near "Intestatario"
         const codePos = pageText.indexOf(code)
         if (codePos >= 0) {
           // Get text around the code
-          const before = pageText.substring(Math.max(0, codePos - 500), codePos)
-          const after = pageText.substring(codePos, Math.min(pageText.length, codePos + 500))
+          const after = pageText.substring(codePos, Math.min(pageText.length, codePos + 1000))
 
-          // Look for name patterns - usually UPPERCASE names
-          const nameMatch = before.match(/([A-ZÀÈÌÒÙÁÉÍÓÚ][a-zàèìòùáéíóú]+(?:\s+[A-ZÀÈÌÒÙÁÉÍÓÚ][a-zàèìòùáéíóú]+)+)\s*$/m)
-            || after.match(/^\s*([A-ZÀÈÌÒÙÁÉÍÓÚ][a-zàèìòùáéíóú]+(?:\s+[A-ZÀÈÌÒÙÁÉÍÓÚ][a-zàèìòùáéíóú]+)+)/m)
+          if (pdfType === 'vatican') {
+            // Vatican: Extract Pax number and ticket type
+            const paxMatch = after.match(/Pax:\s*(\d+)\s*-\s*\d+/)
+            if (paxMatch) {
+              holderName = `Ticket ${paxMatch[1]}`
+            }
 
-          if (nameMatch) {
-            holderName = nameMatch[1].trim()
-          }
+            // Check for Ridotto (reduced) or Intero (full)
+            if (after.includes('Biglietto Ridotto') || after.includes('Reduced Ticket')) {
+              ticketType = 'Biglietto Ridotto'
+              price = 8.00
+            } else {
+              ticketType = 'Biglietto Intero'
+              price = 20.00
+            }
+          } else {
+            // Colosseum: Extract holder name and ticket type
+            const before = pageText.substring(Math.max(0, codePos - 500), codePos)
 
-          // Look for ticket type
-          const typeMatch = pageText.match(/(Intero\s+Full\s+Experience|Guide\s+turistiche[^0-9]*|Gratuito[^0-9]*|Ridotto[^0-9]*)/i)
-          if (typeMatch) {
-            ticketType = typeMatch[1].trim()
-          }
+            // Look for name patterns - usually Title Case names
+            const nameMatch = before.match(/([A-ZÀÈÌÒÙÁÉÍÓÚ][a-zàèìòùáéíóú]+(?:\s+[A-ZÀÈÌÒÙÁÉÍÓÚ][a-zàèìòùáéíóú]+)+)\s*$/m)
+              || after.match(/^\s*([A-ZÀÈÌÒÙÁÉÍÓÚ][a-zàèìòùáéíóú]+(?:\s+[A-ZÀÈÌÒÙÁÉÍÓÚ][a-zàèìòùáéíóú]+)+)/m)
 
-          // Look for price
-          const priceMatch = pageText.match(/(\d+)[,.](\d{2})\s*EUR/i)
-          if (priceMatch) {
-            price = parseFloat(`${priceMatch[1]}.${priceMatch[2]}`)
+            if (nameMatch) {
+              holderName = nameMatch[1].trim()
+            }
+
+            // Look for ticket type
+            const typeMatch = pageText.match(/(Intero\s+Full\s+Experience|Guide\s+turistiche[^0-9]*|Gratuito[^0-9]*|Ridotto[^0-9]*)/i)
+            if (typeMatch) {
+              ticketType = typeMatch[1].trim()
+            }
+
+            // Look for price
+            const priceMatch = pageText.match(/(\d+)[,.](\d{2})\s*EUR/i)
+            if (priceMatch) {
+              price = parseFloat(`${priceMatch[1]}.${priceMatch[2]}`)
+            }
           }
         }
 
@@ -239,6 +323,7 @@ IMPORTANT: You MUST return exactly ${expectedTicketCount} tickets in the tickets
       data: extractedData,
       ticketCount: extractedCount,
       potentialTicketCodes: expectedTicketCount,
+      pdfType,
       warning: expectedTicketCount > extractedCount
         ? `Warning: Found ${expectedTicketCount} potential ticket codes in PDF but only extracted ${extractedCount} tickets`
         : undefined

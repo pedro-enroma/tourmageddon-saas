@@ -199,6 +199,7 @@ export interface TicketCategory {
   description?: string
   product_names?: string[]
   guide_requires_ticket: boolean
+  skip_name_check?: boolean
   created_at?: string
 }
 

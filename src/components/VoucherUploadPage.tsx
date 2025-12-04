@@ -27,6 +27,7 @@ interface TicketCategory {
   id: string
   name: string
   guide_requires_ticket?: boolean
+  skip_name_check?: boolean
 }
 
 interface AssignedGuide {
@@ -87,6 +88,7 @@ export default function VoucherUploadPage() {
   const [availabilityBookingCounts, setAvailabilityBookingCounts] = useState<Map<number, number>>(new Map())
   const [assignedGuides, setAssignedGuides] = useState<AssignedGuide[]>([])
   const [categoryGuideRequiresTicket, setCategoryGuideRequiresTicket] = useState(false)
+  const [categorySkipNameCheck, setCategorySkipNameCheck] = useState(false)
 
   // Helper function to normalize names (remove diacritics/accents)
   const normalizeText = (text: string): string => {
@@ -105,7 +107,7 @@ export default function VoucherUploadPage() {
   const fetchCategories = async () => {
     const { data } = await supabase
       .from('ticket_categories')
-      .select('id, name, guide_requires_ticket')
+      .select('id, name, guide_requires_ticket, skip_name_check')
       .order('name')
     setCategories(data || [])
   }
@@ -282,13 +284,15 @@ export default function VoucherUploadPage() {
     fetchTypeMappings()
   }, [fetchTypeMappings])
 
-  // Update categoryGuideRequiresTicket when category changes
+  // Update category flags when category changes
   useEffect(() => {
     if (selectedCategoryId) {
       const selectedCategory = categories.find(c => c.id === selectedCategoryId)
       setCategoryGuideRequiresTicket(selectedCategory?.guide_requires_ticket ?? false)
+      setCategorySkipNameCheck(selectedCategory?.skip_name_check ?? false)
     } else {
       setCategoryGuideRequiresTicket(false)
+      setCategorySkipNameCheck(false)
     }
   }, [selectedCategoryId, categories])
 
@@ -305,6 +309,62 @@ export default function VoucherUploadPage() {
       return
     }
 
+    // If skip_name_check is enabled, do quantity-only validation
+    if (categorySkipNameCheck) {
+      // Count tickets by type
+      const ticketTypeCounts: Record<string, number> = {}
+      extractedData.tickets.forEach(ticket => {
+        ticketTypeCounts[ticket.ticket_type] = (ticketTypeCounts[ticket.ticket_type] || 0) + 1
+      })
+
+      // Count participants by booked_title
+      const participantTypeCounts: Record<string, number> = {}
+      participants.forEach(p => {
+        participantTypeCounts[p.booked_title] = (participantTypeCounts[p.booked_title] || 0) + 1
+      })
+
+      const totalTickets = extractedData.tickets.length
+      const totalParticipants = participants.length
+
+      // Create a single summary result for quantity validation
+      const warnings: string[] = []
+
+      // Check total count
+      if (totalTickets !== totalParticipants) {
+        warnings.push(`Total ticket count (${totalTickets}) doesn't match participant count (${totalParticipants})`)
+      }
+
+      // Check per-type counts using mappings
+      for (const [ticketType, ticketCount] of Object.entries(ticketTypeCounts)) {
+        const mapping = typeMappings.find(m => m.ticket_type === ticketType)
+        if (mapping && mapping.booked_titles.length > 0) {
+          // Sum up the participant count for all booked_titles this ticket type maps to
+          const matchedParticipantCount = mapping.booked_titles.reduce((sum, title) => {
+            return sum + (participantTypeCounts[title] || 0)
+          }, 0)
+
+          if (ticketCount !== matchedParticipantCount) {
+            warnings.push(`${ticketType}: ${ticketCount} tickets vs ${matchedParticipantCount} participants`)
+          }
+        }
+      }
+
+      // Return a single result with all quantity warnings
+      const results: ValidationResult[] = [{
+        ticket: { ticket_code: 'QUANTITY_CHECK', holder_name: 'Quantity Validation', ticket_type: 'Summary', price: 0 },
+        matchedParticipant: null,
+        matchedGuide: null,
+        nameMatch: warnings.length === 0,
+        typeMatch: warnings.length === 0,
+        isGuideTicket: false,
+        warnings
+      }]
+
+      setValidationResults(warnings.length > 0 ? results : [])
+      return
+    }
+
+    // Standard name-based validation
     const results: ValidationResult[] = extractedData.tickets.map(ticket => {
       const warnings: string[] = []
       const ticketNameNormalized = normalizeText(ticket.holder_name)
@@ -376,7 +436,7 @@ export default function VoucherUploadPage() {
     })
 
     setValidationResults(results)
-  }, [extractedData?.tickets, participants, assignedGuides, typeMappings, categoryGuideRequiresTicket])
+  }, [extractedData?.tickets, participants, assignedGuides, typeMappings, categoryGuideRequiresTicket, categorySkipNameCheck])
 
   const handleFileChange = (e: React.ChangeEvent<HTMLInputElement>) => {
     const selectedFile = e.target.files?.[0]
