@@ -782,11 +782,9 @@ export default function DailyListPage() {
       setEmailBody(`Hello {{name}},\n\nYou have been assigned to:\n\n**Activity:** ${tour.tourTitle}\n**Date:** ${format(new Date(selectedDate), 'EEEE, MMMM d, yyyy')}\n**Time:** ${timeSlot.time.substring(0, 5)}\n**Participants:** ${timeSlot.totalParticipants} pax\n\nBest regards,\nEnRoma.com Team`)
     }
 
-    // Pre-select all staff with emails
+    // Pre-select only guides with emails (this modal is for guides only)
     const recipients: string[] = []
     staff?.guides.forEach(g => { if (g.email) recipients.push(`guide:${g.id}`) })
-    staff?.escorts.forEach(e => { if (e.email) recipients.push(`escort:${e.id}`) })
-    staff?.headphones.forEach(h => { if (h.email) recipients.push(`headphone:${h.id}`) })
     setSelectedRecipients(recipients)
 
     setIncludeAttachments(true)
@@ -3023,11 +3021,11 @@ EnRoma.com Team`
                                 Add PDF
                               </span>
                             </label>
-                            {/* Send Email Button */}
+                            {/* Send Email Button - Only for guides */}
                             <Button
                               size="sm"
                               onClick={() => openEmailModal(tour, timeSlot)}
-                              disabled={slotGuides.length === 0 && slotEscorts.length === 0}
+                              disabled={slotGuides.length === 0}
                             >
                               <Mail className="w-4 h-4 mr-1" />
                               Send Email
