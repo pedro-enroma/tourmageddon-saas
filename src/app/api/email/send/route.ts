@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { Resend } from 'resend'
+import { PDFDocument } from 'pdf-lib'
 import { verifySession, getServiceRoleClient } from '@/lib/supabase-server'
 
 // Initialize Resend on each request to ensure env vars are read
@@ -178,25 +179,70 @@ export async function POST(request: NextRequest) {
     // Prepare attachments
     const attachments: { filename: string; content: Buffer }[] = []
 
-    // Add PDF attachments from URLs
+    // Add PDF attachments from URLs - merge voucher PDFs into one
     if (attachmentUrls && attachmentUrls.length > 0) {
+      const voucherPdfBuffers: Buffer[] = []
+      const otherAttachments: { filename: string; content: Buffer }[] = []
+
       for (const url of attachmentUrls) {
         try {
           const response = await fetch(url)
           if (response.ok) {
             const buffer = Buffer.from(await response.arrayBuffer())
-            // Extract clean filename
             const urlPath = url.split('/').pop() || 'attachment.pdf'
             const fileName = decodeURIComponent(urlPath.split('?')[0])
-            attachments.push({
-              filename: fileName,
-              content: buffer
-            })
+
+            // Check if this is a voucher PDF (from ticket-vouchers bucket)
+            if (url.includes('ticket-vouchers') && fileName.toLowerCase().endsWith('.pdf')) {
+              voucherPdfBuffers.push(buffer)
+            } else {
+              otherAttachments.push({
+                filename: fileName,
+                content: buffer
+              })
+            }
           }
         } catch (err) {
           console.error('Error fetching attachment:', url, err)
         }
       }
+
+      // Merge voucher PDFs into one if there are multiple
+      if (voucherPdfBuffers.length > 0) {
+        try {
+          const mergedPdf = await PDFDocument.create()
+
+          for (const pdfBuffer of voucherPdfBuffers) {
+            try {
+              const pdf = await PDFDocument.load(pdfBuffer)
+              const pages = await mergedPdf.copyPages(pdf, pdf.getPageIndices())
+              pages.forEach(page => mergedPdf.addPage(page))
+            } catch (pdfErr) {
+              console.error('Error loading PDF for merge:', pdfErr)
+            }
+          }
+
+          if (mergedPdf.getPageCount() > 0) {
+            const mergedPdfBytes = await mergedPdf.save()
+            attachments.push({
+              filename: 'Vouchers.pdf',
+              content: Buffer.from(mergedPdfBytes)
+            })
+          }
+        } catch (mergeErr) {
+          console.error('Error merging PDFs:', mergeErr)
+          // Fallback: add PDFs individually if merge fails
+          voucherPdfBuffers.forEach((buffer, idx) => {
+            attachments.push({
+              filename: `Voucher_${idx + 1}.pdf`,
+              content: buffer
+            })
+          })
+        }
+      }
+
+      // Add other (non-voucher) attachments
+      attachments.push(...otherAttachments)
     }
 
     // Add daily list Excel file if provided
