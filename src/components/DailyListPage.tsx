@@ -1117,112 +1117,6 @@ export default function DailyListPage() {
     }
   }
 
-  // Generate consolidated Excel for headphone with all their services
-  // Each service is formatted as a separate styled table (same as escort Excel)
-  const generateConsolidatedHeadphoneExcel = async (
-    headphoneName: string,
-    services: { tour: TourGroup; timeSlot: TimeSlotGroup; guideName: string; escortNames: string[] }[]
-  ): Promise<{ data: string; fileName: string } | null> => {
-    try {
-      if (services.length === 0) return null
-
-      const excelData: any[][] = []
-      const dateStr = format(new Date(selectedDate), 'dd/MM/yyyy')
-
-      // Simple summary format for headphones - NO customer details
-      const maxCols = 5
-
-      // Main title for the consolidated file
-      excelData.push([`Services for ${headphoneName} - ${dateStr}`])
-      excelData.push([]) // Empty row after main title
-
-      // Header row
-      excelData.push(['Time', 'Tour', 'Total PAX', 'Guide', 'Escort'])
-
-      // Data rows - one per service
-      for (const { tour, timeSlot, guideName, escortNames } of services) {
-        excelData.push([
-          timeSlot.time.substring(0, 5),
-          tour.tourTitle,
-          timeSlot.totalParticipants,
-          guideName || 'TBD',
-          escortNames.join(', ') || 'TBD'
-        ])
-      }
-
-      const wb = XLSX.utils.book_new()
-      const ws = XLSX.utils.aoa_to_sheet(excelData)
-      if (!ws['!merges']) ws['!merges'] = []
-
-      // Style the main title (row 0) - purple for headphones
-      for (let col = 0; col < maxCols; col++) {
-        const cellAddress = XLSX.utils.encode_cell({ r: 0, c: col })
-        if (!ws[cellAddress]) ws[cellAddress] = { t: 's', v: '' }
-        ws[cellAddress].s = {
-          font: { bold: true, sz: 16, color: { rgb: "FFFFFF" } },
-          fill: { fgColor: { rgb: "7C3AED" } },
-          alignment: { horizontal: "center", vertical: "center" }
-        }
-      }
-      ws['!merges'].push({
-        s: { r: 0, c: 0 },
-        e: { r: 0, c: maxCols - 1 }
-      })
-
-      // Style header row (row 2)
-      for (let col = 0; col < maxCols; col++) {
-        const cellAddress = XLSX.utils.encode_cell({ r: 2, c: col })
-        const cell = ws[cellAddress]
-        if (cell) {
-          cell.s = {
-            font: { bold: true, sz: 13 },
-            fill: { fgColor: { rgb: "D9D9D9" } },
-            alignment: { horizontal: "center", vertical: "center" }
-          }
-        }
-      }
-
-      // Style data rows
-      for (let row = 3; row < excelData.length; row++) {
-        for (let col = 0; col < maxCols; col++) {
-          const cellAddress = XLSX.utils.encode_cell({ r: row, c: col })
-          const cell = ws[cellAddress]
-          if (cell) {
-            cell.s = {
-              font: { sz: 13 },
-              alignment: { horizontal: "center", vertical: "center" }
-            }
-          }
-        }
-      }
-
-      // Set column widths
-      ws['!cols'] = [
-        { wch: 10 },  // Time
-        { wch: 35 },  // Tour
-        { wch: 12 },  // Total PAX
-        { wch: 20 },  // Guide
-        { wch: 25 },  // Escort
-      ]
-
-      // Set row heights
-      if (!ws['!rows']) ws['!rows'] = []
-      ws['!rows'][0] = { hpt: 25 }
-      ws['!rows'][2] = { hpt: 20 }
-
-      XLSX.utils.book_append_sheet(wb, ws, 'Services')
-
-      const buffer = XLSX.write(wb, { type: 'base64', bookType: 'xlsx' })
-      const cleanName = headphoneName.replace(/[/\\?%*:|"<>]/g, '-')
-      const fileName = `Services_${cleanName}_${format(new Date(selectedDate), 'yyyy-MM-dd')}.xlsx`
-
-      return { data: buffer, fileName }
-    } catch (error) {
-      console.error('Error generating consolidated headphone Excel:', error)
-      return null
-    }
-  }
-
   // Get all guides with email addresses for the drawer
   const getGuidesWithServices = () => {
     const guideServices = new Map<string, {
@@ -1713,11 +1607,6 @@ EnRoma.com Team`
           a.timeSlot.time.localeCompare(b.timeSlot.time)
         )
 
-        const consolidatedExcel = await generateConsolidatedHeadphoneExcel(
-          headphoneName,
-          sortedServices.map(s => ({ tour: s.tour, timeSlot: s.timeSlot, guideName: s.guideName, escortNames: s.escortNames }))
-        )
-
         // Generate services list using the service item template
         const serviceItemTemplate = headphoneTemplate.service_item_template ||
           'Ore: {{service.time}} - {{service.title}}\nTotale Pax: {{service.pax_count}}\nGuida: {{service.guide_name}}'
@@ -1764,7 +1653,7 @@ EnRoma.com Team`
           .replace(/\{\{services_list\}\}/g, servicesList)
           .replace(/\{\{services_count\}\}/g, String(services.length))
 
-        // Don't include attachments - only the Excel
+        // Don't include any attachments for headphone emails
         const response = await fetch('/api/email/send', {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
@@ -1777,9 +1666,7 @@ EnRoma.com Team`
             }],
             subject: emailSubject,
             body: emailBody,
-            attachmentUrls: [],
-            dailyListData: consolidatedExcel?.data,
-            dailyListFileName: consolidatedExcel?.fileName
+            attachmentUrls: []
           })
         })
 
@@ -3374,6 +3261,7 @@ EnRoma.com Team`
                         <span className={`inline-flex items-center px-2 py-0.5 rounded text-xs font-medium ${
                           log.recipient_type === 'guide' ? 'bg-brand-green-light text-green-700' :
                           log.recipient_type === 'escort' ? 'bg-brand-orange-light text-orange-700' :
+                          log.recipient_type === 'headphone' ? 'bg-purple-100 text-purple-700' :
                           'bg-gray-100 text-gray-700'
                         }`}>
                           {log.recipient_type || 'N/A'}
