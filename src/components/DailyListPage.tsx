@@ -699,12 +699,39 @@ export default function DailyListPage() {
   }
 
   // Apply template variables
-  const applyTemplateVariables = (text: string, tourTitle: string, dateStr: string, time: string, paxCount: number) => {
+  const applyTemplateVariables = (
+    text: string,
+    tourTitle: string,
+    dateStr: string,
+    time: string,
+    paxCount: number,
+    staff?: StaffAssignment | null,
+    activityId?: string
+  ) => {
+    // Get staff info
+    const guideNames = staff?.guides.map(g => `${g.first_name} ${g.last_name}`).join(', ') || ''
+    const guidePhones = staff?.guides.map(g => g.phone_number).filter(Boolean).join(', ') || ''
+    const escortNames = staff?.escorts.map(e => `${e.first_name} ${e.last_name}`).join(', ') || ''
+    const escortPhones = staff?.escorts.map(e => e.phone_number).filter(Boolean).join(', ') || ''
+    const headphoneNames = staff?.headphones.map(h => `${h.first_name} ${h.last_name}`).join(', ') || ''
+    const headphonePhones = staff?.headphones.map(h => h.phone_number).filter(Boolean).join(', ') || ''
+
+    // Get meeting point
+    const meetingPoint = activityId ? activityMeetingPoints.get(activityId) : null
+    const meetingPointText = meetingPoint?.address || meetingPoint?.name || ''
+
     return text
       .replace(/\{\{tour_title\}\}/g, tourTitle)
       .replace(/\{\{date\}\}/g, format(new Date(dateStr), 'EEEE, MMMM d, yyyy'))
       .replace(/\{\{time\}\}/g, time.substring(0, 5))
       .replace(/\{\{pax_count\}\}/g, String(paxCount))
+      .replace(/\{\{meeting_point\}\}/g, meetingPointText)
+      .replace(/\{\{guide_name\}\}/g, guideNames)
+      .replace(/\{\{guide_phone\}\}/g, guidePhones)
+      .replace(/\{\{escort_name\}\}/g, escortNames)
+      .replace(/\{\{escort_phone\}\}/g, escortPhones)
+      .replace(/\{\{headphone_name\}\}/g, headphoneNames)
+      .replace(/\{\{headphone_phone\}\}/g, headphonePhones)
   }
 
   // Handle template selection
@@ -715,10 +742,11 @@ export default function DailyListPage() {
     const template = emailTemplates.find(t => t.id === templateId)
     const tour = groupedTours.find(t => t.tourTitle === emailTimeSlot.tourTitle)
     const timeSlot = tour?.timeSlots.find(ts => ts.time === emailTimeSlot.time)
+    const staff = staffAssignments.get(emailTimeSlot.availabilityId)
 
     if (template && timeSlot) {
-      setEmailSubject(applyTemplateVariables(template.subject, emailTimeSlot.tourTitle, selectedDate, emailTimeSlot.time, timeSlot.totalParticipants))
-      setEmailBody(applyTemplateVariables(template.body, emailTimeSlot.tourTitle, selectedDate, emailTimeSlot.time, timeSlot.totalParticipants))
+      setEmailSubject(applyTemplateVariables(template.subject, emailTimeSlot.tourTitle, selectedDate, emailTimeSlot.time, timeSlot.totalParticipants, staff, emailTimeSlot.activityId))
+      setEmailBody(applyTemplateVariables(template.body, emailTimeSlot.tourTitle, selectedDate, emailTimeSlot.time, timeSlot.totalParticipants, staff, emailTimeSlot.activityId))
     }
   }
 
@@ -746,8 +774,8 @@ export default function DailyListPage() {
     const defaultTemplate = emailTemplates.find(t => t.is_default) || emailTemplates[0]
     if (defaultTemplate) {
       setSelectedTemplateId(defaultTemplate.id)
-      setEmailSubject(applyTemplateVariables(defaultTemplate.subject, tour.tourTitle, selectedDate, timeSlot.time, timeSlot.totalParticipants))
-      setEmailBody(applyTemplateVariables(defaultTemplate.body, tour.tourTitle, selectedDate, timeSlot.time, timeSlot.totalParticipants))
+      setEmailSubject(applyTemplateVariables(defaultTemplate.subject, tour.tourTitle, selectedDate, timeSlot.time, timeSlot.totalParticipants, staff, firstBooking.activity_id))
+      setEmailBody(applyTemplateVariables(defaultTemplate.body, tour.tourTitle, selectedDate, timeSlot.time, timeSlot.totalParticipants, staff, firstBooking.activity_id))
     } else {
       setSelectedTemplateId('')
       setEmailSubject(`Service Assignment: ${tour.tourTitle} - ${format(new Date(selectedDate), 'MMM d, yyyy')} at ${timeSlot.time.substring(0, 5)}`)
