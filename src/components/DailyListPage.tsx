@@ -713,13 +713,25 @@ export default function DailyListPage() {
     availabilityId?: number
   ) => {
     // Get staff info
+    const hasGuide = staff?.guides && staff.guides.length > 0
+    const hasEscort = staff?.escorts && staff.escorts.length > 0
+    const hasHeadphone = staff?.headphones && staff.headphones.length > 0
+
+    // Format guide info
     const guideNames = staff?.guides.map(g => `${g.first_name} ${g.last_name}`).join(', ') || ''
     const guidePhones = staff?.guides.map(g => g.phone_number).filter(Boolean).join(', ') || ''
+    // Format as "Name1 Phone1, Name2 Phone2" for multiple guides
+    const guideList = staff?.guides.map(g => `${g.first_name} ${g.last_name}${g.phone_number ? ' ' + g.phone_number : ''}`).join(', ') || ''
+
+    // Format escort info - as "Name1 Phone1, Name2 Phone2" for multiple escorts
     const escortNames = staff?.escorts.map(e => `${e.first_name} ${e.last_name}`).join(', ') || ''
     const escortPhones = staff?.escorts.map(e => e.phone_number).filter(Boolean).join(', ') || ''
+    const escortList = staff?.escorts.map(e => `${e.first_name} ${e.last_name}${e.phone_number ? ' ' + e.phone_number : ''}`).join(', ') || ''
+
+    // Format headphone info
     const headphoneNames = staff?.headphones.map(h => `${h.first_name} ${h.last_name}`).join(', ') || ''
     const headphonePhones = staff?.headphones.map(h => h.phone_number).filter(Boolean).join(', ') || ''
-    const hasHeadphone = staff?.headphones && staff.headphones.length > 0
+    const headphoneList = staff?.headphones.map(h => `${h.first_name} ${h.last_name}${h.phone_number ? ' ' + h.phone_number : ''}`).join(', ') || ''
 
     // Get meeting point
     const meetingPoint = activityId ? activityMeetingPoints.get(activityId) : null
@@ -738,17 +750,32 @@ export default function DailyListPage() {
       .replace(/\{\{meeting_point\}\}/g, meetingPointText)
       .replace(/\{\{guide_name\}\}/g, guideNames)
       .replace(/\{\{guide_phone\}\}/g, guidePhones)
+      .replace(/\{\{guide_list\}\}/g, guideList)
       .replace(/\{\{escort_name\}\}/g, escortNames)
       .replace(/\{\{escort_phone\}\}/g, escortPhones)
+      .replace(/\{\{escort_list\}\}/g, escortList)
       .replace(/\{\{headphone_name\}\}/g, headphoneNames)
       .replace(/\{\{headphone_phone\}\}/g, headphonePhones)
+      .replace(/\{\{headphone_list\}\}/g, headphoneList)
+
+    // Handle conditional guide block - show content only if guide is assigned
+    if (hasGuide) {
+      result = result.replace(/\{\{#if_guide\}\}/g, '').replace(/\{\{\/if_guide\}\}/g, '')
+    } else {
+      result = result.replace(/\{\{#if_guide\}\}[\s\S]*?\{\{\/if_guide\}\}/g, '')
+    }
+
+    // Handle conditional escort block - show content only if escort is assigned
+    if (hasEscort) {
+      result = result.replace(/\{\{#if_escort\}\}/g, '').replace(/\{\{\/if_escort\}\}/g, '')
+    } else {
+      result = result.replace(/\{\{#if_escort\}\}[\s\S]*?\{\{\/if_escort\}\}/g, '')
+    }
 
     // Handle conditional headphone block - show content only if headphone is assigned
     if (hasHeadphone) {
-      // Remove the conditional tags but keep the content
       result = result.replace(/\{\{#if_headphone\}\}/g, '').replace(/\{\{\/if_headphone\}\}/g, '')
     } else {
-      // Remove the entire conditional block including content
       result = result.replace(/\{\{#if_headphone\}\}[\s\S]*?\{\{\/if_headphone\}\}/g, '')
     }
 
