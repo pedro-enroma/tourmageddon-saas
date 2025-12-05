@@ -60,7 +60,7 @@ const CONSOLIDATED_SERVICE_VARIABLES = [
 ]
 
 type TemplateType = 'guide' | 'escort' | 'headphone'
-type ConsolidatedTemplateType = 'escort_consolidated' | 'headphone_consolidated'
+type ConsolidatedTemplateType = 'guide_consolidated' | 'escort_consolidated' | 'headphone_consolidated'
 
 interface EmailTemplate {
   id: string
@@ -1115,6 +1115,7 @@ export default function ContentPage() {
                 className="text-sm border rounded-md px-3 py-1.5"
               >
                 <option value="all">All Types</option>
+                <option value="guide_consolidated">Guide Consolidated</option>
                 <option value="escort_consolidated">Escort Consolidated</option>
                 <option value="headphone_consolidated">Headphone Consolidated</option>
               </select>
@@ -1147,11 +1148,13 @@ export default function ContentPage() {
                       <div className="flex items-center gap-2">
                         <h3 className="font-medium">{template.name}</h3>
                         <span className={`px-2 py-0.5 text-xs rounded ${
-                          template.template_type === 'escort_consolidated'
+                          template.template_type === 'guide_consolidated'
+                            ? 'bg-blue-100 text-blue-800'
+                            : template.template_type === 'escort_consolidated'
                             ? 'bg-orange-100 text-orange-800'
                             : 'bg-purple-100 text-purple-800'
                         }`}>
-                          {template.template_type === 'escort_consolidated' ? 'Escort' : 'Headphone'}
+                          {template.template_type === 'guide_consolidated' ? 'Guide' : template.template_type === 'escort_consolidated' ? 'Escort' : 'Headphone'}
                         </span>
                         {template.is_default && (
                           <span className="px-2 py-0.5 text-xs bg-green-100 text-green-800 rounded">Default</span>
@@ -1391,6 +1394,7 @@ export default function ContentPage() {
                         onChange={(e) => setConsolidatedTemplateType(e.target.value as ConsolidatedTemplateType)}
                         className="w-full px-3 py-2 border rounded-md text-sm"
                       >
+                        <option value="guide_consolidated">Guide Consolidated</option>
                         <option value="escort_consolidated">Escort Consolidated</option>
                         <option value="headphone_consolidated">Headphone Consolidated</option>
                       </select>

@@ -141,7 +141,7 @@ interface ConsolidatedEmailTemplate {
   subject: string
   body: string
   service_item_template: string | null
-  template_type: 'escort_consolidated' | 'headphone_consolidated'
+  template_type: 'guide_consolidated' | 'escort_consolidated' | 'headphone_consolidated'
   is_default: boolean
 }
 
