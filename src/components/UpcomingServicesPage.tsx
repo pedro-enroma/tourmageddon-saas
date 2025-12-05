@@ -29,6 +29,13 @@ interface Attachment {
   file_size?: number
 }
 
+interface Voucher {
+  id: string
+  booking_number: string
+  pdf_path: string | null
+  product_name: string
+}
+
 interface ServiceSlot {
   id: number
   activity_id: string
@@ -40,6 +47,7 @@ interface ServiceSlot {
   guides: Person[]
   escorts: Person[]
   attachments: Attachment[]
+  vouchers: Voucher[]
 }
 
 export default function UpcomingServicesPage() {
@@ -207,6 +215,26 @@ export default function UpcomingServicesPage() {
         .select('id, activity_availability_id, file_name, file_path, file_size')
         .in('activity_availability_id', availabilityIds)
 
+      // Fetch vouchers for these availabilities
+      const { data: vouchersData } = await supabase
+        .from('vouchers')
+        .select('id, activity_availability_id, booking_number, pdf_path, product_name')
+        .in('activity_availability_id', availabilityIds)
+
+      // Group vouchers by availability id
+      const vouchersByAvailability = new Map<number, Voucher[]>()
+      vouchersData?.forEach(v => {
+        if (!v.activity_availability_id) return
+        const existing = vouchersByAvailability.get(v.activity_availability_id) || []
+        existing.push({
+          id: v.id,
+          booking_number: v.booking_number,
+          pdf_path: v.pdf_path,
+          product_name: v.product_name
+        })
+        vouchersByAvailability.set(v.activity_availability_id, existing)
+      })
+
       // Group attachments by availability id
       const attachmentsByAvailability = new Map<number, Attachment[]>()
       attachmentsData?.forEach(att => {
@@ -255,6 +283,7 @@ export default function UpcomingServicesPage() {
           const guides = guidesByAvailability.get(avail.id) || []
           const escorts = escortsByAvailability.get(avail.id) || []
           const attachments = attachmentsByAvailability.get(avail.id) || []
+          const vouchers = vouchersByAvailability.get(avail.id) || []
 
           // Only include if there's at least one assignment
           if (guides.length === 0 && escorts.length === 0) return null
@@ -269,7 +298,8 @@ export default function UpcomingServicesPage() {
             vacancy_opening: avail.vacancy_opening || 0,
             guides,
             escorts,
-            attachments
+            attachments,
+            vouchers
           }
         })
         .filter((s): s is ServiceSlot => s !== null)
@@ -575,10 +605,20 @@ EnRoma.com Team`)
         return
       }
 
-      // Get attachment URLs if including attachments
-      const attachmentUrls = includeAttachments
-        ? emailService.attachments.map(a => a.file_path)
-        : []
+      // Get attachment URLs if including attachments (service attachments + voucher PDFs)
+      const attachmentUrls: string[] = []
+      if (includeAttachments) {
+        // Add service attachments (already full URLs)
+        emailService.attachments.forEach(a => attachmentUrls.push(a.file_path))
+
+        // Add voucher PDFs (need to generate public URL from pdf_path)
+        emailService.vouchers.forEach(v => {
+          if (v.pdf_path) {
+            const { data } = supabase.storage.from('ticket-vouchers').getPublicUrl(v.pdf_path)
+            attachmentUrls.push(data.publicUrl)
+          }
+        })
+      }
 
       // Generate daily list Excel if requested
       let dailyListData: string | undefined
@@ -769,11 +809,21 @@ EnRoma.com Team`)
                     {/* Attachments Section */}
                     <div className="mt-3 pt-3 border-t">
                       <div className="flex items-center justify-between">
-                        <div className="flex items-center gap-2">
-                          <Paperclip className="w-4 h-4 text-gray-400" />
-                          <span className="text-xs text-gray-500">
-                            {service.attachments.length} attachment{service.attachments.length !== 1 ? 's' : ''}
-                          </span>
+                        <div className="flex items-center gap-4">
+                          <div className="flex items-center gap-2">
+                            <Paperclip className="w-4 h-4 text-gray-400" />
+                            <span className="text-xs text-gray-500">
+                              {service.attachments.length} attachment{service.attachments.length !== 1 ? 's' : ''}
+                            </span>
+                          </div>
+                          {service.vouchers.length > 0 && (
+                            <div className="flex items-center gap-2">
+                              <FileText className="w-4 h-4 text-orange-400" />
+                              <span className="text-xs text-orange-600">
+                                {service.vouchers.length} voucher{service.vouchers.length !== 1 ? 's' : ''}
+                              </span>
+                            </div>
+                          )}
                         </div>
                         <div className="flex gap-2">
                           <Button
@@ -966,7 +1016,7 @@ EnRoma.com Team`)
 
               {/* Attachments options */}
               <div className="space-y-2">
-                {emailService.attachments.length > 0 && (
+                {(emailService.attachments.length > 0 || emailService.vouchers.length > 0) && (
                   <label className="flex items-center gap-2 text-sm">
                     <input
                       type="checkbox"
@@ -975,7 +1025,7 @@ EnRoma.com Team`)
                       className="rounded"
                     />
                     <Paperclip className="w-4 h-4 text-gray-400" />
-                    Include {emailService.attachments.length} PDF attachment{emailService.attachments.length !== 1 ? 's' : ''}
+                    Include PDFs ({emailService.attachments.length} attachment{emailService.attachments.length !== 1 ? 's' : ''}, {emailService.vouchers.length} voucher{emailService.vouchers.length !== 1 ? 's' : ''})
                   </label>
                 )}
                 <label className="flex items-center gap-2 text-sm">
