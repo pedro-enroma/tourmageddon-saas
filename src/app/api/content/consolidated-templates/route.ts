@@ -43,7 +43,7 @@ export async function POST(request: NextRequest) {
       return NextResponse.json({ error: 'Name, subject, and body are required' }, { status: 400 })
     }
 
-    if (!template_type || !['escort_consolidated', 'headphone_consolidated'].includes(template_type)) {
+    if (!template_type || !['guide_consolidated', 'escort_consolidated', 'headphone_consolidated'].includes(template_type)) {
       return NextResponse.json({ error: 'Invalid template type' }, { status: 400 })
     }
 
