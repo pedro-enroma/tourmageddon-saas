@@ -24,70 +24,66 @@ export async function GET(request: NextRequest) {
 
     const supabase = getServiceRoleClient()
 
-    // Fetch guide assignments
-    const { data: guideAssignments, error: guideError } = await supabase
-      .from('guide_assignments')
-      .select(`
-        assignment_id,
-        activity_availability_id,
-        guide:guides (
-          guide_id,
-          first_name,
-          last_name,
-          email,
-          phone_number
-        )
-      `)
-      .in('activity_availability_id', availabilityIds)
+    // Fetch all assignment types in parallel for better performance
+    const [guideResult, escortResult, headphoneResult] = await Promise.all([
+      supabase
+        .from('guide_assignments')
+        .select(`
+          assignment_id,
+          activity_availability_id,
+          guide:guides (
+            guide_id,
+            first_name,
+            last_name,
+            email,
+            phone_number
+          )
+        `)
+        .in('activity_availability_id', availabilityIds),
+      supabase
+        .from('escort_assignments')
+        .select(`
+          assignment_id,
+          activity_availability_id,
+          escort:escorts (
+            escort_id,
+            first_name,
+            last_name,
+            email,
+            phone_number
+          )
+        `)
+        .in('activity_availability_id', availabilityIds),
+      supabase
+        .from('headphone_assignments')
+        .select(`
+          assignment_id,
+          activity_availability_id,
+          headphone:headphones (
+            headphone_id,
+            name,
+            email,
+            phone_number
+          )
+        `)
+        .in('activity_availability_id', availabilityIds)
+    ])
 
-    if (guideError) {
-      console.error('Error fetching guide assignments:', guideError)
+    if (guideResult.error) {
+      console.error('Error fetching guide assignments:', guideResult.error)
     }
-
-    // Fetch escort assignments
-    const { data: escortAssignments, error: escortError } = await supabase
-      .from('escort_assignments')
-      .select(`
-        assignment_id,
-        activity_availability_id,
-        escort:escorts (
-          escort_id,
-          first_name,
-          last_name,
-          email,
-          phone_number
-        )
-      `)
-      .in('activity_availability_id', availabilityIds)
-
-    if (escortError) {
-      console.error('Error fetching escort assignments:', escortError)
+    if (escortResult.error) {
+      console.error('Error fetching escort assignments:', escortResult.error)
     }
-
-    // Fetch headphone assignments
-    const { data: headphoneAssignments, error: headphoneError } = await supabase
-      .from('headphone_assignments')
-      .select(`
-        assignment_id,
-        activity_availability_id,
-        headphone:headphones (
-          headphone_id,
-          name,
-          email,
-          phone_number
-        )
-      `)
-      .in('activity_availability_id', availabilityIds)
-
-    if (headphoneError) {
-      console.error('Error fetching headphone assignments:', headphoneError)
+    if (headphoneResult.error) {
+      console.error('Error fetching headphone assignments:', headphoneResult.error)
     }
 
     return NextResponse.json({
       data: {
-        guides: guideAssignments || [],
-        escorts: escortAssignments || [],
-        headphones: headphoneAssignments || []
+        guides: guideResult.data || [],
+        escorts: escortResult.data || [],
+        headphones: headphoneResult.data || []
       }
     })
   } catch (err) {

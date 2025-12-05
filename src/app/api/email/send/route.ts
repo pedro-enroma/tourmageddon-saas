@@ -184,26 +184,30 @@ export async function POST(request: NextRequest) {
       const voucherPdfBuffers: Buffer[] = []
       const otherAttachments: { filename: string; content: Buffer }[] = []
 
-      for (const url of attachmentUrls) {
-        try {
+      // Fetch all attachments in parallel
+      const fetchResults = await Promise.allSettled(
+        attachmentUrls.map(async (url) => {
           const response = await fetch(url)
-          if (response.ok) {
-            const buffer = Buffer.from(await response.arrayBuffer())
-            const urlPath = url.split('/').pop() || 'attachment.pdf'
-            const fileName = decodeURIComponent(urlPath.split('?')[0])
+          if (!response.ok) throw new Error(`Failed to fetch: ${url}`)
+          const buffer = Buffer.from(await response.arrayBuffer())
+          const urlPath = url.split('/').pop() || 'attachment.pdf'
+          const fileName = decodeURIComponent(urlPath.split('?')[0])
+          const isVoucher = url.includes('ticket-vouchers') && fileName.toLowerCase().endsWith('.pdf')
+          return { buffer, fileName, isVoucher }
+        })
+      )
 
-            // Check if this is a voucher PDF (from ticket-vouchers bucket)
-            if (url.includes('ticket-vouchers') && fileName.toLowerCase().endsWith('.pdf')) {
-              voucherPdfBuffers.push(buffer)
-            } else {
-              otherAttachments.push({
-                filename: fileName,
-                content: buffer
-              })
-            }
+      // Process fetched attachments
+      for (const result of fetchResults) {
+        if (result.status === 'fulfilled') {
+          const { buffer, fileName, isVoucher } = result.value
+          if (isVoucher) {
+            voucherPdfBuffers.push(buffer)
+          } else {
+            otherAttachments.push({ filename: fileName, content: buffer })
           }
-        } catch (err) {
-          console.error('Error fetching attachment:', url, err)
+        } else {
+          console.error('Error fetching attachment:', result.reason)
         }
       }
 
@@ -281,30 +285,50 @@ export async function POST(request: NextRequest) {
       return result
     }
 
-    // Send emails to each recipient
-    for (const recipient of recipients) {
-      try {
-        // Replace template variables in subject and body
-        const personalizedSubject = replaceTemplateVariables(subject, recipient.name, recipient.email)
-        const personalizedBody = replaceTemplateVariables(emailBody, recipient.name, recipient.email)
+    // Send emails to all recipients in parallel for better performance
+    const emailPromises = recipients.map(async (recipient) => {
+      // Replace template variables in subject and body
+      const personalizedSubject = replaceTemplateVariables(subject, recipient.name, recipient.email)
+      const personalizedBody = replaceTemplateVariables(emailBody, recipient.name, recipient.email)
 
-        // Convert to styled HTML
-        const htmlContent = textToHtml(personalizedBody, hasAttachments)
+      // Convert to styled HTML
+      const htmlContent = textToHtml(personalizedBody, hasAttachments)
 
-        const { data, error } = await resend.emails.send({
-          from: process.env.RESEND_FROM_EMAIL || 'EnRoma.com <noreply@enroma.com>',
-          to: recipient.email,
-          bcc: process.env.EMAIL_BCC_ADDRESS,
-          subject: personalizedSubject,
-          html: htmlContent,
-          attachments: hasAttachments ? attachments : undefined
-        })
+      const { data, error } = await resend.emails.send({
+        from: process.env.RESEND_FROM_EMAIL || 'EnRoma.com <noreply@enroma.com>',
+        to: recipient.email,
+        bcc: process.env.EMAIL_BCC_ADDRESS,
+        subject: personalizedSubject,
+        html: htmlContent,
+        attachments: hasAttachments ? attachments : undefined
+      })
 
+      return { recipient, personalizedSubject, data, error }
+    })
+
+    // Wait for all emails to be sent in parallel
+    const emailResults = await Promise.allSettled(emailPromises)
+
+    // Prepare email logs for batch insert
+    const emailLogs: {
+      recipient_email: string
+      recipient_name: string
+      recipient_type: string
+      recipient_id: string
+      activity_availability_id: number | null
+      service_date: string | null
+      subject: string
+      status: 'sent' | 'failed'
+      error_message?: string
+    }[] = []
+
+    // Process results
+    for (const result of emailResults) {
+      if (result.status === 'fulfilled') {
+        const { recipient, personalizedSubject, data, error } = result.value
         if (error) {
           errors.push({ recipient: recipient.email, error: error.message })
-
-          // Log failed email
-          const { error: logError } = await supabase.from('email_logs').insert({
+          emailLogs.push({
             recipient_email: recipient.email,
             recipient_name: recipient.name,
             recipient_type: recipient.type,
@@ -315,14 +339,9 @@ export async function POST(request: NextRequest) {
             status: 'failed',
             error_message: error.message
           })
-          if (logError) {
-            console.error('Failed to log email (failed):', logError)
-          }
         } else {
           results.push({ recipient: recipient.email, messageId: data?.id })
-
-          // Log successful email
-          const { error: logError } = await supabase.from('email_logs').insert({
+          emailLogs.push({
             recipient_email: recipient.email,
             recipient_name: recipient.name,
             recipient_type: recipient.type,
@@ -332,13 +351,19 @@ export async function POST(request: NextRequest) {
             subject: personalizedSubject,
             status: 'sent'
           })
-          if (logError) {
-            console.error('Failed to log email (sent):', logError)
-          }
         }
-      } catch (err) {
-        const errorMessage = err instanceof Error ? err.message : 'Unknown error'
-        errors.push({ recipient: recipient.email, error: errorMessage })
+      } else {
+        // Promise rejected - shouldn't happen but handle it
+        const errorMessage = result.reason instanceof Error ? result.reason.message : 'Unknown error'
+        errors.push({ recipient: 'unknown', error: errorMessage })
+      }
+    }
+
+    // Batch insert all email logs at once
+    if (emailLogs.length > 0) {
+      const { error: logError } = await supabase.from('email_logs').insert(emailLogs)
+      if (logError) {
+        console.error('Failed to batch log emails:', logError)
       }
     }
 

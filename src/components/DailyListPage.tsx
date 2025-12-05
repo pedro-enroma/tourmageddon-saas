@@ -1,6 +1,6 @@
 /* eslint-disable @typescript-eslint/no-explicit-any */
 'use client'
-import { useState, useEffect, useRef } from 'react'
+import { useState, useEffect, useRef, useMemo, useCallback } from 'react'
 import { supabase } from '@/lib/supabase'
 import { attachmentsApi } from '@/lib/api-client'
 import { Download, ChevronDown, Search, X, GripVertical, ChevronRight, User, UserCheck, Paperclip, Upload, Mail, Send, Loader2, MapPin, Ticket, FileText, Headphones } from 'lucide-react'
@@ -244,6 +244,17 @@ export default function DailyListPage() {
     useSensor(KeyboardSensor, {
       coordinateGetter: sortableKeyboardCoordinates,
     })
+  )
+
+  // Memoize filtered activities to avoid recomputation on every render
+  const filteredActivities = useMemo(() =>
+    activities.filter(a => a.title.toLowerCase().includes(searchTerm.toLowerCase())),
+    [activities, searchTerm]
+  )
+
+  const filteredActivityIds = useMemo(() =>
+    filteredActivities.map(a => a.activity_id),
+    [filteredActivities]
   )
 
   useEffect(() => {
@@ -2129,8 +2140,8 @@ EnRoma.com Team`
     await fetchVouchers(date)
   }
 
-  // Group data by tour and time slot
-  const groupDataByTour = (bookings: PaxData[]) => {
+  // Group data by tour and time slot - memoized for performance
+  const groupDataByTour = useCallback((bookings: PaxData[]) => {
     // Group by tour
     const tourMap = new Map<string, PaxData[]>()
 
@@ -2187,7 +2198,7 @@ EnRoma.com Team`
     tours.sort((a, b) => b.totalParticipants - a.totalParticipants)
 
     setGroupedTours(tours)
-  }
+  }, [])
 
   // Toggle tour expansion
   const toggleTourExpansion = (tourTitle: string) => {
@@ -2310,8 +2321,8 @@ EnRoma.com Team`
     return sortedCategories
   }
 
-  // Get participant counts by category for a booking
-  const getParticipantCounts = (booking: PaxData): { [category: string]: number } => {
+  // Get participant counts by category for a booking - memoized for performance
+  const getParticipantCounts = useCallback((booking: PaxData): { [category: string]: number } => {
     const counts: { [category: string]: number } = {}
 
     booking.passengers.forEach(passenger => {
@@ -2327,7 +2338,7 @@ EnRoma.com Team`
     })
 
     return counts
-  }
+  }, [])
 
   const exportSingleTour = async (tour: TourGroup) => {
     let fileCount = 0
@@ -2823,42 +2834,29 @@ EnRoma.com Team`
                   <div className="overflow-y-auto max-h-80 flex-1">
                     {searchTerm && (
                       <div className="px-3 py-1 text-xs text-gray-500 bg-gray-50">
-                        {activities.filter(a => a.title.toLowerCase().includes(searchTerm.toLowerCase())).length} risultati
+                        {filteredActivities.length} risultati
                       </div>
                     )}
                     <div className="p-2">
                       <button
                         onClick={() => {
-                          const filteredActivities = activities.filter(a =>
-                            a.title.toLowerCase().includes(searchTerm.toLowerCase())
-                          )
-                          const filteredIds = filteredActivities.map(a => a.activity_id)
-                          const allFilteredSelected = filteredIds.every(id => tempSelectedActivities.includes(id))
+                          const allFilteredSelected = filteredActivityIds.every(id => tempSelectedActivities.includes(id))
 
                           if (allFilteredSelected) {
-                            setTempSelectedActivities(tempSelectedActivities.filter(id => !filteredIds.includes(id)))
+                            setTempSelectedActivities(tempSelectedActivities.filter(id => !filteredActivityIds.includes(id)))
                           } else {
-                            setTempSelectedActivities([...new Set([...tempSelectedActivities, ...filteredIds])])
+                            setTempSelectedActivities([...new Set([...tempSelectedActivities, ...filteredActivityIds])])
                           }
                         }}
                         className="w-full text-left px-2 py-1 text-sm hover:bg-gray-100 rounded"
                       >
-                        {(() => {
-                          const filteredActivities = activities.filter(a =>
-                            a.title.toLowerCase().includes(searchTerm.toLowerCase())
-                          )
-                          const filteredIds = filteredActivities.map(a => a.activity_id)
-                          const allFilteredSelected = filteredIds.every(id => tempSelectedActivities.includes(id))
-                          return allFilteredSelected ? 'Deseleziona tutti (filtrati)' : 'Seleziona tutti (filtrati)'
-                        })()}
+                        {filteredActivityIds.every(id => tempSelectedActivities.includes(id))
+                          ? 'Deseleziona tutti (filtrati)'
+                          : 'Seleziona tutti (filtrati)'}
                       </button>
                     </div>
                     <div className="border-t">
-                      {activities
-                        .filter(activity =>
-                          activity.title.toLowerCase().includes(searchTerm.toLowerCase())
-                        )
-                        .map(activity => (
+                      {filteredActivities.map(activity => (
                           <div
                             key={activity.activity_id}
                             className="flex items-center px-3 py-2 hover:bg-gray-50 cursor-pointer"

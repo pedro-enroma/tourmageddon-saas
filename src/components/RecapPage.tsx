@@ -1,6 +1,6 @@
 // src/components/RecapPage.tsx
 'use client'
-import React, { useState, useEffect, useCallback } from 'react'
+import React, { useState, useEffect, useCallback, useMemo } from 'react'
 import { ChevronDown, ChevronRight, Plus, X, Save, RefreshCw, Download, Edit2, Trash2, Settings } from 'lucide-react'
 import { supabase } from '@/lib/supabase'
 import { tourGroupsApi } from '@/lib/api-client'
@@ -172,9 +172,12 @@ export default function RecapPage() {
   const [newCategoryName, setNewCategoryName] = useState('')
   const [settingsDrawerOpen, setSettingsDrawerOpen] = useState(false)
 
-  // Tour filtrati per la ricerca
-  const filteredTours = tours.filter(tour => 
-    tour.title.toLowerCase().includes(searchTerm.toLowerCase())
+  // Tour filtrati per la ricerca - memoized per evitare ricalcoli
+  const filteredTours = useMemo(() =>
+    tours.filter(tour =>
+      tour.title.toLowerCase().includes(searchTerm.toLowerCase())
+    ),
+    [tours, searchTerm]
   )
 
   // Definisci loadData con useCallback per evitare warning di dipendenze
