@@ -1486,7 +1486,17 @@ Best regards,
 EnRoma.com Team`
 
           const slotAttachments = attachments.filter(a => a.activity_availability_id === availabilityId)
-          const attachmentUrls = slotAttachments.map(a => a.file_path)
+          const attachmentUrls: string[] = slotAttachments.map(a => a.file_path)
+
+          // Add voucher PDF URLs
+          const vouchersForSlot = slotVouchers.get(availabilityId) || []
+          const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL
+          for (const voucher of vouchersForSlot) {
+            if (voucher.pdf_path) {
+              const pdfUrl = `${supabaseUrl}/storage/v1/object/public/ticket-vouchers/${voucher.pdf_path}`
+              attachmentUrls.push(pdfUrl)
+            }
+          }
 
           const response = await fetch('/api/email/send', {
             method: 'POST',
