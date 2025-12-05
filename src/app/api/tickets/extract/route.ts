@@ -7,7 +7,7 @@ import { verifySession } from '@/lib/supabase-server'
 const MAX_FILE_SIZE = 10 * 1024 * 1024
 
 // Detect PDF type based on content
-type PDFType = 'colosseum' | 'vatican' | 'pompei' | 'unknown'
+type PDFType = 'colosseum' | 'vatican' | 'pompei' | 'italo' | 'trenitalia' | 'unknown'
 
 function detectPDFType(text: string): PDFType {
   if (text.includes('Musei Vaticani') || text.includes('Vatican Museums')) {
@@ -18,6 +18,12 @@ function detectPDFType(text: string): PDFType {
   }
   if (text.includes('Parco Archeologico di Pompei') || text.includes('Scavi di Pompei') || text.includes('ticketone')) {
     return 'pompei'
+  }
+  if (text.includes('italotreno') || text.includes('Italo -') || text.includes('CODICE BIGLIETTO')) {
+    return 'italo'
+  }
+  if (text.includes('TRENITALIA') || text.includes('trenitalia.com') || text.includes('Frecciarossa')) {
+    return 'trenitalia'
   }
   return 'unknown'
 }
@@ -130,6 +136,12 @@ export async function POST(request: NextRequest) {
         const match = m.match(/TktID:\s*(\d{10})/)
         return match ? match[1] : ''
       }))].filter(code => code.length > 0)
+    } else if (pdfType === 'italo' || pdfType === 'trenitalia') {
+      // Train tickets don't have per-passenger codes like museum entries
+      // All passengers share the same booking code (CODICE BIGLIETTO or PNR)
+      // GPT will extract unique passengers and generate synthetic ticket codes
+      // We leave uniqueTicketCodes empty - the count will be determined by GPT
+      uniqueTicketCodes = []
     } else {
       // Colosseum: 16-character codes starting with SPC
       const allCodes = pdfText.match(/[A-Z0-9]{16}/g) || []
@@ -214,6 +226,77 @@ Return JSON with this structure:
 }
 
 IMPORTANT: You MUST return exactly ${expectedTicketCount} tickets in the tickets array - one for each TktID listed above.`
+    } else if (pdfType === 'italo') {
+      systemPrompt = `You are extracting train ticket info from an Italo PDF.
+
+This PDF contains a round-trip train booking. Extract UNIQUE passengers only (they appear on both outbound and return journey pages).
+
+Extract shared booking info:
+- booking_number: Combine "CODICE BIGLIETTO" and "RIC. N." as "{code} (RIC: {ric_n})" e.g., "YKVCYX (RIC: 109846687)"
+- booking_date: From "DATA DI ACQUISTO" (convert Italian month to YYYY-MM-DD, e.g., "21 nov 2025" -> "2025-11-21")
+- visit_date: From "DATA PARTENZA" of the FIRST journey only (convert Italian month, e.g., "08 DIC 2025" -> "2025-12-08")
+- entry_time: From "PARTENZA" departure time of FIRST journey (e.g., "07:40")
+- product_name: The route of FIRST journey, e.g., "ROMA TER. - NAPOLI C."
+
+For each UNIQUE passenger (deduplicated across all pages):
+- holder_name: Full name in Title Case (e.g., "Ana Maria Gonzalez Burgos", "Jose Maria De La Duena")
+- ticket_type: "ADULTO" or "BAMBINO" exactly as shown
+- price: Individual ticket price from "Prezzo" section (before discounts), e.g., 42.90 for adult
+- ticket_code: Generate as "ITALO-{RIC_N}-{index}" where RIC_N is from "RIC. N." and index is 1,2,3,4...
+
+CRITICAL RULES:
+1. Each passenger appears on MULTIPLE pages (outbound + return). Include each name ONLY ONCE.
+2. Look for the "NOME PASSEGGERO" table on each page to find all passengers.
+3. The same 4 passengers appear on page 1 (outbound) and page 2 (return) - extract only 4 unique tickets.
+
+Return JSON:
+{
+  "booking_number": "YKVCYX (RIC: 109846687)",
+  "booking_date": "2025-11-21",
+  "visit_date": "2025-12-08",
+  "entry_time": "07:40",
+  "product_name": "ROMA TER. - NAPOLI C.",
+  "tickets": [
+    {"ticket_code": "ITALO-109846687-1", "holder_name": "Ana Maria Gonzalez Burgos", "ticket_type": "ADULTO", "price": 42.90},
+    {"ticket_code": "ITALO-109846687-2", "holder_name": "Jose Maria De La Duena", "ticket_type": "ADULTO", "price": 42.90}
+  ]
+}`
+    } else if (pdfType === 'trenitalia') {
+      systemPrompt = `You are extracting train ticket info from a Trenitalia PDF.
+
+This PDF contains a round-trip train booking. Extract UNIQUE passengers only (they appear on both outbound and return journey pages).
+
+Extract shared booking info:
+- booking_number: Combine "PNR:" and "Numero Titolo:" as "{pnr} (Titolo: {numero})" e.g., "JQX7B5 (Titolo: 2654241724)"
+- booking_date: From "Data Emissione" (convert DD/MM/YYYY to YYYY-MM-DD, e.g., "15/10/2025" -> "2025-10-15")
+- visit_date: The date of FIRST journey only (convert DD/MM/YYYY to YYYY-MM-DD from the first "Stazione di Partenza" section)
+- entry_time: The departure time "Ore" of FIRST journey (e.g., "07:00")
+- product_name: The route of FIRST journey as "Stazione Partenza - Stazione Arrivo", e.g., "Roma Termini - Napoli Centrale"
+
+For each UNIQUE passenger (deduplicated across all pages):
+- holder_name: Full name in Title Case from "Nome Passeggero" sections (e.g., "Cenobio Moreno Zarano")
+- ticket_type: The type shown in parentheses: "Adulto" or "Ragazzo"
+- price: For FrecciaFAMILY, adults pay full price and Ragazzo is free (0). Calculate adult price as Importo totale / number of adults.
+- ticket_code: Generate as "TRENI-{PNR}-{index}" where PNR is the booking code and index is 1,2,3,4...
+
+CRITICAL RULES:
+1. Each passenger appears on MULTIPLE pages (outbound journey + return journey). Include each name ONLY ONCE.
+2. Look for "Nome Passeggero (Adulto)" and "Nome Passeggero (Ragazzo)" sections.
+3. Pages 1-2 are outbound journey, pages 3-4 are return - same passengers appear in both.
+4. The "Numero Titolo" may differ between outbound and return - use the FIRST one.
+
+Return JSON:
+{
+  "booking_number": "JQX7B5 (Titolo: 2654241724)",
+  "booking_date": "2025-10-15",
+  "visit_date": "2025-11-06",
+  "entry_time": "07:00",
+  "product_name": "Roma Termini - Napoli Centrale",
+  "tickets": [
+    {"ticket_code": "TRENI-JQX7B5-1", "holder_name": "Cenobio Moreno Zarano", "ticket_type": "Adulto", "price": 24.00},
+    {"ticket_code": "TRENI-JQX7B5-2", "holder_name": "Juana Magali Cordoba Leal", "ticket_type": "Adulto", "price": 24.00}
+  ]
+}`
     } else {
       systemPrompt = `You are a data extraction assistant. Extract ticket information from PDF text.
 
@@ -247,6 +330,11 @@ Return JSON with this structure:
 IMPORTANT: You MUST return exactly ${expectedTicketCount} tickets in the tickets array - one for each code listed above.`
     }
 
+    // For train PDFs, we don't know the ticket count in advance
+    const userMessage = (pdfType === 'italo' || pdfType === 'trenitalia')
+      ? `Extract all unique passengers from this train ticket PDF. Here is the PDF text:\n\n${pdfText}`
+      : `Extract data for all ${expectedTicketCount} tickets. Here is the PDF text:\n\n${pdfText}`
+
     const response = await openai.chat.completions.create({
       model: 'gpt-4o',
       messages: [
@@ -256,7 +344,7 @@ IMPORTANT: You MUST return exactly ${expectedTicketCount} tickets in the tickets
         },
         {
           role: 'user',
-          content: `Extract data for all ${expectedTicketCount} tickets. Here is the PDF text:\n\n${pdfText}`
+          content: userMessage
         }
       ],
       max_tokens: 16000,
@@ -288,6 +376,74 @@ IMPORTANT: You MUST return exactly ${expectedTicketCount} tickets in the tickets
         details: `booking_number: ${extractedData.booking_number || 'MISSING'}, visit_date: ${extractedData.visit_date || 'MISSING'}, entry_time: ${extractedData.entry_time || 'MISSING'}`,
         data: extractedData
       }, { status: 400 })
+    }
+
+    // For train PDFs, if GPT returned no tickets, try manual extraction
+    if ((pdfType === 'italo' || pdfType === 'trenitalia') && (!extractedData.tickets || extractedData.tickets.length === 0)) {
+      console.log(`GPT returned no tickets for ${pdfType}. Attempting manual extraction...`)
+      extractedData.tickets = []
+
+      if (pdfType === 'italo') {
+        // Extract RIC number for ticket codes
+        const ricMatch = pdfText.match(/RIC\. N\.\s*(\d+)/)
+        const ricNum = ricMatch ? ricMatch[1] : 'UNKNOWN'
+
+        // Extract unique passengers from "NOME PASSEGGERO" sections
+        // Pattern: NAME (uppercase or mixed) followed by ADULTO or BAMBINO
+        const passengerMatches = pdfText.matchAll(/([A-ZÀÈÌÒÙÁÉÍÓÚ][A-Za-zÀ-ÿ\s]+?)\s+(ADULTO|BAMBINO)/g)
+        const uniquePassengers = new Map<string, string>()
+
+        for (const match of passengerMatches) {
+          const name = match[1].trim().split(/\s+/).map(w =>
+            w.charAt(0).toUpperCase() + w.slice(1).toLowerCase()
+          ).join(' ')
+          if (!uniquePassengers.has(name)) {
+            uniquePassengers.set(name, match[2])
+          }
+        }
+
+        let index = 1
+        for (const [name, type] of uniquePassengers) {
+          extractedData.tickets.push({
+            ticket_code: `ITALO-${ricNum}-${index}`,
+            holder_name: name,
+            ticket_type: type,
+            price: type === 'ADULTO' ? 42.90 : 21.45 // Default prices
+          })
+          index++
+        }
+      } else if (pdfType === 'trenitalia') {
+        // Extract PNR for ticket codes
+        const pnrMatch = pdfText.match(/PNR:\s*([A-Z0-9]+)/)
+        const pnr = pnrMatch ? pnrMatch[1] : 'UNKNOWN'
+
+        // Extract unique passengers from "Nome Passeggero (Adulto/Ragazzo)" sections
+        const passengerMatches = pdfText.matchAll(/Nome Passeggero \((Adulto|Ragazzo)\)\s*\n([A-ZÀÈÌÒÙÁÉÍÓÚ][A-Za-zÀ-ÿ\s]+)/g)
+        const uniquePassengers = new Map<string, string>()
+
+        for (const match of passengerMatches) {
+          const type = match[1]
+          const name = match[2].trim().split(/\s+/).map(w =>
+            w.charAt(0).toUpperCase() + w.slice(1).toLowerCase()
+          ).join(' ')
+          if (!uniquePassengers.has(name)) {
+            uniquePassengers.set(name, type)
+          }
+        }
+
+        let index = 1
+        for (const [name, type] of uniquePassengers) {
+          extractedData.tickets.push({
+            ticket_code: `TRENI-${pnr}-${index}`,
+            holder_name: name,
+            ticket_type: type,
+            price: type === 'Adulto' ? 24.00 : 0 // Ragazzo is typically free in FrecciaFAMILY
+          })
+          index++
+        }
+      }
+
+      console.log(`Manual extraction found ${extractedData.tickets.length} passengers`)
     }
 
     // CRITICAL: Ensure all ticket codes are included
