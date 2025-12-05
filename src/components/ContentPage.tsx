@@ -14,7 +14,7 @@ import { Input } from '@/components/ui/input'
 const TEMPLATE_VARIABLES = [
   { key: '{{name}}', label: 'Recipient Name', description: 'Guide or escort name (personalized per recipient)' },
   { key: '{{tour_title}}', label: 'Tour Title', description: 'Activity/tour name' },
-  { key: '{{date}}', label: 'Date', description: 'Service date (e.g., Wednesday, November 26, 2025)' },
+  { key: '{{date}}', label: 'Date', description: 'Service date (e.g., 26/11/2025)' },
   { key: '{{time}}', label: 'Time', description: 'Service start time (e.g., 10:00)' },
   { key: '{{entry_time}}', label: 'Entry Time', description: 'Ticket entry time from voucher (e.g., 12:30)' },
   { key: '{{pax_count}}', label: 'Pax Count', description: 'Number of participants' },
@@ -39,9 +39,10 @@ const TEMPLATE_VARIABLES = [
 // Available template variables for consolidated emails
 const CONSOLIDATED_TEMPLATE_VARIABLES = [
   { key: '{{name}}', label: 'Recipient Name', description: 'Escort or headphone contact name' },
-  { key: '{{date}}', label: 'Date', description: 'Service date (e.g., Wednesday, November 26, 2025)' },
+  { key: '{{date}}', label: 'Date', description: 'Service date (e.g., 26/11/2025)' },
   { key: '{{services_list}}', label: 'Services List', description: 'List of all services with details (auto-generated)' },
   { key: '{{services_count}}', label: 'Services Count', description: 'Total number of services for the day' },
+  { key: '{{escort_list}}', label: 'Escort List', description: 'All escorts for the day as "Name1 Phone1, Name2 Phone2"' },
 ]
 
 // Template for services_list item

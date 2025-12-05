@@ -754,7 +754,7 @@ export default function DailyListPage() {
 
     let result = text
       .replace(/\{\{tour_title\}\}/g, tourTitle)
-      .replace(/\{\{date\}\}/g, format(new Date(dateStr), 'EEEE, MMMM d, yyyy'))
+      .replace(/\{\{date\}\}/g, format(new Date(dateStr), 'dd/MM/yyyy'))
       .replace(/\{\{time\}\}/g, time.substring(0, 5))
       .replace(/\{\{entry_time\}\}/g, entryTimeValue)
       .replace(/\{\{pax_count\}\}/g, String(paxCount))
@@ -1606,18 +1606,23 @@ EnRoma.com Team`
         }).join('\n\n')
 
         // Replace main template variables
-        const formattedDate = format(new Date(selectedDate), 'EEEE, MMMM d, yyyy')
+        const formattedDate = format(new Date(selectedDate), 'dd/MM/yyyy')
+
+        // Build escort list for this specific escort's services
+        const escortListForServices = `${escortName}${escort.phone_number ? ' ' + escort.phone_number : ''}`
 
         const emailSubject = escortTemplate.subject
           .replace(/\{\{name\}\}/g, escortName)
           .replace(/\{\{date\}\}/g, formattedDate)
           .replace(/\{\{services_count\}\}/g, String(services.length))
+          .replace(/\{\{escort_list\}\}/g, escortListForServices)
 
         const emailBody = escortTemplate.body
           .replace(/\{\{name\}\}/g, escortName)
           .replace(/\{\{date\}\}/g, formattedDate)
           .replace(/\{\{services_list\}\}/g, servicesList)
           .replace(/\{\{services_count\}\}/g, String(services.length))
+          .replace(/\{\{escort_list\}\}/g, escortListForServices)
 
         // Don't include attachments - only the Excel
         const response = await fetch('/api/email/send', {
@@ -1730,7 +1735,7 @@ EnRoma.com Team`
         }).join('\n\n')
 
         // Replace main template variables
-        const formattedDate = format(new Date(selectedDate), 'EEEE, MMMM d, yyyy')
+        const formattedDate = format(new Date(selectedDate), 'dd/MM/yyyy')
 
         const emailSubject = headphoneTemplate.subject
           .replace(/\{\{name\}\}/g, headphoneName)
