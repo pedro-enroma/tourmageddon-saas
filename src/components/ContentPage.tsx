@@ -675,32 +675,6 @@ export default function ContentPage() {
           </div>
         </button>
         <button
-          onClick={() => setActiveTab('meeting-points')}
-          className={`px-4 py-2 text-sm font-medium border-b-2 transition-colors ${
-            activeTab === 'meeting-points'
-              ? 'border-blue-600 text-blue-600'
-              : 'border-transparent text-gray-500 hover:text-gray-700'
-          }`}
-        >
-          <div className="flex items-center gap-2">
-            <MapPin className="w-4 h-4" />
-            Meeting Points
-          </div>
-        </button>
-        <button
-          onClick={() => setActiveTab('assignments')}
-          className={`px-4 py-2 text-sm font-medium border-b-2 transition-colors ${
-            activeTab === 'assignments'
-              ? 'border-blue-600 text-blue-600'
-              : 'border-transparent text-gray-500 hover:text-gray-700'
-          }`}
-        >
-          <div className="flex items-center gap-2">
-            <ChevronRight className="w-4 h-4" />
-            Meeting Point Assignments
-          </div>
-        </button>
-        <button
           onClick={() => setActiveTab('template-defaults')}
           className={`px-4 py-2 text-sm font-medium border-b-2 transition-colors ${
             activeTab === 'template-defaults'
@@ -724,6 +698,32 @@ export default function ContentPage() {
           <div className="flex items-center gap-2">
             <FileText className="w-4 h-4" />
             Consolidated Templates
+          </div>
+        </button>
+        <button
+          onClick={() => setActiveTab('meeting-points')}
+          className={`px-4 py-2 text-sm font-medium border-b-2 transition-colors ${
+            activeTab === 'meeting-points'
+              ? 'border-blue-600 text-blue-600'
+              : 'border-transparent text-gray-500 hover:text-gray-700'
+          }`}
+        >
+          <div className="flex items-center gap-2">
+            <MapPin className="w-4 h-4" />
+            Meeting Points
+          </div>
+        </button>
+        <button
+          onClick={() => setActiveTab('assignments')}
+          className={`px-4 py-2 text-sm font-medium border-b-2 transition-colors ${
+            activeTab === 'assignments'
+              ? 'border-blue-600 text-blue-600'
+              : 'border-transparent text-gray-500 hover:text-gray-700'
+          }`}
+        >
+          <div className="flex items-center gap-2">
+            <ChevronRight className="w-4 h-4" />
+            Meeting Point Assignments
           </div>
         </button>
       </div>

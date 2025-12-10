@@ -3,7 +3,7 @@
 import { useState, useEffect, useRef, useMemo, useCallback } from 'react'
 import { supabase } from '@/lib/supabase'
 import { attachmentsApi } from '@/lib/api-client'
-import { Download, ChevronDown, Search, X, GripVertical, ChevronRight, User, UserCheck, Paperclip, Upload, Mail, Send, Loader2, MapPin, Ticket, FileText, Headphones } from 'lucide-react'
+import { Download, ChevronDown, Search, X, GripVertical, ChevronRight, User, UserCheck, Paperclip, Upload, Mail, Send, Loader2, MapPin, Ticket, FileText, Headphones, AlertTriangle } from 'lucide-react'
 import { format } from 'date-fns'
 import * as XLSX from 'xlsx-js-style'
 
@@ -234,6 +234,12 @@ export default function DailyListPage() {
   // Consolidated email templates
   const [consolidatedTemplates, setConsolidatedTemplates] = useState<ConsolidatedEmailTemplate[]>([])
 
+  // Activity guide templates (activity_id -> template)
+  const [activityGuideTemplates, setActivityGuideTemplates] = useState<Map<string, EmailTemplate>>(new Map())
+
+  // Activities missing guide templates (for validation warning)
+  const [activitiesWithoutGuideTemplates, setActivitiesWithoutGuideTemplates] = useState<string[]>([])
+
   // File upload
   const fileInputRef = useRef<HTMLInputElement>(null)
   const [uploadingFor, setUploadingFor] = useState<number | null>(null)
@@ -261,6 +267,7 @@ export default function DailyListPage() {
     loadActivitiesAndFetchData()
     fetchEmailTemplates()
     fetchConsolidatedTemplates()
+    fetchActivityGuideTemplates()
   }, [])
 
   // Fetch email templates
@@ -286,6 +293,26 @@ export default function DailyListPage() {
       }
     } catch (err) {
       console.error('Error fetching consolidated templates:', err)
+    }
+  }
+
+  // Fetch activity guide templates (for bulk guide emails)
+  const fetchActivityGuideTemplates = async () => {
+    try {
+      const response = await fetch('/api/content/activity-templates')
+      const result = await response.json()
+      if (response.ok && result.data) {
+        const templateMap = new Map<string, EmailTemplate>()
+        for (const assignment of result.data) {
+          // Only include guide templates
+          if (assignment.template_type === 'guide' && assignment.template) {
+            templateMap.set(assignment.activity_id, assignment.template)
+          }
+        }
+        setActivityGuideTemplates(templateMap)
+      }
+    } catch (err) {
+      console.error('Error fetching activity guide templates:', err)
     }
   }
 
@@ -1212,6 +1239,10 @@ export default function DailyListPage() {
       services: { tour: TourGroup; timeSlot: TimeSlotGroup; availabilityId: number; escortNames: string[] }[]
     }>()
 
+    // Track which availability IDs have been processed (matched to bookings)
+    const processedAvailabilityIds = new Set<number>()
+
+    // First pass: match staffAssignments to bookings in groupedTours
     for (const tour of groupedTours) {
       for (const timeSlot of tour.timeSlots) {
         const firstBooking = timeSlot.bookings[0]
@@ -1230,6 +1261,7 @@ export default function DailyListPage() {
             availabilityId = id
             assignedGuides = staff.guides
             assignedEscorts = staff.escorts
+            processedAvailabilityIds.add(id)
             break
           }
         }
@@ -1255,6 +1287,58 @@ export default function DailyListPage() {
       }
     }
 
+    // Second pass: include guides from staffAssignments that don't have matching bookings
+    // These are availabilities with vacancy_sold > 0 but no entries in activity_bookings
+    for (const [id, staff] of staffAssignments.entries()) {
+      if (processedAvailabilityIds.has(id)) continue
+      if (staff.guides.length === 0) continue
+
+      // Look up activity title from activities state
+      const activity = activities.find(a => a.activity_id === staff.activityId)
+      const activityTitle = activity?.title || `Activity ${staff.activityId}`
+
+      // Create synthetic tour and timeSlot objects for this availability
+      const syntheticTimeSlot: TimeSlotGroup = {
+        time: staff.localTime.substring(0, 5),
+        bookings: [{
+          activity_booking_id: 0,
+          booking_id: 0,
+          activity_id: staff.activityId,
+          activity_title: activityTitle,
+          booking_date: selectedDate,
+          start_time: staff.localTime.substring(0, 5),
+          total_participants: 0,
+          participants_detail: '',
+          passengers: []
+        }],
+        totalParticipants: 0
+      }
+
+      const syntheticTour: TourGroup = {
+        tourTitle: activityTitle,
+        timeSlots: [syntheticTimeSlot],
+        totalParticipants: 0,
+        isExpanded: false
+      }
+
+      const escortNames = staff.escorts.map(e => `${e.first_name} ${e.last_name}`)
+
+      for (const guide of staff.guides) {
+        if (!guide.email) continue
+
+        const key = guide.id
+        if (!guideServices.has(key)) {
+          guideServices.set(key, { guide, services: [] })
+        }
+        guideServices.get(key)!.services.push({
+          tour: syntheticTour,
+          timeSlot: syntheticTimeSlot,
+          availabilityId: id,
+          escortNames
+        })
+      }
+    }
+
     return guideServices
   }
 
@@ -1265,6 +1349,10 @@ export default function DailyListPage() {
       services: { tour: TourGroup; timeSlot: TimeSlotGroup; availabilityId: number; guideName: string; guidePhone: string }[]
     }>()
 
+    // Track which availability IDs have been processed
+    const processedAvailabilityIds = new Set<number>()
+
+    // First pass: match to bookings
     for (const tour of groupedTours) {
       for (const timeSlot of tour.timeSlots) {
         const firstBooking = timeSlot.bookings[0]
@@ -1283,6 +1371,7 @@ export default function DailyListPage() {
             availabilityId = id
             assignedGuides = staff.guides
             assignedEscorts = staff.escorts
+            processedAvailabilityIds.add(id)
             break
           }
         }
@@ -1310,6 +1399,57 @@ export default function DailyListPage() {
       }
     }
 
+    // Second pass: include escorts from unmatched staffAssignments
+    for (const [id, staff] of staffAssignments.entries()) {
+      if (processedAvailabilityIds.has(id)) continue
+      if (staff.escorts.length === 0) continue
+
+      const activity = activities.find(a => a.activity_id === staff.activityId)
+      const activityTitle = activity?.title || `Activity ${staff.activityId}`
+
+      const syntheticTimeSlot: TimeSlotGroup = {
+        time: staff.localTime.substring(0, 5),
+        bookings: [{
+          activity_booking_id: 0,
+          booking_id: 0,
+          activity_id: staff.activityId,
+          activity_title: activityTitle,
+          booking_date: selectedDate,
+          start_time: staff.localTime.substring(0, 5),
+          total_participants: 0,
+          participants_detail: '',
+          passengers: []
+        }],
+        totalParticipants: 0
+      }
+
+      const syntheticTour: TourGroup = {
+        tourTitle: activityTitle,
+        timeSlots: [syntheticTimeSlot],
+        totalParticipants: 0,
+        isExpanded: false
+      }
+
+      const guideName = staff.guides.map(g => `${g.first_name} ${g.last_name}`).join(', ')
+      const guidePhone = staff.guides.map(g => g.phone_number).filter(Boolean).join(', ')
+
+      for (const escort of staff.escorts) {
+        if (!escort.email) continue
+
+        const key = escort.id
+        if (!escortServices.has(key)) {
+          escortServices.set(key, { escort, services: [] })
+        }
+        escortServices.get(key)!.services.push({
+          tour: syntheticTour,
+          timeSlot: syntheticTimeSlot,
+          availabilityId: id,
+          guideName,
+          guidePhone
+        })
+      }
+    }
+
     return escortServices
   }
 
@@ -1320,6 +1460,10 @@ export default function DailyListPage() {
       services: { tour: TourGroup; timeSlot: TimeSlotGroup; availabilityId: number; guideName: string; guidePhone: string; escortNames: string[]; escortPhone: string }[]
     }>()
 
+    // Track which availability IDs have been processed
+    const processedAvailabilityIds = new Set<number>()
+
+    // First pass: match to bookings
     for (const tour of groupedTours) {
       for (const timeSlot of tour.timeSlots) {
         const firstBooking = timeSlot.bookings[0]
@@ -1340,6 +1484,7 @@ export default function DailyListPage() {
             assignedGuides = staff.guides
             assignedEscorts = staff.escorts
             assignedHeadphones = staff.headphones
+            processedAvailabilityIds.add(id)
             break
           }
         }
@@ -1371,6 +1516,61 @@ export default function DailyListPage() {
       }
     }
 
+    // Second pass: include headphones from unmatched staffAssignments
+    for (const [id, staff] of staffAssignments.entries()) {
+      if (processedAvailabilityIds.has(id)) continue
+      if (staff.headphones.length === 0) continue
+
+      const activity = activities.find(a => a.activity_id === staff.activityId)
+      const activityTitle = activity?.title || `Activity ${staff.activityId}`
+
+      const syntheticTimeSlot: TimeSlotGroup = {
+        time: staff.localTime.substring(0, 5),
+        bookings: [{
+          activity_booking_id: 0,
+          booking_id: 0,
+          activity_id: staff.activityId,
+          activity_title: activityTitle,
+          booking_date: selectedDate,
+          start_time: staff.localTime.substring(0, 5),
+          total_participants: 0,
+          participants_detail: '',
+          passengers: []
+        }],
+        totalParticipants: 0
+      }
+
+      const syntheticTour: TourGroup = {
+        tourTitle: activityTitle,
+        timeSlots: [syntheticTimeSlot],
+        totalParticipants: 0,
+        isExpanded: false
+      }
+
+      const guideName = staff.guides.map(g => `${g.first_name} ${g.last_name}`).join(', ')
+      const guidePhone = staff.guides.map(g => g.phone_number).filter(Boolean).join(', ')
+      const escortNames = staff.escorts.map(e => `${e.first_name} ${e.last_name}`)
+      const escortPhone = staff.escorts.map(e => e.phone_number).filter(Boolean).join(', ')
+
+      for (const headphone of staff.headphones) {
+        if (!headphone.email) continue
+
+        const key = headphone.id
+        if (!headphoneServices.has(key)) {
+          headphoneServices.set(key, { headphone, services: [] })
+        }
+        headphoneServices.get(key)!.services.push({
+          tour: syntheticTour,
+          timeSlot: syntheticTimeSlot,
+          availabilityId: id,
+          guideName,
+          guidePhone,
+          escortNames,
+          escortPhone
+        })
+      }
+    }
+
     return headphoneServices
   }
 
@@ -1381,6 +1581,28 @@ export default function DailyListPage() {
       alert('No guides with email addresses assigned to any services')
       return
     }
+
+    // Check for activities missing guide templates
+    const activityIds = new Set<string>()
+    for (const [, { services }] of guideServices.entries()) {
+      for (const service of services) {
+        const activityId = service.timeSlot.bookings[0]?.activity_id
+        if (activityId) activityIds.add(activityId)
+      }
+    }
+
+    const missingTemplates: string[] = []
+    for (const activityId of activityIds) {
+      if (!activityGuideTemplates.has(activityId)) {
+        // Find activity title for user-friendly message
+        const activityTitle = groupedTours.find(t =>
+          t.timeSlots.some(ts => ts.bookings.some(b => b.activity_id === activityId))
+        )?.tourTitle || activityId
+        missingTemplates.push(activityTitle)
+      }
+    }
+    setActivitiesWithoutGuideTemplates(missingTemplates)
+
     // Select all guides by default
     setBulkSelectedRecipients(new Set(guideServices.keys()))
     setBulkEmailType('guides')
@@ -1426,10 +1648,16 @@ export default function DailyListPage() {
     })
   }
 
-  // Send bulk emails to selected guides
+  // Send bulk emails to selected guides using activity-specific templates
   const handleSendToSelectedGuides = async () => {
     if (bulkSelectedRecipients.size === 0) {
       alert('Please select at least one guide')
+      return
+    }
+
+    // Double-check all activities have templates (should be blocked by UI but safety check)
+    if (activitiesWithoutGuideTemplates.length > 0) {
+      alert(`Cannot send emails. Missing templates for:\n${activitiesWithoutGuideTemplates.join('\n')}`)
       return
     }
 
@@ -1446,45 +1674,51 @@ export default function DailyListPage() {
 
       try {
         for (const service of services) {
-          const { tour, timeSlot, availabilityId, escortNames } = service
+          const { tour, timeSlot, availabilityId } = service
           const guideName = `${guide.first_name} ${guide.last_name}`
-          const dailyList = await generateDailyListExcel(tour, timeSlot, guideName)
+          const activityId = timeSlot.bookings[0]?.activity_id
 
-          const escortInfo = escortNames.length > 0
-            ? `\n\n**Escort:** ${escortNames.join(', ')} will be present checking in all customers.`
-            : ''
-
-          // Get meeting point for this specific activity (get activity_id from first booking)
-          let meetingPointInfo = ''
-          if (includeMeetingPoint) {
-            const activityId = timeSlot.bookings[0]?.activity_id
-            const meetingPoint = activityId ? activityMeetingPoints.get(activityId) : null
-            if (meetingPoint) {
-              meetingPointInfo = `\n\n**Meeting Point:** ${meetingPoint.name}`
-              if (meetingPoint.address) {
-                meetingPointInfo += `\n${meetingPoint.address}`
-              }
-              if (meetingPoint.google_maps_url) {
-                meetingPointInfo += `\nMap: ${meetingPoint.google_maps_url}`
-              }
-              if (meetingPoint.instructions) {
-                meetingPointInfo += `\n${meetingPoint.instructions}`
-              }
-            }
+          // Get template for this activity
+          const template = activityId ? activityGuideTemplates.get(activityId) : null
+          if (!template) {
+            throw new Error(`No template found for activity: ${tour.tourTitle}`)
           }
 
-          const emailBodyText = `Hello ${guide.first_name},
+          // Get staff assignment for this slot
+          const staffAssignment = staffAssignments.get(availabilityId)
 
-You have been assigned to:
+          // Apply template variables to subject
+          let emailSubject = applyTemplateVariables(
+            template.subject,
+            tour.tourTitle,
+            selectedDate,
+            timeSlot.time,
+            timeSlot.totalParticipants,
+            staffAssignment,
+            activityId,
+            availabilityId
+          )
+          // Replace {{name}} with guide name
+          emailSubject = emailSubject.replace(/\{\{name\}\}/g, guideName)
 
-**Activity:** ${tour.tourTitle}
-**Date:** ${format(new Date(selectedDate), 'EEEE, MMMM d, yyyy')}
-**Time:** ${timeSlot.time.substring(0, 5)}
-**Participants:** ${timeSlot.totalParticipants} pax${escortInfo}${meetingPointInfo}
+          // Apply template variables to body
+          let emailBody = applyTemplateVariables(
+            template.body,
+            tour.tourTitle,
+            selectedDate,
+            timeSlot.time,
+            timeSlot.totalParticipants,
+            staffAssignment,
+            activityId,
+            availabilityId
+          )
+          // Replace {{name}} with guide name
+          emailBody = emailBody.replace(/\{\{name\}\}/g, guideName)
 
-Best regards,
-EnRoma.com Team`
+          // Generate daily list Excel
+          const dailyList = await generateDailyListExcel(tour, timeSlot, guideName)
 
+          // Prepare attachments
           const slotAttachments = attachments.filter(a => a.activity_availability_id === availabilityId)
           const attachmentUrls: string[] = slotAttachments.map(a => a.file_path)
 
@@ -1508,8 +1742,8 @@ EnRoma.com Team`
                 type: 'guide',
                 id: guide.id
               }],
-              subject: `Service Assignment: ${tour.tourTitle} - ${format(new Date(selectedDate), 'MMM d, yyyy')} at ${timeSlot.time.substring(0, 5)}`,
-              body: emailBodyText,
+              subject: emailSubject,
+              body: emailBody,
               activityAvailabilityId: availabilityId,
               attachmentUrls,
               dailyListData: dailyList?.data,
@@ -3634,6 +3868,31 @@ EnRoma.com Team`
             </div>
           </div>
 
+          {/* Missing Templates Warning - Only for guides */}
+          {bulkEmailType === 'guides' && activitiesWithoutGuideTemplates.length > 0 && (
+            <div className="px-4 py-3 bg-red-50 border-b border-red-200">
+              <div className="flex items-start gap-3">
+                <AlertTriangle className="w-5 h-5 text-red-500 flex-shrink-0 mt-0.5" />
+                <div>
+                  <p className="text-sm font-medium text-red-800">
+                    Missing Email Templates
+                  </p>
+                  <p className="text-xs text-red-600 mt-1">
+                    The following activities need guide templates assigned:
+                  </p>
+                  <ul className="text-xs text-red-600 mt-1 list-disc list-inside max-h-24 overflow-y-auto">
+                    {activitiesWithoutGuideTemplates.map((title, idx) => (
+                      <li key={idx}>{title}</li>
+                    ))}
+                  </ul>
+                  <p className="text-xs text-red-600 mt-2">
+                    Go to Content Management &rarr; Activity Template Defaults to assign templates.
+                  </p>
+                </div>
+              </div>
+            </div>
+          )}
+
           {/* Recipients Section */}
           <div className="flex-1 overflow-hidden flex flex-col">
             <div className="px-6 py-3 bg-gray-50 border-b flex items-center justify-between">
@@ -3814,7 +4073,7 @@ EnRoma.com Team`
                   bulkEmailType === 'escorts' ? handleSendToSelectedEscorts :
                   handleSendToSelectedHeadphones
                 }
-                disabled={bulkSelectedRecipients.size === 0}
+                disabled={bulkSelectedRecipients.size === 0 || (bulkEmailType === 'guides' && activitiesWithoutGuideTemplates.length > 0)}
                 className={`${
                   bulkEmailType === 'guides'
                     ? 'bg-brand-green hover:bg-brand-green-dark'

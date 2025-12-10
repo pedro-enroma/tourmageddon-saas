@@ -264,12 +264,13 @@ export default function StaffCalendarPage() {
         headphoneAssignmentsMap.set(assignment.activity_availability_id, [...existing, assignment])
       })
 
-      // Fetch actual bookings from activity_bookings for accurate counts
+      // Fetch actual bookings from activity_bookings for accurate counts (exclude CANCELLED)
       const { data: bookingsData } = await supabase
         .from('activity_bookings')
         .select('activity_id, start_time')
         .gte('start_date_time', `${startStr}T00:00:00`)
         .lt('start_date_time', `${endStr}T23:59:59`)
+        .not('status', 'eq', 'CANCELLED')
 
       // Count bookings by activity_id + start_time
       const bookingCountsMap = new Map<string, number>()
