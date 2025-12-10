@@ -130,16 +130,6 @@ function textToHtml(text: string, hasAttachments: boolean): string {
             </td>
           </tr>
         </table>
-        <!-- Brand footer -->
-        <table role="presentation" cellspacing="0" cellpadding="0" border="0" width="600" style="margin: 24px auto 0;">
-          <tr>
-            <td style="text-align: center;">
-              <p style="margin: 0; color: #9ca3af; font-size: 11px;">
-                Powered by Tourmageddon
-              </p>
-            </td>
-          </tr>
-        </table>
       </td>
     </tr>
   </table>
