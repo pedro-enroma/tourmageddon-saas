@@ -2,7 +2,7 @@
 'use client'
 
 import React, { useState } from 'react'
-import { Menu, ChevronRight, Users, FileBarChart, LayoutDashboard, FileText, FileSpreadsheet, BarChart3, DollarSign, TrendingUp, RefreshCw, Percent, UserCog, Calendar, UserCheck, FolderOpen, MapPin, Ticket, Upload, List, Tags, Link2, Bell, Settings, Shield, ClipboardList, Headphones, Printer } from 'lucide-react'
+import { Menu, ChevronRight, Users, FileBarChart, LayoutDashboard, FileText, FileSpreadsheet, BarChart3, DollarSign, TrendingUp, RefreshCw, Percent, UserCog, Calendar, UserCheck, FolderOpen, MapPin, Ticket, Upload, List, Tags, Link2, Bell, Settings, Shield, ClipboardList, Headphones, Printer, Activity, Landmark } from 'lucide-react'
 import { SidebarProvider, SidebarTrigger } from "@/components/ui/sidebar"
 import { Sidebar, SidebarContent, SidebarGroup, SidebarHeader, SidebarMenu, SidebarMenuButton, SidebarMenuItem, SidebarMenuSub, SidebarMenuSubButton, SidebarMenuSubItem } from "@/components/ui/sidebar"
 import RecapPage from '@/components/RecapPage'
@@ -32,6 +32,7 @@ import PrintingListPage from '@/components/PrintingListPage'
 import EscortAssignmentsPage from '@/components/EscortAssignmentsPage'
 import HeadphoneAssignmentsPage from '@/components/HeadphoneAssignmentsPage'
 import PrintingAssignmentsPage from '@/components/PrintingAssignmentsPage'
+import ColosseumMonitoringPage from '@/components/ColosseumMonitoringPage'
 
 // Custom Sidebar Component
 function AppSidebar({ currentView, onNavigate }: {
@@ -44,6 +45,7 @@ function AppSidebar({ currentView, onNavigate }: {
   const [reportsOpen, setReportsOpen] = useState(true)
   const [financeOpen, setFinanceOpen] = useState(true)
   const [contentOpen, setContentOpen] = useState(true)
+  const [monitoringOpen, setMonitoringOpen] = useState(true)
   const [settingsOpen, setSettingsOpen] = useState(true)
 
   const menuItems = [
@@ -221,6 +223,19 @@ function AppSidebar({ currentView, onNavigate }: {
       ],
     },
     {
+      title: "Monitoring",
+      icon: Activity,
+      isOpen: monitoringOpen,
+      setOpen: setMonitoringOpen,
+      items: [
+        {
+          title: "Colosseum",
+          icon: Landmark,
+          view: "monitoring-colosseum",
+        },
+      ],
+    },
+    {
       title: "Settings",
       icon: Settings,
       isOpen: settingsOpen,
@@ -358,6 +373,8 @@ export default function DashboardLayout() {
         return <UserManagementPage />
       case 'audit-logs':
         return <AuditLogsPage />
+      case 'monitoring-colosseum':
+        return <ColosseumMonitoringPage />
       default:
         return <RecapPage />
     }
@@ -419,6 +436,8 @@ export default function DashboardLayout() {
         return 'User Management'
       case 'audit-logs':
         return 'Audit Logs'
+      case 'monitoring-colosseum':
+        return 'Colosseum Monitoring'
       default:
         return 'Dashboard'
     }
@@ -445,6 +464,9 @@ export default function DashboardLayout() {
     }
     if (['user-management', 'audit-logs'].includes(currentView)) {
       return 'Settings'
+    }
+    if (['monitoring-colosseum'].includes(currentView)) {
+      return 'Monitoring'
     }
     return 'Dashboard'
   }
