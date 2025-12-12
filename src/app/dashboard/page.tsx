@@ -2,7 +2,7 @@
 'use client'
 
 import React, { useState } from 'react'
-import { Menu, ChevronRight, Users, FileBarChart, LayoutDashboard, FileText, FileSpreadsheet, BarChart3, DollarSign, TrendingUp, RefreshCw, Percent, UserCog, Calendar, UserCheck, FolderOpen, MapPin, Ticket, Upload, List, Tags, Link2, Bell, Settings, Shield, ClipboardList, Headphones } from 'lucide-react'
+import { Menu, ChevronRight, Users, FileBarChart, LayoutDashboard, FileText, FileSpreadsheet, BarChart3, DollarSign, TrendingUp, RefreshCw, Percent, UserCog, Calendar, UserCheck, FolderOpen, MapPin, Ticket, Upload, List, Tags, Link2, Bell, Settings, Shield, ClipboardList, Headphones, Printer } from 'lucide-react'
 import { SidebarProvider, SidebarTrigger } from "@/components/ui/sidebar"
 import { Sidebar, SidebarContent, SidebarGroup, SidebarHeader, SidebarMenu, SidebarMenuButton, SidebarMenuItem, SidebarMenuSub, SidebarMenuSubButton, SidebarMenuSubItem } from "@/components/ui/sidebar"
 import RecapPage from '@/components/RecapPage'
@@ -28,8 +28,10 @@ import NotificationsPage from '@/components/NotificationsPage'
 import UserManagementPage from '@/components/UserManagementPage'
 import AuditLogsPage from '@/components/AuditLogsPage'
 import HeadphonesListPage from '@/components/HeadphonesListPage'
+import PrintingListPage from '@/components/PrintingListPage'
 import EscortAssignmentsPage from '@/components/EscortAssignmentsPage'
 import HeadphoneAssignmentsPage from '@/components/HeadphoneAssignmentsPage'
+import PrintingAssignmentsPage from '@/components/PrintingAssignmentsPage'
 
 // Custom Sidebar Component
 function AppSidebar({ currentView, onNavigate }: {
@@ -138,6 +140,11 @@ function AppSidebar({ currentView, onNavigate }: {
           view: "headphones-list",
         },
         {
+          title: "Printing",
+          icon: Printer,
+          view: "printing-list",
+        },
+        {
           title: "Guide Assignments",
           icon: Calendar,
           view: "guide-assignments",
@@ -151,6 +158,11 @@ function AppSidebar({ currentView, onNavigate }: {
           title: "Headphone Assignments",
           icon: Calendar,
           view: "headphone-assignments",
+        },
+        {
+          title: "Printing Assignments",
+          icon: Calendar,
+          view: "printing-assignments",
         },
         {
           title: "Reports",
@@ -306,12 +318,16 @@ export default function DashboardLayout() {
         return <EscortsListPage />
       case 'headphones-list':
         return <HeadphonesListPage />
+      case 'printing-list':
+        return <PrintingListPage />
       case 'guide-assignments':
         return <StaffCalendarPage />
       case 'escort-assignments':
         return <EscortAssignmentsPage />
       case 'headphone-assignments':
         return <HeadphoneAssignmentsPage />
+      case 'printing-assignments':
+        return <PrintingAssignmentsPage />
       case 'staff-reports':
         return <StaffReportsPage />
       case 'marketing-export':
@@ -363,12 +379,16 @@ export default function DashboardLayout() {
         return 'Escorts List'
       case 'headphones-list':
         return 'Headphones'
+      case 'printing-list':
+        return 'Printing'
       case 'guide-assignments':
         return 'Guide Assignments'
       case 'escort-assignments':
         return 'Escort Assignments'
       case 'headphone-assignments':
         return 'Headphone Assignments'
+      case 'printing-assignments':
+        return 'Printing Assignments'
       case 'staff-reports':
         return 'Staff Reports'
       case 'marketing-export':
@@ -411,7 +431,7 @@ export default function DashboardLayout() {
     if (['voucher-upload', 'vouchers-list', 'ticket-categories', 'product-mappings', 'type-mappings'].includes(currentView)) {
       return 'Tickets'
     }
-    if (['guides-list', 'escorts-list', 'headphones-list', 'guide-assignments', 'escort-assignments', 'headphone-assignments', 'staff-reports'].includes(currentView)) {
+    if (['guides-list', 'escorts-list', 'headphones-list', 'printing-list', 'guide-assignments', 'escort-assignments', 'headphone-assignments', 'printing-assignments', 'staff-reports'].includes(currentView)) {
       return 'Staff'
     }
     if (currentView === 'marketing-export') {

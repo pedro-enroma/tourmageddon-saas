@@ -108,6 +108,26 @@ export const headphonesApi = {
 }
 
 // ============================================
+// PRINTING API
+// ============================================
+export interface Printing {
+  printing_id: string
+  name: string
+  email?: string
+  phone_number?: string
+  active: boolean
+  created_at?: string
+  updated_at?: string
+}
+
+export const printingApi = {
+  list: () => apiRequest<Printing[]>('/api/printing'),
+  create: (printing: Partial<Printing>) => apiRequest<Printing>('/api/printing', 'POST', printing),
+  update: (printing: Partial<Printing>) => apiRequest<Printing>('/api/printing', 'PUT', printing),
+  delete: (printing_id: string) => apiRequest(`/api/printing?printing_id=${printing_id}`, 'DELETE'),
+}
+
+// ============================================
 // ASSIGNMENTS API
 // ============================================
 export interface GuideAssignment {
@@ -315,7 +335,7 @@ export interface EmailTemplate {
   name: string
   subject: string
   body: string
-  template_type: 'guide' | 'escort' | 'headphone'
+  template_type: 'guide' | 'escort' | 'headphone' | 'printing'
   is_default: boolean
   created_at: string
 }
@@ -465,7 +485,7 @@ export interface ActivityTemplateAssignment {
   id: string
   activity_id: string
   template_id: string
-  template_type: 'guide' | 'escort' | 'headphone'
+  template_type: 'guide' | 'escort' | 'headphone' | 'printing'
   created_at: string
   // Joined fields
   template?: EmailTemplate
@@ -476,7 +496,7 @@ export const activityTemplatesApi = {
     const params = activity_id ? `?activity_id=${activity_id}` : ''
     return apiRequest<ActivityTemplateAssignment[]>(`/api/content/activity-templates${params}`)
   },
-  create: (assignment: { activity_id: string; template_id: string; template_type: 'guide' | 'escort' | 'headphone' }) =>
+  create: (assignment: { activity_id: string; template_id: string; template_type: 'guide' | 'escort' | 'headphone' | 'printing' }) =>
     apiRequest<ActivityTemplateAssignment>('/api/content/activity-templates', 'POST', assignment),
   delete: (activity_id: string, template_type: string) =>
     apiRequest(`/api/content/activity-templates?activity_id=${activity_id}&template_type=${template_type}`, 'DELETE'),

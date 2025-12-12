@@ -3,7 +3,7 @@
 import { useState, useEffect, useRef, useMemo, useCallback } from 'react'
 import { supabase } from '@/lib/supabase'
 import { attachmentsApi } from '@/lib/api-client'
-import { Download, ChevronDown, Search, X, GripVertical, ChevronRight, User, UserCheck, Paperclip, Upload, Mail, Send, Loader2, MapPin, Ticket, FileText, Headphones, AlertTriangle } from 'lucide-react'
+import { Download, ChevronDown, Search, X, GripVertical, ChevronRight, User, UserCheck, Paperclip, Upload, Mail, Send, Loader2, MapPin, Ticket, FileText, Headphones, Printer, AlertTriangle } from 'lucide-react'
 import { format } from 'date-fns'
 import * as XLSX from 'xlsx-js-style'
 
@@ -118,6 +118,7 @@ interface StaffAssignment {
   guides: Person[]
   escorts: Person[]
   headphones: Person[]
+  printing: Person[]
 }
 
 interface Attachment {
@@ -141,7 +142,7 @@ interface ConsolidatedEmailTemplate {
   subject: string
   body: string
   service_item_template: string | null
-  template_type: 'guide_consolidated' | 'escort_consolidated' | 'headphone_consolidated'
+  template_type: 'guide_consolidated' | 'escort_consolidated' | 'headphone_consolidated' | 'printing_consolidated'
   is_default: boolean
 }
 
@@ -149,7 +150,7 @@ interface EmailLog {
   id: string
   recipient_email: string
   recipient_name: string | null
-  recipient_type: 'guide' | 'escort' | 'headphone' | null
+  recipient_type: 'guide' | 'escort' | 'headphone' | 'printing' | null
   subject: string
   status: 'pending' | 'sent' | 'delivered' | 'read' | 'replied' | 'failed'
   error_message: string | null
@@ -213,11 +214,12 @@ export default function DailyListPage() {
   const [sendingBulkGuides, setSendingBulkGuides] = useState(false)
   const [sendingBulkEscorts, setSendingBulkEscorts] = useState(false)
   const [sendingBulkHeadphones, setSendingBulkHeadphones] = useState(false)
+  const [sendingBulkPrinting, setSendingBulkPrinting] = useState(false)
   const [bulkEmailProgress, setBulkEmailProgress] = useState<{ sent: number; total: number } | null>(null)
 
   // Bulk email drawer state
   const [showBulkEmailDrawer, setShowBulkEmailDrawer] = useState(false)
-  const [bulkEmailType, setBulkEmailType] = useState<'guides' | 'escorts' | 'headphones'>('guides')
+  const [bulkEmailType, setBulkEmailType] = useState<'guides' | 'escorts' | 'headphones' | 'printing'>('guides')
   const [bulkSelectedRecipients, setBulkSelectedRecipients] = useState<Set<string>>(new Set())
   const [includeMeetingPoint, setIncludeMeetingPoint] = useState(true)
 
@@ -395,6 +397,7 @@ export default function DailyListPage() {
     let guideAssignments: { activity_availability_id: number; guide: { guide_id: string; first_name: string; last_name: string; email?: string } }[] = []
     let escortAssignments: { activity_availability_id: number; escort: { escort_id: string; first_name: string; last_name: string; email?: string } }[] = []
     let headphoneAssignments: { activity_availability_id: number; headphone: { headphone_id: string; name: string; email?: string; phone_number?: string } }[] = []
+    let printingAssignments: { activity_availability_id: number; printing: { printing_id: string; name: string; email?: string; phone_number?: string } }[] = []
 
     if (availabilityIds.length > 0) {
       const assignmentsResponse = await fetch(`/api/assignments/availability/list?availability_ids=${availabilityIds.join(',')}`, {
@@ -405,6 +408,7 @@ export default function DailyListPage() {
         guideAssignments = assignmentsResult.data.guides || []
         escortAssignments = assignmentsResult.data.escorts || []
         headphoneAssignments = assignmentsResult.data.headphones || []
+        printingAssignments = assignmentsResult.data.printing || []
       }
     }
 
@@ -426,7 +430,8 @@ export default function DailyListPage() {
         localTime: avail.local_time,
         guides: [],
         escorts: [],
-        headphones: []
+        headphones: [],
+        printing: []
       })
     })
 
@@ -465,6 +470,19 @@ export default function DailyListPage() {
           last_name: '',
           email: headphone.email,
           phone_number: headphone.phone_number
+        })
+      }
+    })
+
+    printingAssignments?.forEach(pa => {
+      const printing = Array.isArray(pa.printing) ? pa.printing[0] : pa.printing
+      if (printing && staffMap.has(pa.activity_availability_id)) {
+        staffMap.get(pa.activity_availability_id)!.printing.push({
+          id: printing.printing_id,
+          first_name: printing.name,
+          last_name: '',
+          email: printing.email,
+          phone_number: printing.phone_number
         })
       }
     })
@@ -522,12 +540,15 @@ export default function DailyListPage() {
 
   // Get availability ID for a time slot
   const getAvailabilityId = async (activityId: string, dateStr: string, time: string): Promise<number | null> => {
+    // Normalize time to HH:MM:SS format (local_time in DB is stored as HH:MM:SS)
+    const normalizedTime = time.length === 5 ? `${time}:00` : time
+
     const { data } = await supabase
       .from('activity_availability')
       .select('id')
       .eq('activity_id', activityId)
       .eq('local_date', dateStr)
-      .eq('local_time', time)
+      .eq('local_time', normalizedTime)
       .single()
 
     return data?.id || null
@@ -929,14 +950,20 @@ export default function DailyListPage() {
       if (includeVouchers) {
         const vouchersForSlot = slotVouchers.get(emailTimeSlot.availabilityId) || []
         const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL
+        console.log('[DEBUG] includeVouchers:', includeVouchers)
+        console.log('[DEBUG] emailTimeSlot.availabilityId:', emailTimeSlot.availabilityId)
+        console.log('[DEBUG] slotVouchers keys:', Array.from(slotVouchers.keys()))
+        console.log('[DEBUG] vouchersForSlot:', vouchersForSlot)
         for (const voucher of vouchersForSlot) {
           if (voucher.pdf_path) {
             // Build public URL for the voucher PDF
             const pdfUrl = `${supabaseUrl}/storage/v1/object/public/ticket-vouchers/${voucher.pdf_path}`
             attachmentUrls.push(pdfUrl)
+            console.log('[DEBUG] Added voucher URL:', pdfUrl)
           }
         }
       }
+      console.log('[DEBUG] Final attachmentUrls:', attachmentUrls)
 
       // Generate daily list
       let dailyListData: string | undefined
@@ -1635,6 +1662,140 @@ export default function DailyListPage() {
     setShowBulkEmailDrawer(true)
   }
 
+  // Get all printing contacts with email addresses for the drawer
+  const getPrintingWithServices = () => {
+    const printingServices = new Map<string, {
+      printing: Person;
+      services: { tour: TourGroup; timeSlot: TimeSlotGroup; availabilityId: number; guideName: string; guidePhone: string; escortNames: string[]; escortPhone: string }[]
+    }>()
+
+    // Track which availability IDs have been processed
+    const processedAvailabilityIds = new Set<number>()
+
+    // First pass: match to bookings
+    for (const tour of groupedTours) {
+      for (const timeSlot of tour.timeSlots) {
+        const firstBooking = timeSlot.bookings[0]
+        if (!firstBooking) continue
+
+        const normalizeTime = (t: string) => t.substring(0, 5)
+        const slotTimeNorm = normalizeTime(timeSlot.time)
+
+        let availabilityId: number | null = null
+        let assignedGuides: Person[] = []
+        let assignedEscorts: Person[] = []
+        let assignedPrinting: Person[] = []
+
+        for (const [id, staff] of staffAssignments.entries()) {
+          const staffTimeNorm = normalizeTime(staff.localTime)
+          if (staff.activityId === firstBooking.activity_id && staffTimeNorm === slotTimeNorm) {
+            availabilityId = id
+            assignedGuides = staff.guides
+            assignedEscorts = staff.escorts
+            assignedPrinting = staff.printing
+            processedAvailabilityIds.add(id)
+            break
+          }
+        }
+
+        if (!availabilityId) continue
+
+        const guideName = assignedGuides.map(g => `${g.first_name} ${g.last_name}`).join(', ')
+        const guidePhone = assignedGuides.map(g => g.phone_number).filter(Boolean).join(', ')
+        const escortNames = assignedEscorts.map(e => `${e.first_name} ${e.last_name}`)
+        const escortPhone = assignedEscorts.map(e => e.phone_number).filter(Boolean).join(', ')
+
+        for (const printing of assignedPrinting) {
+          if (!printing.email) continue
+
+          const key = printing.id
+          if (!printingServices.has(key)) {
+            printingServices.set(key, { printing, services: [] })
+          }
+          printingServices.get(key)!.services.push({
+            tour,
+            timeSlot,
+            availabilityId,
+            guideName,
+            guidePhone,
+            escortNames,
+            escortPhone
+          })
+        }
+      }
+    }
+
+    // Second pass: include printing from unmatched staffAssignments
+    for (const [id, staff] of staffAssignments.entries()) {
+      if (processedAvailabilityIds.has(id)) continue
+      if (staff.printing.length === 0) continue
+
+      const activity = activities.find(a => a.activity_id === staff.activityId)
+      const activityTitle = activity?.title || `Activity ${staff.activityId}`
+
+      const syntheticTimeSlot: TimeSlotGroup = {
+        time: staff.localTime.substring(0, 5),
+        bookings: [{
+          activity_booking_id: 0,
+          booking_id: 0,
+          activity_id: staff.activityId,
+          activity_title: activityTitle,
+          booking_date: selectedDate,
+          start_time: staff.localTime.substring(0, 5),
+          total_participants: 0,
+          participants_detail: '',
+          passengers: []
+        }],
+        totalParticipants: 0
+      }
+
+      const syntheticTour: TourGroup = {
+        tourTitle: activityTitle,
+        timeSlots: [syntheticTimeSlot],
+        totalParticipants: 0,
+        isExpanded: false
+      }
+
+      const guideName = staff.guides.map(g => `${g.first_name} ${g.last_name}`).join(', ')
+      const guidePhone = staff.guides.map(g => g.phone_number).filter(Boolean).join(', ')
+      const escortNames = staff.escorts.map(e => `${e.first_name} ${e.last_name}`)
+      const escortPhone = staff.escorts.map(e => e.phone_number).filter(Boolean).join(', ')
+
+      for (const printing of staff.printing) {
+        if (!printing.email) continue
+
+        const key = printing.id
+        if (!printingServices.has(key)) {
+          printingServices.set(key, { printing, services: [] })
+        }
+        printingServices.get(key)!.services.push({
+          tour: syntheticTour,
+          timeSlot: syntheticTimeSlot,
+          availabilityId: id,
+          guideName,
+          guidePhone,
+          escortNames,
+          escortPhone
+        })
+      }
+    }
+
+    return printingServices
+  }
+
+  // Open the bulk email drawer for printing
+  const openBulkEmailDrawerForPrinting = () => {
+    const printingServices = getPrintingWithServices()
+    if (printingServices.size === 0) {
+      alert('No printing contacts with email addresses assigned to any services')
+      return
+    }
+    // Select all printing by default
+    setBulkSelectedRecipients(new Set(printingServices.keys()))
+    setBulkEmailType('printing')
+    setShowBulkEmailDrawer(true)
+  }
+
   // Toggle selection of a recipient
   const toggleRecipientSelection = (id: string) => {
     setBulkSelectedRecipients(prev => {
@@ -2031,6 +2192,173 @@ export default function DailyListPage() {
       alert(`Sent ${sentCount} emails. ${errors.length} failed:\n${errors.join('\n')}`)
     } else {
       alert(`Successfully sent consolidated emails to ${sentCount} headphone(s)`)
+    }
+  }
+
+  // Send bulk emails to selected printing contacts
+  const handleSendToSelectedPrinting = async () => {
+    if (bulkSelectedRecipients.size === 0) {
+      alert('Please select at least one printing contact')
+      return
+    }
+
+    // Get default printing consolidated template
+    const printingTemplate = consolidatedTemplates.find(
+      t => t.template_type === 'printing_consolidated' && t.is_default
+    ) || consolidatedTemplates.find(t => t.template_type === 'printing_consolidated')
+
+    if (!printingTemplate) {
+      alert('No consolidated template found for printing. Please create one in Content Management.')
+      return
+    }
+
+    setShowBulkEmailDrawer(false)
+    setSendingBulkPrinting(true)
+    setBulkEmailProgress({ sent: 0, total: bulkSelectedRecipients.size })
+
+    const printingServices = getPrintingWithServices()
+    let sentCount = 0
+    const errors: string[] = []
+
+    for (const [printingId, { printing, services }] of printingServices.entries()) {
+      if (!bulkSelectedRecipients.has(printingId)) continue
+
+      try {
+        const printingName = `${printing.first_name} ${printing.last_name}`
+        const sortedServices = [...services].sort((a, b) =>
+          a.timeSlot.time.localeCompare(b.timeSlot.time)
+        )
+
+        // Generate services list using the service item template
+        const serviceItemTemplate = printingTemplate.service_item_template ||
+          'Ore: {{service.time}} - {{service.title}}\nTotale Pax: {{service.pax_count}}\nGuida: {{service.guide_name}}'
+
+        const servicesList = sortedServices.map((service) => {
+          // Get meeting point for this service
+          const activityId = service.timeSlot.bookings[0]?.activity_id
+          const meetingPoint = activityId ? activityMeetingPoints.get(activityId) : null
+
+          // Get guide phone if available
+          const guidePhone = service.guidePhone || ''
+
+          // Get escort info
+          const escortNames = service.escortNames.join(', ') || 'TBD'
+          const escortPhone = service.escortPhone || ''
+
+          // Get headphone info for this slot
+          const staffAssignment = staffAssignments.get(service.availabilityId)
+          const headphoneNames = staffAssignment?.headphones.map(h => `${h.first_name} ${h.last_name}`).join(', ') || 'TBD'
+          const headphonePhone = staffAssignment?.headphones.map(h => h.phone_number).filter(Boolean).join(', ') || ''
+
+          // Replace service item template variables
+          const serviceText = serviceItemTemplate
+            .replace(/\{\{service\.title\}\}/g, service.tour.tourTitle)
+            .replace(/\{\{service\.time\}\}/g, service.timeSlot.time.substring(0, 5))
+            .replace(/\{\{service\.meeting_point\}\}/g, meetingPoint?.address || meetingPoint?.name || '')
+            .replace(/\{\{service\.pax_count\}\}/g, String(service.timeSlot.totalParticipants))
+            .replace(/\{\{service\.guide_name\}\}/g, service.guideName || 'TBD')
+            .replace(/\{\{service\.guide_phone\}\}/g, guidePhone)
+            .replace(/\{\{service\.escort_name\}\}/g, escortNames)
+            .replace(/\{\{service\.escort_phone\}\}/g, escortPhone)
+            .replace(/\{\{service\.headphone_name\}\}/g, headphoneNames)
+            .replace(/\{\{service\.headphone_phone\}\}/g, headphonePhone)
+            .replace(/\{\{service\.printing_name\}\}/g, printingName)
+            .replace(/\{\{service\.printing_phone\}\}/g, printing.phone_number || '')
+
+          return serviceText
+        }).join('\n\n')
+
+        // Replace main template variables
+        const formattedDate = format(new Date(selectedDate), 'dd/MM/yyyy')
+
+        const emailSubject = printingTemplate.subject
+          .replace(/\{\{name\}\}/g, printingName)
+          .replace(/\{\{date\}\}/g, formattedDate)
+          .replace(/\{\{services_count\}\}/g, String(services.length))
+
+        const emailBody = printingTemplate.body
+          .replace(/\{\{name\}\}/g, printingName)
+          .replace(/\{\{date\}\}/g, formattedDate)
+          .replace(/\{\{services_list\}\}/g, servicesList)
+          .replace(/\{\{services_count\}\}/g, String(services.length))
+
+        // Collect vouchers for each service slot with custom naming: {guide_name} - {time} - voucher.pdf
+        const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL
+        const namedAttachments: { url: string; filename: string }[] = []
+
+        for (const service of sortedServices) {
+          const vouchersForSlot = slotVouchers.get(service.availabilityId) || []
+          const guideName = service.guideName || 'TBD'
+          // Use dot instead of colon for filename compatibility (10:15 -> 10.15)
+          const timeStr = service.timeSlot.time.substring(0, 5).replace(':', '.')
+
+          // Collect all voucher URLs for this slot
+          const slotVoucherUrls: string[] = []
+          for (const voucher of vouchersForSlot) {
+            if (voucher.pdf_path) {
+              const pdfUrl = `${supabaseUrl}/storage/v1/object/public/ticket-vouchers/${voucher.pdf_path}`
+              slotVoucherUrls.push(pdfUrl)
+            }
+          }
+
+          // If there are vouchers for this slot, add them as a named attachment
+          // Multiple vouchers per slot will be merged by the API into one PDF
+          if (slotVoucherUrls.length > 0) {
+            // Use the first URL and let the API handle merging if multiple
+            // Format: {guide_name} - {time} - voucher.pdf
+            const filename = `${guideName} - ${timeStr} - voucher.pdf`
+            namedAttachments.push({
+              url: slotVoucherUrls[0],
+              filename: filename
+            })
+            // Add remaining vouchers with indexed names if multiple per slot
+            for (let i = 1; i < slotVoucherUrls.length; i++) {
+              namedAttachments.push({
+                url: slotVoucherUrls[i],
+                filename: `${guideName} - ${timeStr} - voucher (${i + 1}).pdf`
+              })
+            }
+          }
+        }
+
+        const response = await fetch('/api/email/send', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            recipients: [{
+              email: printing.email,
+              name: printingName,
+              type: 'printing',
+              id: printing.id
+            }],
+            subject: emailSubject,
+            body: emailBody,
+            namedAttachments,
+            serviceDate: selectedDate
+          })
+        })
+
+        if (!response.ok) {
+          const result = await response.json()
+          throw new Error(result.error || 'Failed to send email')
+        }
+
+        sentCount++
+        setBulkEmailProgress({ sent: sentCount, total: bulkSelectedRecipients.size })
+      } catch (err) {
+        console.error('Error sending to printing:', printing.email, err)
+        errors.push(`${printing.first_name} ${printing.last_name}: ${err instanceof Error ? err.message : 'Unknown error'}`)
+      }
+    }
+
+    setSendingBulkPrinting(false)
+    setBulkEmailProgress(null)
+    await fetchEmailLogs(selectedDate)
+
+    if (errors.length > 0) {
+      alert(`Sent ${sentCount} emails. ${errors.length} failed:\n${errors.join('\n')}`)
+    } else {
+      alert(`Successfully sent consolidated emails to ${sentCount} printing contact(s)`)
     }
   }
 
@@ -3263,6 +3591,7 @@ export default function DailyListPage() {
                     const slotGuides = slotStaff?.staff.guides || []
                     const slotEscorts = slotStaff?.staff.escorts || []
                     const slotHeadphones = slotStaff?.staff.headphones || []
+                    const slotPrinting = slotStaff?.staff.printing || []
                     const slotAvailabilityId = slotStaff?.availId
 
                     // Get vouchers for this time slot
@@ -3366,9 +3695,21 @@ export default function DailyListPage() {
                               ))}
                             </div>
                           )}
+                          {/* Printing */}
+                          {slotPrinting.length > 0 && (
+                            <div className="flex items-center gap-2">
+                              <Printer className="w-4 h-4 text-cyan-600" />
+                              <span className="text-cyan-700 font-medium">Printing:</span>
+                              {slotPrinting.map((p) => (
+                                <span key={p.id} className="bg-cyan-100 text-cyan-800 px-2 py-0.5 rounded">
+                                  {p.first_name} {p.last_name}
+                                </span>
+                              ))}
+                            </div>
+                          )}
                           {/* No staff assigned */}
-                          {slotGuides.length === 0 && slotEscorts.length === 0 && slotHeadphones.length === 0 && (
-                            <span className="text-gray-500 italic">No guides, escorts, or headphones assigned</span>
+                          {slotGuides.length === 0 && slotEscorts.length === 0 && slotHeadphones.length === 0 && slotPrinting.length === 0 && (
+                            <span className="text-gray-500 italic">No staff assigned</span>
                           )}
                           {/* Attachments */}
                           {slotAttachments.length > 0 && (
@@ -3468,7 +3809,7 @@ export default function DailyListPage() {
           <div className="flex flex-wrap gap-4">
             <Button
               onClick={openBulkEmailDrawerForGuides}
-              disabled={sendingBulkGuides || sendingBulkEscorts || sendingBulkHeadphones}
+              disabled={sendingBulkGuides || sendingBulkEscorts || sendingBulkHeadphones || sendingBulkPrinting}
               className="bg-brand-green hover:bg-brand-green-dark"
             >
               {sendingBulkGuides ? (
@@ -3485,7 +3826,7 @@ export default function DailyListPage() {
             </Button>
             <Button
               onClick={openBulkEmailDrawerForEscorts}
-              disabled={sendingBulkGuides || sendingBulkEscorts || sendingBulkHeadphones}
+              disabled={sendingBulkGuides || sendingBulkEscorts || sendingBulkHeadphones || sendingBulkPrinting}
               className="bg-brand-orange hover:bg-brand-orange-dark"
             >
               {sendingBulkEscorts ? (
@@ -3496,13 +3837,13 @@ export default function DailyListPage() {
               ) : (
                 <>
                   <Mail className="w-4 h-4 mr-2" />
-                  Send to Escorts (Consolidated)
+                  Send to Escorts
                 </>
               )}
             </Button>
             <Button
               onClick={openBulkEmailDrawerForHeadphones}
-              disabled={sendingBulkGuides || sendingBulkEscorts || sendingBulkHeadphones}
+              disabled={sendingBulkGuides || sendingBulkEscorts || sendingBulkHeadphones || sendingBulkPrinting}
               className="bg-purple-600 hover:bg-purple-700"
             >
               {sendingBulkHeadphones ? (
@@ -3513,7 +3854,24 @@ export default function DailyListPage() {
               ) : (
                 <>
                   <Headphones className="w-4 h-4 mr-2" />
-                  Send to Headphones (Consolidated)
+                  Send to Headphones
+                </>
+              )}
+            </Button>
+            <Button
+              onClick={openBulkEmailDrawerForPrinting}
+              disabled={sendingBulkGuides || sendingBulkEscorts || sendingBulkHeadphones || sendingBulkPrinting}
+              className="bg-cyan-600 hover:bg-cyan-700"
+            >
+              {sendingBulkPrinting ? (
+                <>
+                  <Loader2 className="w-4 h-4 mr-2 animate-spin" />
+                  Sending to Printing... {bulkEmailProgress && `(${bulkEmailProgress.sent}/${bulkEmailProgress.total})`}
+                </>
+              ) : (
+                <>
+                  <Printer className="w-4 h-4 mr-2" />
+                  Send to Printing
                 </>
               )}
             </Button>
@@ -3521,7 +3879,8 @@ export default function DailyListPage() {
           <p className="text-sm text-gray-500 mt-3">
             <strong>Guides:</strong> Each guide receives one email per service with escort info included.<br/>
             <strong>Escorts:</strong> Each escort receives one consolidated email with all their services for the day.<br/>
-            <strong>Headphones:</strong> Each headphone operator receives one consolidated email with all their services for the day.
+            <strong>Headphones:</strong> Each headphone operator receives one consolidated email with all their services for the day.<br/>
+            <strong>Printing:</strong> Each printing contact receives one consolidated email with all their services for the day.
           </p>
         </div>
       )}
@@ -3589,6 +3948,7 @@ export default function DailyListPage() {
                           log.recipient_type === 'guide' ? 'bg-brand-green-light text-green-700' :
                           log.recipient_type === 'escort' ? 'bg-brand-orange-light text-orange-700' :
                           log.recipient_type === 'headphone' ? 'bg-purple-100 text-purple-700' :
+                          log.recipient_type === 'printing' ? 'bg-cyan-100 text-cyan-700' :
                           'bg-gray-100 text-gray-700'
                         }`}>
                           {log.recipient_type || 'N/A'}
@@ -3903,7 +4263,9 @@ export default function DailyListPage() {
                     ? Array.from(getGuidesWithServices().keys())
                     : bulkEmailType === 'escorts'
                     ? Array.from(getEscortsWithServices().keys())
-                    : Array.from(getHeadphonesWithServices().keys())
+                    : bulkEmailType === 'headphones'
+                    ? Array.from(getHeadphonesWithServices().keys())
+                    : Array.from(getPrintingWithServices().keys())
                   if (bulkSelectedRecipients.size === allIds.length) {
                     setBulkSelectedRecipients(new Set())
                   } else {
@@ -3915,7 +4277,8 @@ export default function DailyListPage() {
                 {bulkSelectedRecipients.size === (
                   bulkEmailType === 'guides' ? getGuidesWithServices().size :
                   bulkEmailType === 'escorts' ? getEscortsWithServices().size :
-                  getHeadphonesWithServices().size
+                  bulkEmailType === 'headphones' ? getHeadphonesWithServices().size :
+                  getPrintingWithServices().size
                 )
                   ? 'Deselect all'
                   : 'Select all'}
@@ -3992,7 +4355,7 @@ export default function DailyListPage() {
                       </div>
                     </label>
                   ))
-                ) : (
+                ) : bulkEmailType === 'headphones' ? (
                   Array.from(getHeadphonesWithServices().entries()).map(([headphoneId, { headphone, services }]) => (
                     <label
                       key={headphoneId}
@@ -4023,6 +4386,40 @@ export default function DailyListPage() {
                           </span>
                         </div>
                         <p className="text-xs text-gray-500 truncate mt-0.5">{headphone.email}</p>
+                      </div>
+                    </label>
+                  ))
+                ) : (
+                  Array.from(getPrintingWithServices().entries()).map(([printingId, { printing, services }]) => (
+                    <label
+                      key={printingId}
+                      htmlFor={`printing-${printingId}`}
+                      className={`flex items-center gap-3 p-3 rounded-lg border cursor-pointer transition-all ${
+                        bulkSelectedRecipients.has(printingId)
+                          ? 'border-cyan-300 bg-cyan-100'
+                          : 'border-gray-200 hover:border-gray-300 hover:bg-gray-50'
+                      }`}
+                    >
+                      <Checkbox
+                        id={`printing-${printingId}`}
+                        checked={bulkSelectedRecipients.has(printingId)}
+                        onCheckedChange={() => toggleRecipientSelection(printingId)}
+                        className="checkbox-cyan"
+                      />
+                      <div className="flex-1 min-w-0">
+                        <div className="flex items-center gap-2">
+                          <span className="font-medium text-sm text-gray-900">
+                            {printing.first_name} {printing.last_name}
+                          </span>
+                          <span className={`px-1.5 py-0.5 text-xs rounded-full ${
+                            bulkSelectedRecipients.has(printingId)
+                              ? 'bg-cyan-100 text-cyan-700'
+                              : 'bg-gray-100 text-gray-600'
+                          }`}>
+                            {services.length} {services.length === 1 ? 'service' : 'services'}
+                          </span>
+                        </div>
+                        <p className="text-xs text-gray-500 truncate mt-0.5">{printing.email}</p>
                       </div>
                     </label>
                   ))
@@ -4071,7 +4468,8 @@ export default function DailyListPage() {
                 onClick={
                   bulkEmailType === 'guides' ? handleSendToSelectedGuides :
                   bulkEmailType === 'escorts' ? handleSendToSelectedEscorts :
-                  handleSendToSelectedHeadphones
+                  bulkEmailType === 'headphones' ? handleSendToSelectedHeadphones :
+                  handleSendToSelectedPrinting
                 }
                 disabled={bulkSelectedRecipients.size === 0 || (bulkEmailType === 'guides' && activitiesWithoutGuideTemplates.length > 0)}
                 className={`${
@@ -4079,7 +4477,9 @@ export default function DailyListPage() {
                     ? 'bg-brand-green hover:bg-brand-green-dark'
                     : bulkEmailType === 'escorts'
                     ? 'bg-brand-orange hover:bg-brand-orange-dark'
-                    : 'bg-purple-600 hover:bg-purple-700'
+                    : bulkEmailType === 'headphones'
+                    ? 'bg-purple-600 hover:bg-purple-700'
+                    : 'bg-cyan-600 hover:bg-cyan-700'
                 } text-white px-6`}
               >
                 <Send className="w-4 h-4 mr-2" />

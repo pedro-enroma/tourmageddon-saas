@@ -1,6 +1,5 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { Resend } from 'resend'
-import { PDFDocument } from 'pdf-lib'
 import { verifySession, getServiceRoleClient } from '@/lib/supabase-server'
 
 // Initialize Resend on each request to ensure env vars are read
@@ -17,13 +16,15 @@ interface EmailRequest {
   recipients: {
     email: string
     name: string
-    type: 'guide' | 'escort' | 'headphone'
+    type: 'guide' | 'escort' | 'headphone' | 'printing'
     id: string
   }[]
   subject: string
   body: string
   activityAvailabilityId?: number
   attachmentUrls?: string[]
+  // Named attachments - each has a URL and custom filename (used for printing vouchers)
+  namedAttachments?: { url: string; filename: string }[]
   dailyListData?: string // Base64 encoded Excel file
   dailyListFileName?: string
   serviceDate?: string // The date of the service (YYYY-MM-DD format)
@@ -39,6 +40,8 @@ interface EmailRequest {
     escortPhone?: string
     headphoneName?: string
     headphonePhone?: string
+    printingName?: string
+    printingPhone?: string
     meetingPoint?: string
   }
 }
@@ -147,7 +150,7 @@ export async function POST(request: NextRequest) {
 
   try {
     const body: EmailRequest = await request.json()
-    const { recipients, subject, body: emailBody, activityAvailabilityId, attachmentUrls, dailyListData, dailyListFileName, serviceDate, serviceContext } = body
+    const { recipients, subject, body: emailBody, activityAvailabilityId, attachmentUrls, namedAttachments, dailyListData, dailyListFileName, serviceDate, serviceContext } = body
 
     if (!recipients || recipients.length === 0) {
       return NextResponse.json({ error: 'No recipients provided' }, { status: 400 })
@@ -171,18 +174,25 @@ export async function POST(request: NextRequest) {
 
     // Add PDF attachments from URLs - merge voucher PDFs into one
     if (attachmentUrls && attachmentUrls.length > 0) {
+      console.log('[EMAIL API] Processing attachmentUrls:', attachmentUrls)
       const voucherPdfBuffers: Buffer[] = []
       const otherAttachments: { filename: string; content: Buffer }[] = []
 
       // Fetch all attachments in parallel
       const fetchResults = await Promise.allSettled(
         attachmentUrls.map(async (url) => {
+          console.log('[EMAIL API] Fetching URL:', url)
           const response = await fetch(url)
-          if (!response.ok) throw new Error(`Failed to fetch: ${url}`)
+          if (!response.ok) {
+            console.error('[EMAIL API] Failed to fetch URL:', url, 'Status:', response.status)
+            throw new Error(`Failed to fetch: ${url}`)
+          }
           const buffer = Buffer.from(await response.arrayBuffer())
+          console.log('[EMAIL API] Fetched buffer size:', buffer.length)
           const urlPath = url.split('/').pop() || 'attachment.pdf'
           const fileName = decodeURIComponent(urlPath.split('?')[0])
           const isVoucher = url.includes('ticket-vouchers') && fileName.toLowerCase().endsWith('.pdf')
+          console.log('[EMAIL API] File:', fileName, 'isVoucher:', isVoucher)
           return { buffer, fileName, isVoucher }
         })
       )
@@ -201,38 +211,16 @@ export async function POST(request: NextRequest) {
         }
       }
 
-      // Merge voucher PDFs into one if there are multiple
+      // Add voucher PDFs individually (don't merge - encrypted PDFs lose content when merged)
+      console.log('[EMAIL API] voucherPdfBuffers count:', voucherPdfBuffers.length)
       if (voucherPdfBuffers.length > 0) {
-        try {
-          const mergedPdf = await PDFDocument.create()
-
-          for (const pdfBuffer of voucherPdfBuffers) {
-            try {
-              const pdf = await PDFDocument.load(pdfBuffer)
-              const pages = await mergedPdf.copyPages(pdf, pdf.getPageIndices())
-              pages.forEach(page => mergedPdf.addPage(page))
-            } catch (pdfErr) {
-              console.error('Error loading PDF for merge:', pdfErr)
-            }
-          }
-
-          if (mergedPdf.getPageCount() > 0) {
-            const mergedPdfBytes = await mergedPdf.save()
-            attachments.push({
-              filename: 'Vouchers.pdf',
-              content: Buffer.from(mergedPdfBytes)
-            })
-          }
-        } catch (mergeErr) {
-          console.error('Error merging PDFs:', mergeErr)
-          // Fallback: add PDFs individually if merge fails
-          voucherPdfBuffers.forEach((buffer, idx) => {
-            attachments.push({
-              filename: `Voucher_${idx + 1}.pdf`,
-              content: buffer
-            })
+        voucherPdfBuffers.forEach((buffer, idx) => {
+          attachments.push({
+            filename: voucherPdfBuffers.length === 1 ? 'Voucher.pdf' : `Voucher_${idx + 1}.pdf`,
+            content: buffer
           })
-        }
+          console.log('[EMAIL API] Added voucher PDF:', voucherPdfBuffers.length === 1 ? 'Voucher.pdf' : `Voucher_${idx + 1}.pdf`)
+        })
       }
 
       // Add other (non-voucher) attachments
@@ -245,6 +233,26 @@ export async function POST(request: NextRequest) {
         filename: dailyListFileName,
         content: Buffer.from(dailyListData, 'base64')
       })
+    }
+
+    // Add named attachments (used for printing vouchers with custom filenames)
+    if (namedAttachments && namedAttachments.length > 0) {
+      const namedFetchResults = await Promise.allSettled(
+        namedAttachments.map(async ({ url, filename }) => {
+          const response = await fetch(url)
+          if (!response.ok) throw new Error(`Failed to fetch: ${url}`)
+          const buffer = Buffer.from(await response.arrayBuffer())
+          return { filename, content: buffer }
+        })
+      )
+
+      for (const result of namedFetchResults) {
+        if (result.status === 'fulfilled') {
+          attachments.push(result.value)
+        } else {
+          console.error('Error fetching named attachment:', result.reason)
+        }
+      }
     }
 
     const hasAttachments = attachments.length > 0
@@ -269,6 +277,8 @@ export async function POST(request: NextRequest) {
           .replace(/\{\{escort_phone\}\}/g, serviceContext.escortPhone || '')
           .replace(/\{\{headphone_name\}\}/g, serviceContext.headphoneName || '')
           .replace(/\{\{headphone_phone\}\}/g, serviceContext.headphonePhone || '')
+          .replace(/\{\{printing_name\}\}/g, serviceContext.printingName || '')
+          .replace(/\{\{printing_phone\}\}/g, serviceContext.printingPhone || '')
           .replace(/\{\{meeting_point\}\}/g, serviceContext.meetingPoint || '')
       }
 

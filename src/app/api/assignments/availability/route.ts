@@ -2,7 +2,7 @@ import { NextRequest, NextResponse } from 'next/server'
 import { getServiceRoleClient, verifySession } from '@/lib/supabase-server'
 import { auditCreate, auditDelete, getRequestContext } from '@/lib/audit-logger'
 
-// POST - Create guide/escort/headphone assignments for activity_availability
+// POST - Create guide/escort/headphone/printing assignments for activity_availability
 export async function POST(request: NextRequest) {
   const { user, error: authError } = await verifySession()
   if (authError || !user) {
@@ -11,7 +11,7 @@ export async function POST(request: NextRequest) {
 
   try {
     const body = await request.json()
-    const { activity_availability_id, guide_ids, escort_ids, headphone_ids } = body
+    const { activity_availability_id, guide_ids, escort_ids, headphone_ids, printing_ids } = body
 
     if (!activity_availability_id) {
       return NextResponse.json({ error: 'activity_availability_id is required' }, { status: 400 })
@@ -19,7 +19,7 @@ export async function POST(request: NextRequest) {
 
     const supabase = getServiceRoleClient()
     const { ip, userAgent } = getRequestContext(request)
-    const results: { guides: unknown[]; escorts: unknown[]; headphones: unknown[] } = { guides: [], escorts: [], headphones: [] }
+    const results: { guides: unknown[]; escorts: unknown[]; headphones: unknown[]; printing: unknown[] } = { guides: [], escorts: [], headphones: [], printing: [] }
 
     // Insert guide assignments
     if (guide_ids && guide_ids.length > 0) {
@@ -90,6 +90,29 @@ export async function POST(request: NextRequest) {
       }
     }
 
+    // Insert printing assignments
+    if (printing_ids && printing_ids.length > 0) {
+      const printingAssignments = printing_ids.map((printing_id: string) => ({
+        printing_id,
+        activity_availability_id
+      }))
+
+      const { data: printingData, error: printingError } = await supabase
+        .from('printing_assignments')
+        .insert(printingAssignments)
+        .select()
+
+      if (printingError) {
+        console.error('Error creating printing assignments:', printingError)
+        // Continue anyway, some might be duplicates
+      } else {
+        results.printing = printingData || []
+        for (const assignment of printingData || []) {
+          await auditCreate(user.id, user.email, 'printing_assignment', assignment.assignment_id, assignment, ip, userAgent)
+        }
+      }
+    }
+
     return NextResponse.json({ data: results }, { status: 201 })
   } catch (err) {
     console.error('Assignment creation error:', err)
@@ -97,7 +120,7 @@ export async function POST(request: NextRequest) {
   }
 }
 
-// DELETE - Remove guide/escort/headphone assignments for activity_availability
+// DELETE - Remove guide/escort/headphone/printing assignments for activity_availability
 export async function DELETE(request: NextRequest) {
   const { user, error: authError } = await verifySession()
   if (authError || !user) {
@@ -110,6 +133,7 @@ export async function DELETE(request: NextRequest) {
     const guide_ids = searchParams.get('guide_ids')?.split(',').filter(Boolean)
     const escort_ids = searchParams.get('escort_ids')?.split(',').filter(Boolean)
     const headphone_ids = searchParams.get('headphone_ids')?.split(',').filter(Boolean)
+    const printing_ids = searchParams.get('printing_ids')?.split(',').filter(Boolean)
 
     if (!activity_availability_id) {
       return NextResponse.json({ error: 'activity_availability_id is required' }, { status: 400 })
@@ -186,6 +210,30 @@ export async function DELETE(request: NextRequest) {
       } else {
         for (const assignment of oldHeadphoneData || []) {
           await auditDelete(user.id, user.email, 'headphone_assignment', assignment.assignment_id, assignment, ip, userAgent)
+        }
+      }
+    }
+
+    // Delete printing assignments
+    if (printing_ids && printing_ids.length > 0) {
+      // Get old data for audit
+      const { data: oldPrintingData } = await supabase
+        .from('printing_assignments')
+        .select('*')
+        .eq('activity_availability_id', activity_availability_id)
+        .in('printing_id', printing_ids)
+
+      const { error: printingError } = await supabase
+        .from('printing_assignments')
+        .delete()
+        .eq('activity_availability_id', activity_availability_id)
+        .in('printing_id', printing_ids)
+
+      if (printingError) {
+        console.error('Error deleting printing assignments:', printingError)
+      } else {
+        for (const assignment of oldPrintingData || []) {
+          await auditDelete(user.id, user.email, 'printing_assignment', assignment.assignment_id, assignment, ip, userAgent)
         }
       }
     }

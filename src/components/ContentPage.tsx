@@ -12,7 +12,7 @@ import { Input } from '@/components/ui/input'
 
 // Available template variables for single emails
 const TEMPLATE_VARIABLES = [
-  { key: '{{name}}', label: 'Recipient Name', description: 'Guide or escort name (personalized per recipient)' },
+  { key: '{{name}}', label: 'Recipient Name', description: 'Guide, escort, headphone or printing name (personalized per recipient)' },
   { key: '{{tour_title}}', label: 'Tour Title', description: 'Activity/tour name' },
   { key: '{{date}}', label: 'Date', description: 'Service date (e.g., 26/11/2025)' },
   { key: '{{time}}', label: 'Time', description: 'Service start time (e.g., 10:00)' },
@@ -27,22 +27,28 @@ const TEMPLATE_VARIABLES = [
   { key: '{{headphone_name}}', label: 'Headphone Name', description: 'Assigned headphone contact name' },
   { key: '{{headphone_phone}}', label: 'Headphone Phone', description: 'Assigned headphone contact phone' },
   { key: '{{headphone_list}}', label: 'Headphone List', description: 'All headphones as "Name1 Phone1, Name2 Phone2"' },
+  { key: '{{printing_name}}', label: 'Printing Name', description: 'Assigned printing contact name' },
+  { key: '{{printing_phone}}', label: 'Printing Phone', description: 'Assigned printing contact phone' },
+  { key: '{{printing_list}}', label: 'Printing List', description: 'All printing contacts as "Name1 Phone1, Name2 Phone2"' },
   { key: '{{#if_guide}}', label: 'If Guide', description: 'Start conditional - shows only if guide assigned' },
   { key: '{{/if_guide}}', label: 'End If Guide', description: 'End conditional block for guide' },
   { key: '{{#if_escort}}', label: 'If Escort', description: 'Start conditional - shows only if escort assigned' },
   { key: '{{/if_escort}}', label: 'End If Escort', description: 'End conditional block for escort' },
   { key: '{{#if_headphone}}', label: 'If Headphone', description: 'Start conditional - shows only if headphone assigned' },
   { key: '{{/if_headphone}}', label: 'End If Headphone', description: 'End conditional block for headphone' },
+  { key: '{{#if_printing}}', label: 'If Printing', description: 'Start conditional - shows only if printing assigned' },
+  { key: '{{/if_printing}}', label: 'End If Printing', description: 'End conditional block for printing' },
   { key: '{{meeting_point}}', label: 'Meeting Point', description: 'Default meeting point for the activity' },
 ]
 
 // Available template variables for consolidated emails
 const CONSOLIDATED_TEMPLATE_VARIABLES = [
-  { key: '{{name}}', label: 'Recipient Name', description: 'Escort or headphone contact name' },
+  { key: '{{name}}', label: 'Recipient Name', description: 'Escort, headphone or printing contact name' },
   { key: '{{date}}', label: 'Date', description: 'Service date (e.g., 26/11/2025)' },
   { key: '{{services_list}}', label: 'Services List', description: 'List of all services with details (auto-generated)' },
   { key: '{{services_count}}', label: 'Services Count', description: 'Total number of services for the day' },
   { key: '{{escort_list}}', label: 'Escort List', description: 'All escorts for the day as "Name1 Phone1, Name2 Phone2"' },
+  { key: '{{printing_list}}', label: 'Printing List', description: 'All printing contacts for the day as "Name1 Phone1, Name2 Phone2"' },
 ]
 
 // Template for services_list item
@@ -53,14 +59,16 @@ const CONSOLIDATED_SERVICE_VARIABLES = [
   { key: '{{service.pax_count}}', label: 'Pax Count', description: 'Number of participants' },
   { key: '{{service.guide_name}}', label: 'Guide Name', description: 'Assigned guide name' },
   { key: '{{service.guide_phone}}', label: 'Guide Phone', description: 'Guide phone number' },
-  { key: '{{service.escort_name}}', label: 'Escort Name', description: 'Assigned escort name (for headphones template)' },
-  { key: '{{service.escort_phone}}', label: 'Escort Phone', description: 'Escort phone number (for headphones template)' },
-  { key: '{{service.headphone_name}}', label: 'Headphone Name', description: 'Headphone contact name (for escort template)' },
-  { key: '{{service.headphone_phone}}', label: 'Headphone Phone', description: 'Headphone phone number (for escort template)' },
+  { key: '{{service.escort_name}}', label: 'Escort Name', description: 'Assigned escort name (for headphones/printing template)' },
+  { key: '{{service.escort_phone}}', label: 'Escort Phone', description: 'Escort phone number (for headphones/printing template)' },
+  { key: '{{service.headphone_name}}', label: 'Headphone Name', description: 'Headphone contact name (for escort/printing template)' },
+  { key: '{{service.headphone_phone}}', label: 'Headphone Phone', description: 'Headphone phone number (for escort/printing template)' },
+  { key: '{{service.printing_name}}', label: 'Printing Name', description: 'Printing contact name (for escort/headphone template)' },
+  { key: '{{service.printing_phone}}', label: 'Printing Phone', description: 'Printing phone number (for escort/headphone template)' },
 ]
 
-type TemplateType = 'guide' | 'escort' | 'headphone'
-type ConsolidatedTemplateType = 'guide_consolidated' | 'escort_consolidated' | 'headphone_consolidated'
+type TemplateType = 'guide' | 'escort' | 'headphone' | 'printing'
+type ConsolidatedTemplateType = 'guide_consolidated' | 'escort_consolidated' | 'headphone_consolidated' | 'printing_consolidated'
 
 interface EmailTemplate {
   id: string
@@ -743,6 +751,7 @@ export default function ContentPage() {
                 <option value="guide">Guide Templates</option>
                 <option value="escort">Escort Templates</option>
                 <option value="headphone">Headphone Templates</option>
+                <option value="printing">Printing Templates</option>
               </select>
             </div>
             <Button onClick={openNewTemplate}>
@@ -768,6 +777,7 @@ export default function ContentPage() {
                         <span className={`px-2 py-0.5 text-xs rounded capitalize ${
                           template.template_type === 'guide' ? 'bg-blue-100 text-blue-800' :
                           template.template_type === 'escort' ? 'bg-orange-100 text-orange-800' :
+                          template.template_type === 'printing' ? 'bg-cyan-100 text-cyan-800' :
                           'bg-purple-100 text-purple-800'
                         }`}>
                           {template.template_type || 'guide'}
@@ -999,7 +1009,8 @@ export default function ContentPage() {
                     const guideTemplate = getActivityTemplateAssignment(activity.activity_id, 'guide')
                     const escortTemplate = getActivityTemplateAssignment(activity.activity_id, 'escort')
                     const headphoneTemplate = getActivityTemplateAssignment(activity.activity_id, 'headphone')
-                    const assignedCount = [guideTemplate, escortTemplate, headphoneTemplate].filter(Boolean).length
+                    const printingTemplate = getActivityTemplateAssignment(activity.activity_id, 'printing')
+                    const assignedCount = [guideTemplate, escortTemplate, headphoneTemplate, printingTemplate].filter(Boolean).length
                     return (
                       <div
                         key={activity.activity_id}
@@ -1036,7 +1047,7 @@ export default function ContentPage() {
                     </div>
                   ) : (
                     <div className="space-y-6">
-                      {(['guide', 'escort', 'headphone'] as TemplateType[]).map(type => {
+                      {(['guide', 'escort', 'headphone', 'printing'] as TemplateType[]).map(type => {
                         const currentAssignment = getActivityTemplateAssignment(selectedActivityForTemplates, type)
                         const availableTemplates = getTemplatesForType(type)
                         return (
@@ -1118,6 +1129,7 @@ export default function ContentPage() {
                 <option value="guide_consolidated">Guide Consolidated</option>
                 <option value="escort_consolidated">Escort Consolidated</option>
                 <option value="headphone_consolidated">Headphone Consolidated</option>
+                <option value="printing_consolidated">Printing Consolidated</option>
               </select>
             </div>
             <Button onClick={openNewConsolidatedTemplate}>
@@ -1152,9 +1164,11 @@ export default function ContentPage() {
                             ? 'bg-blue-100 text-blue-800'
                             : template.template_type === 'escort_consolidated'
                             ? 'bg-orange-100 text-orange-800'
-                            : 'bg-purple-100 text-purple-800'
+                            : template.template_type === 'printing_consolidated'
+                              ? 'bg-cyan-100 text-cyan-800'
+                              : 'bg-purple-100 text-purple-800'
                         }`}>
-                          {template.template_type === 'guide_consolidated' ? 'Guide' : template.template_type === 'escort_consolidated' ? 'Escort' : 'Headphone'}
+                          {template.template_type === 'guide_consolidated' ? 'Guide' : template.template_type === 'escort_consolidated' ? 'Escort' : template.template_type === 'printing_consolidated' ? 'Printing' : 'Headphone'}
                         </span>
                         {template.is_default && (
                           <span className="px-2 py-0.5 text-xs bg-green-100 text-green-800 rounded">Default</span>
@@ -1215,6 +1229,7 @@ export default function ContentPage() {
                         <option value="guide">Guide</option>
                         <option value="escort">Escort</option>
                         <option value="headphone">Headphone</option>
+                        <option value="printing">Printing</option>
                       </select>
                     </div>
                   </div>
@@ -1397,6 +1412,7 @@ export default function ContentPage() {
                         <option value="guide_consolidated">Guide Consolidated</option>
                         <option value="escort_consolidated">Escort Consolidated</option>
                         <option value="headphone_consolidated">Headphone Consolidated</option>
+                        <option value="printing_consolidated">Printing Consolidated</option>
                       </select>
                     </div>
                   </div>

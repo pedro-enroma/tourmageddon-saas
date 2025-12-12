@@ -1,7 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { getServiceRoleClient, verifySession } from '@/lib/supabase-server'
 
-// GET - Fetch all assignments (guide, escort, headphone) for given availability IDs
+// GET - Fetch all assignments (guide, escort, headphone, printing) for given availability IDs
 export async function GET(request: NextRequest) {
   const { error: authError } = await verifySession()
   if (authError) {
@@ -19,13 +19,13 @@ export async function GET(request: NextRequest) {
     const availabilityIds = idsParam.split(',').map(id => parseInt(id.trim(), 10)).filter(id => !isNaN(id))
 
     if (availabilityIds.length === 0) {
-      return NextResponse.json({ data: { guides: [], escorts: [], headphones: [] } })
+      return NextResponse.json({ data: { guides: [], escorts: [], headphones: [], printing: [] } })
     }
 
     const supabase = getServiceRoleClient()
 
     // Fetch all assignment types in parallel for better performance
-    const [guideResult, escortResult, headphoneResult] = await Promise.all([
+    const [guideResult, escortResult, headphoneResult, printingResult] = await Promise.all([
       supabase
         .from('guide_assignments')
         .select(`
@@ -66,6 +66,19 @@ export async function GET(request: NextRequest) {
             phone_number
           )
         `)
+        .in('activity_availability_id', availabilityIds),
+      supabase
+        .from('printing_assignments')
+        .select(`
+          assignment_id,
+          activity_availability_id,
+          printing:printing (
+            printing_id,
+            name,
+            email,
+            phone_number
+          )
+        `)
         .in('activity_availability_id', availabilityIds)
     ])
 
@@ -78,12 +91,16 @@ export async function GET(request: NextRequest) {
     if (headphoneResult.error) {
       console.error('Error fetching headphone assignments:', headphoneResult.error)
     }
+    if (printingResult.error) {
+      console.error('Error fetching printing assignments:', printingResult.error)
+    }
 
     return NextResponse.json({
       data: {
         guides: guideResult.data || [],
         escorts: escortResult.data || [],
-        headphones: headphoneResult.data || []
+        headphones: headphoneResult.data || [],
+        printing: printingResult.data || []
       }
     })
   } catch (err) {
