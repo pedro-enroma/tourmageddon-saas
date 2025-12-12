@@ -769,7 +769,8 @@ export default function DailyListPage() {
     paxCount: number,
     staff?: StaffAssignment | null,
     activityId?: string,
-    availabilityId?: number
+    availabilityId?: number,
+    bookings?: PaxData[]
   ) => {
     // Get staff info
     const hasGuide = staff?.guides && staff.guides.length > 0
@@ -800,12 +801,42 @@ export default function DailyListPage() {
     const vouchersForSlot = availabilityId ? slotVouchers.get(availabilityId) || [] : []
     const entryTimeValue = vouchersForSlot.find(v => v.entry_time)?.entry_time?.substring(0, 5) || ''
 
+    // Calculate pax types breakdown from bookings (e.g., "5 Adulto, 3 Niño, 2 Gratuito")
+    let paxTypesText = ''
+    if (bookings && bookings.length > 0) {
+      const paxTypeCounts: { [type: string]: number } = {}
+      bookings.forEach(booking => {
+        booking.passengers?.forEach(p => {
+          const typeName = p.booked_title || 'Unknown'
+          paxTypeCounts[typeName] = (paxTypeCounts[typeName] || 0) + 1
+        })
+      })
+      paxTypesText = Object.entries(paxTypeCounts)
+        .map(([type, count]) => `${count} ${type}`)
+        .join(', ')
+    }
+
+    // Calculate ticket types breakdown from vouchers (e.g., "10 Intero, 3 Ridotto, 2 Gratuito")
+    let ticketTypesText = ''
+    if (vouchersForSlot.length > 0) {
+      const ticketTypeCounts: { [type: string]: number } = {}
+      vouchersForSlot.forEach(voucher => {
+        const typeName = voucher.category_name || 'Standard'
+        ticketTypeCounts[typeName] = (ticketTypeCounts[typeName] || 0) + voucher.total_tickets
+      })
+      ticketTypesText = Object.entries(ticketTypeCounts)
+        .map(([type, count]) => `${count} ${type}`)
+        .join(', ')
+    }
+
     let result = text
       .replace(/\{\{tour_title\}\}/g, tourTitle)
       .replace(/\{\{date\}\}/g, format(new Date(dateStr), 'dd/MM/yyyy'))
       .replace(/\{\{time\}\}/g, time.substring(0, 5))
       .replace(/\{\{entry_time\}\}/g, entryTimeValue)
       .replace(/\{\{pax_count\}\}/g, String(paxCount))
+      .replace(/\{\{pax_types\}\}/g, paxTypesText)
+      .replace(/\{\{ticket_types\}\}/g, ticketTypesText)
       .replace(/\{\{meeting_point\}\}/g, meetingPointText)
       .replace(/\{\{guide_name\}\}/g, guideNames)
       .replace(/\{\{guide_phone\}\}/g, guidePhones)
@@ -852,8 +883,8 @@ export default function DailyListPage() {
     const staff = staffAssignments.get(emailTimeSlot.availabilityId)
 
     if (template && timeSlot) {
-      setEmailSubject(applyTemplateVariables(template.subject, emailTimeSlot.tourTitle, selectedDate, emailTimeSlot.time, timeSlot.totalParticipants, staff, emailTimeSlot.activityId, emailTimeSlot.availabilityId))
-      setEmailBody(applyTemplateVariables(template.body, emailTimeSlot.tourTitle, selectedDate, emailTimeSlot.time, timeSlot.totalParticipants, staff, emailTimeSlot.activityId, emailTimeSlot.availabilityId))
+      setEmailSubject(applyTemplateVariables(template.subject, emailTimeSlot.tourTitle, selectedDate, emailTimeSlot.time, timeSlot.totalParticipants, staff, emailTimeSlot.activityId, emailTimeSlot.availabilityId, timeSlot.bookings))
+      setEmailBody(applyTemplateVariables(template.body, emailTimeSlot.tourTitle, selectedDate, emailTimeSlot.time, timeSlot.totalParticipants, staff, emailTimeSlot.activityId, emailTimeSlot.availabilityId, timeSlot.bookings))
     }
   }
 
@@ -881,8 +912,8 @@ export default function DailyListPage() {
     const defaultTemplate = emailTemplates.find(t => t.is_default) || emailTemplates[0]
     if (defaultTemplate) {
       setSelectedTemplateId(defaultTemplate.id)
-      setEmailSubject(applyTemplateVariables(defaultTemplate.subject, tour.tourTitle, selectedDate, timeSlot.time, timeSlot.totalParticipants, staff, firstBooking.activity_id, availabilityId))
-      setEmailBody(applyTemplateVariables(defaultTemplate.body, tour.tourTitle, selectedDate, timeSlot.time, timeSlot.totalParticipants, staff, firstBooking.activity_id, availabilityId))
+      setEmailSubject(applyTemplateVariables(defaultTemplate.subject, tour.tourTitle, selectedDate, timeSlot.time, timeSlot.totalParticipants, staff, firstBooking.activity_id, availabilityId, timeSlot.bookings))
+      setEmailBody(applyTemplateVariables(defaultTemplate.body, tour.tourTitle, selectedDate, timeSlot.time, timeSlot.totalParticipants, staff, firstBooking.activity_id, availabilityId, timeSlot.bookings))
     } else {
       setSelectedTemplateId('')
       setEmailSubject(`Service Assignment: ${tour.tourTitle} - ${format(new Date(selectedDate), 'MMM d, yyyy')} at ${timeSlot.time.substring(0, 5)}`)
@@ -1857,7 +1888,8 @@ export default function DailyListPage() {
             timeSlot.totalParticipants,
             staffAssignment,
             activityId,
-            availabilityId
+            availabilityId,
+            timeSlot.bookings
           )
           // Replace {{name}} with guide name
           emailSubject = emailSubject.replace(/\{\{name\}\}/g, guideName)
@@ -1871,7 +1903,8 @@ export default function DailyListPage() {
             timeSlot.totalParticipants,
             staffAssignment,
             activityId,
-            availabilityId
+            availabilityId,
+            timeSlot.bookings
           )
           // Replace {{name}} with guide name
           emailBody = emailBody.replace(/\{\{name\}\}/g, guideName)
@@ -1994,12 +2027,37 @@ export default function DailyListPage() {
           const headphoneNames = staffAssignment?.headphones.map(h => `${h.first_name} ${h.last_name}`).join(', ') || 'TBD'
           const headphonePhone = staffAssignment?.headphones.map(h => h.phone_number).filter(Boolean).join(', ') || ''
 
+          // Calculate pax types breakdown
+          const paxTypeCounts: { [type: string]: number } = {}
+          service.timeSlot.bookings.forEach(booking => {
+            booking.passengers?.forEach(p => {
+              const typeName = p.booked_title || 'Unknown'
+              paxTypeCounts[typeName] = (paxTypeCounts[typeName] || 0) + 1
+            })
+          })
+          const paxTypesText = Object.entries(paxTypeCounts)
+            .map(([type, count]) => `${count} ${type}`)
+            .join(', ')
+
+          // Calculate ticket types breakdown from vouchers
+          const vouchersForService = slotVouchers.get(service.availabilityId) || []
+          const ticketTypeCounts: { [type: string]: number } = {}
+          vouchersForService.forEach(voucher => {
+            const typeName = voucher.category_name || 'Standard'
+            ticketTypeCounts[typeName] = (ticketTypeCounts[typeName] || 0) + voucher.total_tickets
+          })
+          const ticketTypesText = Object.entries(ticketTypeCounts)
+            .map(([type, count]) => `${count} ${type}`)
+            .join(', ')
+
           // Replace service item template variables
           const serviceText = serviceItemTemplate
             .replace(/\{\{service\.title\}\}/g, service.tour.tourTitle)
             .replace(/\{\{service\.time\}\}/g, service.timeSlot.time.substring(0, 5))
             .replace(/\{\{service\.meeting_point\}\}/g, meetingPoint?.address || meetingPoint?.name || '')
             .replace(/\{\{service\.pax_count\}\}/g, String(service.timeSlot.totalParticipants))
+            .replace(/\{\{service\.pax_types\}\}/g, paxTypesText)
+            .replace(/\{\{service\.ticket_types\}\}/g, ticketTypesText)
             .replace(/\{\{service\.guide_name\}\}/g, service.guideName || 'TBD')
             .replace(/\{\{service\.guide_phone\}\}/g, guidePhone)
             .replace(/\{\{service\.escort_name\}\}/g, escortName)
@@ -2123,12 +2181,37 @@ export default function DailyListPage() {
           const escortNames = service.escortNames.join(', ') || 'TBD'
           const escortPhone = service.escortPhone || ''
 
+          // Calculate pax types breakdown
+          const paxTypeCounts: { [type: string]: number } = {}
+          service.timeSlot.bookings.forEach(booking => {
+            booking.passengers?.forEach(p => {
+              const typeName = p.booked_title || 'Unknown'
+              paxTypeCounts[typeName] = (paxTypeCounts[typeName] || 0) + 1
+            })
+          })
+          const paxTypesText = Object.entries(paxTypeCounts)
+            .map(([type, count]) => `${count} ${type}`)
+            .join(', ')
+
+          // Calculate ticket types breakdown from vouchers
+          const vouchersForService = slotVouchers.get(service.availabilityId) || []
+          const ticketTypeCounts: { [type: string]: number } = {}
+          vouchersForService.forEach(voucher => {
+            const typeName = voucher.category_name || 'Standard'
+            ticketTypeCounts[typeName] = (ticketTypeCounts[typeName] || 0) + voucher.total_tickets
+          })
+          const ticketTypesText = Object.entries(ticketTypeCounts)
+            .map(([type, count]) => `${count} ${type}`)
+            .join(', ')
+
           // Replace service item template variables
           const serviceText = serviceItemTemplate
             .replace(/\{\{service\.title\}\}/g, service.tour.tourTitle)
             .replace(/\{\{service\.time\}\}/g, service.timeSlot.time.substring(0, 5))
             .replace(/\{\{service\.meeting_point\}\}/g, meetingPoint?.address || meetingPoint?.name || '')
             .replace(/\{\{service\.pax_count\}\}/g, String(service.timeSlot.totalParticipants))
+            .replace(/\{\{service\.pax_types\}\}/g, paxTypesText)
+            .replace(/\{\{service\.ticket_types\}\}/g, ticketTypesText)
             .replace(/\{\{service\.guide_name\}\}/g, service.guideName || 'TBD')
             .replace(/\{\{service\.guide_phone\}\}/g, guidePhone)
             .replace(/\{\{service\.escort_name\}\}/g, escortNames)
@@ -2250,12 +2333,37 @@ export default function DailyListPage() {
           const headphoneNames = staffAssignment?.headphones.map(h => `${h.first_name} ${h.last_name}`).join(', ') || 'TBD'
           const headphonePhone = staffAssignment?.headphones.map(h => h.phone_number).filter(Boolean).join(', ') || ''
 
+          // Calculate pax types breakdown
+          const paxTypeCounts: { [type: string]: number } = {}
+          service.timeSlot.bookings.forEach(booking => {
+            booking.passengers?.forEach(p => {
+              const typeName = p.booked_title || 'Unknown'
+              paxTypeCounts[typeName] = (paxTypeCounts[typeName] || 0) + 1
+            })
+          })
+          const paxTypesText = Object.entries(paxTypeCounts)
+            .map(([type, count]) => `${count} ${type}`)
+            .join(', ')
+
+          // Calculate ticket types breakdown from vouchers
+          const vouchersForService = slotVouchers.get(service.availabilityId) || []
+          const ticketTypeCounts: { [type: string]: number } = {}
+          vouchersForService.forEach(voucher => {
+            const typeName = voucher.category_name || 'Standard'
+            ticketTypeCounts[typeName] = (ticketTypeCounts[typeName] || 0) + voucher.total_tickets
+          })
+          const ticketTypesText = Object.entries(ticketTypeCounts)
+            .map(([type, count]) => `${count} ${type}`)
+            .join(', ')
+
           // Replace service item template variables
           const serviceText = serviceItemTemplate
             .replace(/\{\{service\.title\}\}/g, service.tour.tourTitle)
             .replace(/\{\{service\.time\}\}/g, service.timeSlot.time.substring(0, 5))
             .replace(/\{\{service\.meeting_point\}\}/g, meetingPoint?.address || meetingPoint?.name || '')
             .replace(/\{\{service\.pax_count\}\}/g, String(service.timeSlot.totalParticipants))
+            .replace(/\{\{service\.pax_types\}\}/g, paxTypesText)
+            .replace(/\{\{service\.ticket_types\}\}/g, ticketTypesText)
             .replace(/\{\{service\.guide_name\}\}/g, service.guideName || 'TBD')
             .replace(/\{\{service\.guide_phone\}\}/g, guidePhone)
             .replace(/\{\{service\.escort_name\}\}/g, escortNames)
