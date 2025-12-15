@@ -117,6 +117,18 @@ export default function VoucherUploadPage() {
       .trim()
   }
 
+  // Helper function to normalize product names for comparison
+  // Treats variations like "FULL EXPERIENCE - ARENA - GRUPPI" and "FULL EXPERIENCE - ARENA" as the same
+  const normalizeProductName = (productName: string): string => {
+    return productName
+      .toUpperCase()
+      .trim()
+      // Remove " - GRUPPI" suffix (group booking variant)
+      .replace(/\s*-\s*GRUPPI\s*$/i, '')
+      // Normalize COLOSSEO 24H variations
+      .replace(/COLOSSEO\s*24\s*H/i, 'COLOSSEO 24H')
+  }
+
   // Load categories on mount
   useEffect(() => {
     fetchCategories()
@@ -535,13 +547,16 @@ export default function VoucherUploadPage() {
       // Validate that all PDFs have matching product, date, and time
       if (extractedResults.length > 1) {
         const first = extractedResults[0].data
+        const firstProductNormalized = normalizeProductName(first.product_name)
         const mismatches: string[] = []
 
         for (let i = 1; i < extractedResults.length; i++) {
           const current = extractedResults[i].data
           const fileName = extractedResults[i].file.name
 
-          if (current.product_name !== first.product_name) {
+          // Compare normalized product names (e.g., "FULL EXPERIENCE - ARENA - GRUPPI" matches "FULL EXPERIENCE - ARENA")
+          const currentProductNormalized = normalizeProductName(current.product_name)
+          if (currentProductNormalized !== firstProductNormalized) {
             mismatches.push(`${fileName}: Product "${current.product_name}" doesn't match "${first.product_name}"`)
           }
           if (current.visit_date !== first.visit_date) {
@@ -561,13 +576,25 @@ export default function VoucherUploadPage() {
 
       // Auto-detect category based on product name from first PDF
       const productName = extractedResults[0]?.data.product_name || ''
+      const normalizedProductName = normalizeProductName(productName)
 
       if (productName) {
-        const { data: mappings } = await supabase
+        // Try exact match first, then normalized match
+        let { data: mappings } = await supabase
           .from('product_activity_mappings')
           .select('category_id')
           .eq('product_name', productName)
           .limit(1)
+
+        // If no exact match, try with normalized product name (without - GRUPPI suffix)
+        if ((!mappings || mappings.length === 0) && normalizedProductName !== productName.toUpperCase().trim()) {
+          const { data: normalizedMappings } = await supabase
+            .from('product_activity_mappings')
+            .select('category_id')
+            .ilike('product_name', normalizedProductName)
+            .limit(1)
+          mappings = normalizedMappings
+        }
 
         const mapping = mappings?.[0]
         if (mapping?.category_id) {
@@ -579,7 +606,8 @@ export default function VoucherUploadPage() {
 
           if (categoriesWithProducts) {
             const matchingCategory = categoriesWithProducts.find(cat =>
-              cat.product_names?.includes(productName)
+              cat.product_names?.includes(productName) ||
+              cat.product_names?.some((p: string) => normalizeProductName(p) === normalizedProductName)
             )
             if (matchingCategory) {
               setSelectedCategoryId(matchingCategory.id)
