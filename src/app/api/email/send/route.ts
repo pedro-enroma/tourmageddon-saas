@@ -1,6 +1,5 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { Resend } from 'resend'
-import { PDFDocument } from 'pdf-lib'
 import { verifySession, getServiceRoleClient } from '@/lib/supabase-server'
 
 // Initialize Resend on each request to ensure env vars are read
@@ -212,48 +211,19 @@ export async function POST(request: NextRequest) {
         }
       }
 
-      // Merge all voucher PDFs into a single PDF
+      // Add voucher PDFs as individual attachments (no merging)
+      // Note: PDF merging with pdf-lib causes blank pages for some PDF types (e.g., Vatican tickets)
+      // because it doesn't properly copy XObject forms and embedded images. Attaching individually
+      // preserves the original content.
       console.log('[EMAIL API] voucherPdfBuffers count:', voucherPdfBuffers.length)
       if (voucherPdfBuffers.length > 0) {
-        try {
-          // Create a new PDF document to merge all vouchers into
-          const mergedPdf = await PDFDocument.create()
-
-          for (const buffer of voucherPdfBuffers) {
-            try {
-              // Load each voucher PDF
-              const sourcePdf = await PDFDocument.load(buffer, { ignoreEncryption: true })
-              // Copy all pages from the source PDF
-              const pages = await mergedPdf.copyPages(sourcePdf, sourcePdf.getPageIndices())
-              pages.forEach(page => mergedPdf.addPage(page))
-            } catch (pdfErr) {
-              console.error('[EMAIL API] Error loading PDF for merge:', pdfErr)
-              // If a single PDF fails to load, continue with others
-            }
-          }
-
-          // Only add if we successfully merged at least one PDF
-          if (mergedPdf.getPageCount() > 0) {
-            const mergedPdfBytes = await mergedPdf.save()
-            attachments.push({
-              filename: 'Vouchers.pdf',
-              content: Buffer.from(mergedPdfBytes)
-            })
-            console.log('[EMAIL API] Added merged voucher PDF with', mergedPdf.getPageCount(), 'pages')
-          } else {
-            console.error('[EMAIL API] No pages could be merged from voucher PDFs')
-          }
-        } catch (mergeErr) {
-          console.error('[EMAIL API] Error merging voucher PDFs:', mergeErr)
-          // Fallback: add vouchers individually if merge fails
-          voucherPdfBuffers.forEach((buffer, idx) => {
-            attachments.push({
-              filename: voucherPdfBuffers.length === 1 ? 'Voucher.pdf' : `Voucher_${idx + 1}.pdf`,
-              content: buffer
-            })
+        voucherPdfBuffers.forEach((buffer, idx) => {
+          attachments.push({
+            filename: voucherPdfBuffers.length === 1 ? 'Voucher.pdf' : `Voucher_${idx + 1}.pdf`,
+            content: buffer
           })
-          console.log('[EMAIL API] Fallback: added voucher PDFs individually')
-        }
+        })
+        console.log('[EMAIL API] Added', voucherPdfBuffers.length, 'voucher PDFs as individual attachments')
       }
 
       // Add other (non-voucher) attachments
