@@ -849,7 +849,10 @@ export default function FinanceCostReportsPage() {
                       cx="50%"
                       cy="50%"
                       labelLine={false}
-                      label={({ name, percent }: Record<string, unknown>) => `${name} ${(Number(percent) * 100).toFixed(0)}%`}
+                      label={((props: unknown) => {
+                        const { name, percent } = props as { name: string; percent: number }
+                        return `${name} ${(percent * 100).toFixed(0)}%`
+                      }) as React.ComponentProps<typeof Pie>['label']}
                       outerRadius={100}
                       fill="#8884d8"
                       dataKey="value"
