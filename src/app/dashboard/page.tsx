@@ -38,6 +38,24 @@ import InvoicingPage from '@/components/InvoicingPage'
 import ResourceCostsConfigPage from '@/components/ResourceCostsConfigPage'
 import ServiceGroupsPage from '@/components/ServiceGroupsPage'
 import FinanceCostReportsPage from '@/components/FinanceCostReportsPage'
+import { LucideIcon } from 'lucide-react'
+
+// Menu item types
+interface MenuSubItem {
+  title: string
+  icon: LucideIcon
+  view: string
+}
+
+interface MenuItem {
+  title: string
+  icon: LucideIcon
+  view?: string
+  isSubsection?: boolean
+  isOpen?: boolean
+  setOpen?: (open: boolean) => void
+  subItems?: MenuSubItem[]
+}
 
 // Custom Sidebar Component
 function AppSidebar({ currentView, onNavigate }: {
@@ -327,7 +345,7 @@ function AppSidebar({ currentView, onNavigate }: {
                 </SidebarMenuButton>
                 {section.isOpen && (
                   <SidebarMenuSub className="ml-4 mt-1 space-y-0.5 border-l border-gray-800 pl-3">
-                    {section.items.map((item: any) => (
+                    {section.items.map((item: MenuItem) => (
                       item.isSubsection ? (
                         <SidebarMenuSubItem key={item.title}>
                           <SidebarMenuSubButton
@@ -344,7 +362,7 @@ function AppSidebar({ currentView, onNavigate }: {
                           </SidebarMenuSubButton>
                           {item.isOpen && (
                             <SidebarMenuSub className="ml-4 mt-1 space-y-0.5 border-l border-gray-800 pl-3">
-                              {item.subItems.map((subItem: any) => (
+                              {item.subItems?.map((subItem: MenuSubItem) => (
                                 <SidebarMenuSubItem key={subItem.view}>
                                   <SidebarMenuSubButton
                                     onClick={() => onNavigate(subItem.view)}
@@ -807,7 +825,7 @@ function SearchDialog({ isOpen, onClose }: { isOpen: boolean; onClose: () => voi
 
           {!loading && query.length >= 2 && results.length === 0 && !error && (
             <div className="px-4 py-8 text-center text-gray-500">
-              No bookings found for "{query}"
+              No bookings found for &quot;{query}&quot;
             </div>
           )}
 
