@@ -9,7 +9,7 @@ import {
   Headphone,
   Printing
 } from '@/lib/api-client'
-import { Save, Loader2, Search, Users, Headphones, Printer, UserCheck, Calendar, Star, Plus, Trash2, Edit2, X, Settings } from 'lucide-react'
+import { Save, Loader2, Users, Headphones, Printer, UserCheck, Calendar, Star, Plus, Trash2, Edit2, X, Settings } from 'lucide-react'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
 import { Label } from '@/components/ui/label'

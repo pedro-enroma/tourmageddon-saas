@@ -94,7 +94,7 @@ export default function ServiceGroupsPage() {
       })
 
       // 2. Fetch details for grouped availabilities
-      let groupedAvailabilityDetails = new Map<number, { activity_id: string; activity_title: string; pax: number }>()
+      const groupedAvailabilityDetails = new Map<number, { activity_id: string; activity_title: string; pax: number }>()
       if (groupedAvailabilityIds.size > 0) {
         const { data: groupedAvails } = await supabase
           .from('activity_availability')

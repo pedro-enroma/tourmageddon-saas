@@ -1068,7 +1068,7 @@ export default function FinanceCostReportsPage() {
       {!loading && !costReport && !profitabilityReport && staffDetails.length === 0 && (
         <div className="text-center py-12 text-gray-500 bg-white rounded-lg border border-gray-200">
           <BarChart3 className="h-12 w-12 mx-auto text-gray-400 mb-4" />
-          <p>Select filters and click "Generate Report" to view cost data</p>
+          <p>Select filters and click &quot;Generate Report&quot; to view cost data</p>
         </div>
       )}
     </div>
