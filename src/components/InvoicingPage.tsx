@@ -304,7 +304,7 @@ export default function InvoicingPage() {
           creation_date: b.creation_date,
           payment_type: b.payment_type,
           customer_name: b.booking_customers?.[0]?.customers
-            ? `${b.booking_customers[0].customers.first_name} ${b.booking_customers[0].customers.last_name}`
+            ? `${(b.booking_customers[0].customers as { first_name: string; last_name: string }).first_name} ${(b.booking_customers[0].customers as { first_name: string; last_name: string }).last_name}`
             : null,
           activity_seller: b.activity_bookings?.[0]?.activity_seller || null,
         }))
