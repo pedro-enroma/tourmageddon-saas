@@ -52,6 +52,10 @@ export type AuditEntityType =
   | 'calendar_settings'
   | 'calendar_setting'
   | 'session'
+  | 'guide_activity_cost'
+  | 'assignment_cost_override'
+  | 'guide_service_group'
+  | 'resource_rate'
 
 /**
  * Parameters for logging an audit event
