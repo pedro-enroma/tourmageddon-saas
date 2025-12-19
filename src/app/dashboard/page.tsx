@@ -349,7 +349,7 @@ function AppSidebar({ currentView, onNavigate }: {
                       item.isSubsection ? (
                         <SidebarMenuSubItem key={item.title}>
                           <SidebarMenuSubButton
-                            onClick={() => item.setOpen(!item.isOpen)}
+                            onClick={() => item.setOpen?.(!item.isOpen)}
                             className="w-full text-gray-500 hover:text-white hover:bg-gray-800/50 rounded-lg transition-colors"
                           >
                             <item.icon className="h-4 w-4" />
