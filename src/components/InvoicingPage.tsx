@@ -303,9 +303,17 @@ export default function InvoicingPage() {
           currency: b.currency,
           creation_date: b.creation_date,
           payment_type: b.payment_type,
-          customer_name: b.booking_customers?.[0]?.customers
-            ? `${(b.booking_customers[0].customers as { first_name: string; last_name: string }).first_name} ${(b.booking_customers[0].customers as { first_name: string; last_name: string }).last_name}`
-            : null,
+          customer_name: (() => {
+            const cust = b.booking_customers?.[0]?.customers as unknown
+            if (Array.isArray(cust) && cust[0]) {
+              return `${cust[0].first_name || ''} ${cust[0].last_name || ''}`.trim() || null
+            }
+            if (cust && typeof cust === 'object' && 'first_name' in cust) {
+              const c = cust as { first_name: string; last_name: string }
+              return `${c.first_name || ''} ${c.last_name || ''}`.trim() || null
+            }
+            return null
+          })(),
           activity_seller: b.activity_bookings?.[0]?.activity_seller || null,
         }))
 
