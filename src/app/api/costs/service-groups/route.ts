@@ -164,7 +164,9 @@ export async function POST(request: NextRequest) {
       .single()
 
     // Audit log
-    await auditCreate(request, user, 'guide_service_group', group.id, completeGroup)
+    if (completeGroup) {
+      await auditCreate(request, user, 'guide_service_group', group.id, completeGroup)
+    }
 
     return NextResponse.json({ data: completeGroup }, { status: 201 })
   } catch (err) {
