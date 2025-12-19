@@ -3,7 +3,7 @@
 import { useState, useEffect, useRef, useMemo, useCallback } from 'react'
 import { supabase } from '@/lib/supabase'
 import { attachmentsApi } from '@/lib/api-client'
-import { Download, ChevronDown, Search, X, GripVertical, ChevronRight, User, UserCheck, Paperclip, Upload, Mail, Send, Loader2, MapPin, Ticket, FileText, Headphones, Printer, AlertTriangle } from 'lucide-react'
+import { Download, ChevronDown, Search, X, GripVertical, ChevronRight, User, UserCheck, Paperclip, Upload, Mail, Send, Loader2, MapPin, Ticket, FileText, Headphones, Printer, AlertTriangle, Link2 } from 'lucide-react'
 import { format } from 'date-fns'
 import * as XLSX from 'xlsx-js-style'
 
@@ -142,7 +142,7 @@ interface ConsolidatedEmailTemplate {
   subject: string
   body: string
   service_item_template: string | null
-  template_type: 'guide_consolidated' | 'escort_consolidated' | 'headphone_consolidated' | 'printing_consolidated'
+  template_type: 'guide_consolidated' | 'escort_consolidated' | 'headphone_consolidated' | 'printing_consolidated' | 'guide_service_group'
   is_default: boolean
 }
 
@@ -232,6 +232,9 @@ export default function DailyListPage() {
 
   // Vouchers state (activity_availability_id -> vouchers)
   const [slotVouchers, setSlotVouchers] = useState<Map<number, VoucherInfo[]>>(new Map())
+
+  // Service group memberships (activity_availability_id -> group info)
+  const [serviceGroupMemberships, setServiceGroupMemberships] = useState<Map<number, { groupId: string; groupName: string }>>(new Map())
 
   // Consolidated email templates
   const [consolidatedTemplates, setConsolidatedTemplates] = useState<ConsolidatedEmailTemplate[]>([])
@@ -535,6 +538,31 @@ export default function DailyListPage() {
       setSlotVouchers(vouchersMap)
     } catch (err) {
       console.error('Error fetching vouchers:', err)
+    }
+  }
+
+  // Fetch service group memberships for the selected date
+  const fetchServiceGroupMemberships = async (dateStr: string) => {
+    try {
+      const response = await fetch(`/api/costs/service-groups?service_date=${dateStr}`)
+      if (!response.ok) return
+
+      const result = await response.json()
+      const groups = result.data || []
+
+      const membershipMap = new Map<number, { groupId: string; groupName: string }>()
+      groups.forEach((group: { id: string; group_name: string | null; guide_service_group_members?: { activity_availability_id: number }[] }) => {
+        group.guide_service_group_members?.forEach(member => {
+          membershipMap.set(member.activity_availability_id, {
+            groupId: group.id,
+            groupName: group.group_name || 'Unnamed Group'
+          })
+        })
+      })
+
+      setServiceGroupMemberships(membershipMap)
+    } catch (err) {
+      console.error('Error fetching service group memberships:', err)
     }
   }
 
@@ -1841,6 +1869,7 @@ export default function DailyListPage() {
   }
 
   // Send bulk emails to selected guides using activity-specific templates
+  // For services in a group, sends ONE consolidated email using guide_service_group template
   const handleSendToSelectedGuides = async () => {
     if (bulkSelectedRecipients.size === 0) {
       alert('Please select at least one guide')
@@ -1861,13 +1890,130 @@ export default function DailyListPage() {
     let sentCount = 0
     const errors: string[] = []
 
+    // Get the guide_service_group template for grouped services
+    const serviceGroupTemplate = consolidatedTemplates.find(
+      t => t.template_type === 'guide_service_group' && t.is_default
+    ) || consolidatedTemplates.find(t => t.template_type === 'guide_service_group')
+
     for (const [guideId, { guide, services }] of guideServices.entries()) {
       if (!bulkSelectedRecipients.has(guideId)) continue
 
       try {
+        const guideName = `${guide.first_name} ${guide.last_name}`
+
+        // Separate services into grouped and non-grouped
+        const groupedServices = new Map<string, { groupName: string; services: typeof services }>()
+        const nonGroupedServices: typeof services = []
+
         for (const service of services) {
+          const groupInfo = serviceGroupMemberships.get(service.availabilityId)
+          if (groupInfo) {
+            if (!groupedServices.has(groupInfo.groupId)) {
+              groupedServices.set(groupInfo.groupId, { groupName: groupInfo.groupName, services: [] })
+            }
+            groupedServices.get(groupInfo.groupId)!.services.push(service)
+          } else {
+            nonGroupedServices.push(service)
+          }
+        }
+
+        // Send ONE email per service group
+        for (const [, { groupName, services: groupServices }] of groupedServices.entries()) {
+          if (!serviceGroupTemplate) {
+            // Fallback: if no group template, send individual emails
+            console.warn('No guide_service_group template found, sending individual emails for group:', groupName)
+            nonGroupedServices.push(...groupServices)
+            continue
+          }
+
+          // Sort services by time
+          const sortedGroupServices = [...groupServices].sort((a, b) =>
+            a.timeSlot.time.localeCompare(b.timeSlot.time)
+          )
+
+          // Get the earliest time for this group
+          const earliestTime = sortedGroupServices[0]?.timeSlot.time || ''
+
+          // Calculate total pax for the group
+          const totalGroupPax = sortedGroupServices.reduce(
+            (sum, s) => sum + s.timeSlot.totalParticipants,
+            0
+          )
+
+          // Generate services list using the service item template
+          const serviceItemTemplate = serviceGroupTemplate.service_item_template ||
+            '- **{{service.title}}**: {{service.pax_count}} pax'
+
+          const servicesList = sortedGroupServices.map(service => {
+            return serviceItemTemplate
+              .replace(/\{\{service\.title\}\}/g, service.tour.tourTitle)
+              .replace(/\{\{service\.pax_count\}\}/g, String(service.timeSlot.totalParticipants))
+              .replace(/\{\{service\.time\}\}/g, service.timeSlot.time)
+          }).join('\n')
+
+          // Apply template variables
+          const emailSubject = serviceGroupTemplate.subject
+            .replace(/\{\{name\}\}/g, guideName)
+            .replace(/\{\{date\}\}/g, format(new Date(selectedDate), 'dd/MM/yyyy'))
+            .replace(/\{\{time\}\}/g, earliestTime)
+            .replace(/\{\{group_name\}\}/g, groupName)
+            .replace(/\{\{total_pax\}\}/g, String(totalGroupPax))
+
+          const emailBody = serviceGroupTemplate.body
+            .replace(/\{\{name\}\}/g, guideName)
+            .replace(/\{\{date\}\}/g, format(new Date(selectedDate), 'dd/MM/yyyy'))
+            .replace(/\{\{time\}\}/g, earliestTime)
+            .replace(/\{\{group_name\}\}/g, groupName)
+            .replace(/\{\{total_pax\}\}/g, String(totalGroupPax))
+            .replace(/\{\{services_list\}\}/g, servicesList)
+
+          // Collect all attachments and vouchers for all services in the group
+          const allAttachmentUrls: string[] = []
+          const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL
+
+          for (const service of sortedGroupServices) {
+            const slotAttachments = attachments.filter(a => a.activity_availability_id === service.availabilityId)
+            allAttachmentUrls.push(...slotAttachments.map(a => a.file_path))
+
+            const vouchersForSlot = slotVouchers.get(service.availabilityId) || []
+            for (const voucher of vouchersForSlot) {
+              if (voucher.pdf_path) {
+                const pdfUrl = `${supabaseUrl}/storage/v1/object/public/ticket-vouchers/${voucher.pdf_path}`
+                allAttachmentUrls.push(pdfUrl)
+              }
+            }
+          }
+
+          // Use the first availability ID for logging purposes
+          const primaryAvailabilityId = sortedGroupServices[0]?.availabilityId
+
+          const response = await fetch('/api/email/send', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({
+              recipients: [{
+                email: guide.email,
+                name: guideName,
+                type: 'guide',
+                id: guide.id
+              }],
+              subject: emailSubject,
+              body: emailBody,
+              activityAvailabilityId: primaryAvailabilityId,
+              attachmentUrls: allAttachmentUrls,
+              serviceDate: selectedDate
+            })
+          })
+
+          if (!response.ok) {
+            const result = await response.json()
+            throw new Error(result.error || 'Failed to send email')
+          }
+        }
+
+        // Send individual emails for non-grouped services
+        for (const service of nonGroupedServices) {
           const { tour, timeSlot, availabilityId } = service
-          const guideName = `${guide.first_name} ${guide.last_name}`
           const activityId = timeSlot.bookings[0]?.activity_id
 
           // Get template for this activity
@@ -2493,6 +2639,8 @@ export default function DailyListPage() {
       await fetchMeetingPoints(allActivityIds)
       // Fetch vouchers for the day
       await fetchVouchers(selectedDate)
+      // Fetch service group memberships for the day
+      await fetchServiceGroupMemberships(selectedDate)
     }
   }
 
@@ -2823,6 +2971,8 @@ export default function DailyListPage() {
     await fetchEmailLogs(date)
     // Fetch vouchers for the new date
     await fetchVouchers(date)
+    // Fetch service group memberships for the new date
+    await fetchServiceGroupMemberships(date)
   }
 
   // Group data by tour and time slot - memoized for performance
@@ -3718,6 +3868,13 @@ export default function DailyListPage() {
                             <span className="text-sm font-medium text-gray-700 bg-gray-200 px-2 py-1 rounded">
                               {timeSlot.totalParticipants} participants
                             </span>
+                            {/* Service Group Badge */}
+                            {slotAvailabilityId && serviceGroupMemberships.has(slotAvailabilityId) && (
+                              <span className="text-sm font-medium px-2 py-1 rounded flex items-center gap-1 bg-green-100 text-green-700 border border-green-300">
+                                <Link2 className="w-4 h-4" />
+                                {serviceGroupMemberships.get(slotAvailabilityId)?.groupName}
+                              </span>
+                            )}
                             {/* Voucher Tickets Badge */}
                             {vouchersForSlot.length > 0 && (
                               <span className={`text-sm font-medium px-2 py-1 rounded flex items-center gap-1 ${

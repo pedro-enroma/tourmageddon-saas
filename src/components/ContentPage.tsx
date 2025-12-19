@@ -72,7 +72,7 @@ const CONSOLIDATED_SERVICE_VARIABLES = [
 ]
 
 type TemplateType = 'guide' | 'escort' | 'headphone' | 'printing'
-type ConsolidatedTemplateType = 'guide_consolidated' | 'escort_consolidated' | 'headphone_consolidated' | 'printing_consolidated'
+type ConsolidatedTemplateType = 'guide_consolidated' | 'escort_consolidated' | 'headphone_consolidated' | 'printing_consolidated' | 'guide_service_group'
 
 interface EmailTemplate {
   id: string
@@ -1134,6 +1134,7 @@ export default function ContentPage() {
                 <option value="escort_consolidated">Escort Consolidated</option>
                 <option value="headphone_consolidated">Headphone Consolidated</option>
                 <option value="printing_consolidated">Printing Consolidated</option>
+                <option value="guide_service_group">Service Group</option>
               </select>
             </div>
             <Button onClick={openNewConsolidatedTemplate}>
@@ -1169,10 +1170,12 @@ export default function ContentPage() {
                             : template.template_type === 'escort_consolidated'
                             ? 'bg-orange-100 text-orange-800'
                             : template.template_type === 'printing_consolidated'
-                              ? 'bg-cyan-100 text-cyan-800'
-                              : 'bg-purple-100 text-purple-800'
+                            ? 'bg-cyan-100 text-cyan-800'
+                            : template.template_type === 'guide_service_group'
+                            ? 'bg-green-100 text-green-800'
+                            : 'bg-purple-100 text-purple-800'
                         }`}>
-                          {template.template_type === 'guide_consolidated' ? 'Guide' : template.template_type === 'escort_consolidated' ? 'Escort' : template.template_type === 'printing_consolidated' ? 'Printing' : 'Headphone'}
+                          {template.template_type === 'guide_consolidated' ? 'Guide' : template.template_type === 'escort_consolidated' ? 'Escort' : template.template_type === 'printing_consolidated' ? 'Printing' : template.template_type === 'guide_service_group' ? 'Service Group' : 'Headphone'}
                         </span>
                         {template.is_default && (
                           <span className="px-2 py-0.5 text-xs bg-green-100 text-green-800 rounded">Default</span>
@@ -1417,6 +1420,7 @@ export default function ContentPage() {
                         <option value="escort_consolidated">Escort Consolidated</option>
                         <option value="headphone_consolidated">Headphone Consolidated</option>
                         <option value="printing_consolidated">Printing Consolidated</option>
+                        <option value="guide_service_group">Service Group</option>
                       </select>
                     </div>
                   </div>

@@ -501,3 +501,230 @@ export const activityTemplatesApi = {
   delete: (activity_id: string, template_type: string) =>
     apiRequest(`/api/content/activity-templates?activity_id=${activity_id}&template_type=${template_type}`, 'DELETE'),
 }
+
+// ============================================
+// RESOURCE COSTS API
+// ============================================
+export interface GuideActivityCost {
+  id: string
+  guide_id: string
+  activity_id: string
+  cost_amount: number
+  currency: string
+  effective_from?: string
+  notes?: string
+  created_at?: string
+  updated_at?: string
+}
+
+export interface ResourceRate {
+  id: string
+  resource_type: 'escort' | 'headphone' | 'printing'
+  resource_id: string
+  rate_type: 'daily' | 'per_pax'
+  rate_amount: number
+  currency: string
+  notes?: string
+  created_at?: string
+  updated_at?: string
+}
+
+export interface AssignmentCostOverride {
+  id: string
+  assignment_type: 'guide' | 'escort' | 'headphone' | 'printing'
+  assignment_id: string
+  override_amount: number
+  currency: string
+  reason?: string
+  created_by?: string
+  created_at?: string
+}
+
+export interface GuideServiceGroupMember {
+  id: string
+  group_id: string
+  guide_assignment_id: string
+  pax_count: number
+  individual_cost: number
+  created_at?: string
+}
+
+export interface GuideServiceGroup {
+  id: string
+  guide_id: string
+  service_date: string
+  service_time: string
+  primary_assignment_id?: string
+  total_pax: number
+  calculated_cost: number
+  currency: string
+  notes?: string
+  created_at?: string
+  updated_at?: string
+  guide_service_group_members?: GuideServiceGroupMember[]
+}
+
+export const guideActivityCostsApi = {
+  list: (guide_id?: string, activity_id?: string) => {
+    const params = new URLSearchParams()
+    if (guide_id) params.append('guide_id', guide_id)
+    if (activity_id) params.append('activity_id', activity_id)
+    const query = params.toString()
+    return apiRequest<GuideActivityCost[]>(`/api/costs/guide-activity-costs${query ? `?${query}` : ''}`)
+  },
+  create: (cost: Partial<GuideActivityCost>) =>
+    apiRequest<GuideActivityCost>('/api/costs/guide-activity-costs', 'POST', cost),
+  update: (cost: Partial<GuideActivityCost>) =>
+    apiRequest<GuideActivityCost>('/api/costs/guide-activity-costs', 'PUT', cost),
+  delete: (id: string) =>
+    apiRequest(`/api/costs/guide-activity-costs?id=${id}`, 'DELETE'),
+}
+
+export const resourceRatesApi = {
+  list: (resource_type?: string, resource_id?: string) => {
+    const params = new URLSearchParams()
+    if (resource_type) params.append('resource_type', resource_type)
+    if (resource_id) params.append('resource_id', resource_id)
+    const query = params.toString()
+    return apiRequest<ResourceRate[]>(`/api/costs/resource-rates${query ? `?${query}` : ''}`)
+  },
+  create: (rate: Partial<ResourceRate>) =>
+    apiRequest<ResourceRate>('/api/costs/resource-rates', 'POST', rate),
+  update: (rate: Partial<ResourceRate>) =>
+    apiRequest<ResourceRate>('/api/costs/resource-rates', 'PUT', rate),
+  delete: (id: string) =>
+    apiRequest(`/api/costs/resource-rates?id=${id}`, 'DELETE'),
+}
+
+export const assignmentOverridesApi = {
+  list: (assignment_type?: string, assignment_id?: string) => {
+    const params = new URLSearchParams()
+    if (assignment_type) params.append('assignment_type', assignment_type)
+    if (assignment_id) params.append('assignment_id', assignment_id)
+    const query = params.toString()
+    return apiRequest<AssignmentCostOverride[]>(`/api/costs/assignment-overrides${query ? `?${query}` : ''}`)
+  },
+  create: (override: Partial<AssignmentCostOverride>) =>
+    apiRequest<AssignmentCostOverride>('/api/costs/assignment-overrides', 'POST', override),
+  delete: (id?: string, assignment_type?: string, assignment_id?: string) => {
+    const params = new URLSearchParams()
+    if (id) params.append('id', id)
+    if (assignment_type) params.append('assignment_type', assignment_type)
+    if (assignment_id) params.append('assignment_id', assignment_id)
+    return apiRequest(`/api/costs/assignment-overrides?${params.toString()}`, 'DELETE')
+  },
+}
+
+export const serviceGroupsApi = {
+  list: (guide_id?: string, start_date?: string, end_date?: string) => {
+    const params = new URLSearchParams()
+    if (guide_id) params.append('guide_id', guide_id)
+    if (start_date) params.append('start_date', start_date)
+    if (end_date) params.append('end_date', end_date)
+    const query = params.toString()
+    return apiRequest<GuideServiceGroup[]>(`/api/costs/service-groups${query ? `?${query}` : ''}`)
+  },
+  create: (group: { guide_id: string; service_date: string; service_time: string; assignment_ids: string[]; notes?: string }) =>
+    apiRequest<GuideServiceGroup>('/api/costs/service-groups', 'POST', group),
+  update: (group: { id: string; assignment_ids?: string[]; notes?: string }) =>
+    apiRequest<GuideServiceGroup>('/api/costs/service-groups', 'PUT', group),
+  delete: (id: string) =>
+    apiRequest(`/api/costs/service-groups?id=${id}`, 'DELETE'),
+}
+
+// ============================================
+// COST REPORTS API
+// ============================================
+export interface CostReportItem {
+  resource_type: 'guide' | 'escort' | 'headphone' | 'printing'
+  resource_id: string
+  resource_name: string
+  date: string
+  activity_id?: string
+  activity_title?: string
+  assignment_id: string
+  pax_count?: number
+  cost_amount: number
+  currency: string
+  is_grouped?: boolean
+  group_id?: string
+}
+
+export interface CostReportSummary {
+  key: string
+  label: string
+  total_cost: number
+  count: number
+}
+
+export interface CostReportResponse {
+  items: CostReportItem[]
+  summaries: CostReportSummary[]
+  total_cost: number
+  currency: string
+  date_range: { start_date: string; end_date: string }
+  group_by: string
+}
+
+export interface ProfitabilityItem {
+  key: string
+  label: string
+  revenue: number
+  guide_costs: number
+  escort_costs: number
+  headphone_costs: number
+  printing_costs: number
+  total_costs: number
+  profit: number
+  margin: number
+  booking_count: number
+  pax_count: number
+}
+
+export interface ProfitabilityTotals {
+  revenue: number
+  guide_costs: number
+  escort_costs: number
+  headphone_costs: number
+  printing_costs: number
+  total_costs: number
+  profit: number
+  margin: number
+  booking_count: number
+  pax_count: number
+}
+
+export interface ProfitabilityReportResponse {
+  items: ProfitabilityItem[]
+  totals: ProfitabilityTotals
+  currency: string
+  date_range: { start_date: string; end_date: string }
+  group_by: string
+}
+
+export const costReportsApi = {
+  resourceCosts: (params: {
+    start_date: string
+    end_date: string
+    resource_types?: string[]
+    group_by?: 'staff' | 'date' | 'activity'
+  }) => {
+    const searchParams = new URLSearchParams()
+    searchParams.append('start_date', params.start_date)
+    searchParams.append('end_date', params.end_date)
+    if (params.resource_types) searchParams.append('resource_types', params.resource_types.join(','))
+    if (params.group_by) searchParams.append('group_by', params.group_by)
+    return apiRequest<CostReportResponse>(`/api/reports/resource-costs?${searchParams.toString()}`)
+  },
+  profitability: (params: {
+    start_date: string
+    end_date: string
+    group_by?: 'activity' | 'date' | 'booking'
+  }) => {
+    const searchParams = new URLSearchParams()
+    searchParams.append('start_date', params.start_date)
+    searchParams.append('end_date', params.end_date)
+    if (params.group_by) searchParams.append('group_by', params.group_by)
+    return apiRequest<ProfitabilityReportResponse>(`/api/reports/profitability?${searchParams.toString()}`)
+  },
+}

@@ -4,7 +4,7 @@ import { useState, useEffect } from 'react'
 import { supabase } from '@/lib/supabase'
 import { calendarSettingsApi } from '@/lib/api-client'
 import { Calendar as CalendarIcon, ChevronLeft, ChevronRight, Clock, Users, MapPin, X, Settings, Pencil, User, UserCheck, Headphones } from 'lucide-react'
-import { format, addWeeks, startOfWeek, endOfWeek, eachDayOfInterval, isSameDay } from 'date-fns'
+import { format, addWeeks, startOfWeek, endOfWeek, eachDayOfInterval, isSameDay, addMonths, startOfMonth, endOfMonth, getDay } from 'date-fns'
 import { Button } from '@/components/ui/button'
 import { Checkbox } from '@/components/ui/checkbox'
 import { Drawer, DrawerClose, DrawerContent, DrawerDescription, DrawerFooter, DrawerHeader, DrawerTitle, DrawerTrigger } from '@/components/ui/drawer'
@@ -79,6 +79,8 @@ export default function StaffCalendarPage() {
   const [selectedSlot, setSelectedSlot] = useState<ActivityAvailability | null>(null)
   const [selectedGuides, setSelectedGuides] = useState<string[]>([])
   const [showModal, setShowModal] = useState(false)
+  const [showDatePicker, setShowDatePicker] = useState(false)
+  const [datePickerMonth, setDatePickerMonth] = useState(new Date())
 
   // Filter states
   const [selectedActivityIds, setSelectedActivityIds] = useState<string[]>([])
@@ -964,8 +966,14 @@ export default function StaffCalendarPage() {
           </button>
 
           <div className="flex items-center gap-4">
-            <div className="text-center">
-              <div className="flex items-center gap-2">
+            <div className="text-center relative">
+              <button
+                onClick={() => {
+                  setDatePickerMonth(currentDate)
+                  setShowDatePicker(!showDatePicker)
+                }}
+                className="flex items-center gap-2 hover:bg-gray-100 px-3 py-2 rounded-lg transition-colors"
+              >
                 <CalendarIcon className="w-5 h-5 text-gray-500" />
                 <span className="text-xl font-semibold">
                   {viewMode === 'weekly'
@@ -973,7 +981,86 @@ export default function StaffCalendarPage() {
                     : format(currentDate, 'EEEE, MMMM d, yyyy')
                   }
                 </span>
-              </div>
+              </button>
+
+              {/* Date Picker Popup */}
+              {showDatePicker && (
+                <div className="absolute top-full left-1/2 -translate-x-1/2 mt-2 bg-white rounded-lg shadow-xl border z-50 p-4 min-w-[300px]">
+                  <div className="flex items-center justify-between mb-4">
+                    <button
+                      onClick={() => setDatePickerMonth(addMonths(datePickerMonth, -1))}
+                      className="p-1 hover:bg-gray-100 rounded"
+                    >
+                      <ChevronLeft className="w-5 h-5" />
+                    </button>
+                    <span className="font-semibold">
+                      {format(datePickerMonth, 'MMMM yyyy')}
+                    </span>
+                    <button
+                      onClick={() => setDatePickerMonth(addMonths(datePickerMonth, 1))}
+                      className="p-1 hover:bg-gray-100 rounded"
+                    >
+                      <ChevronRight className="w-5 h-5" />
+                    </button>
+                  </div>
+                  <div className="grid grid-cols-7 gap-1 text-center mb-2">
+                    {['Mo', 'Tu', 'We', 'Th', 'Fr', 'Sa', 'Su'].map(day => (
+                      <div key={day} className="text-xs font-medium text-gray-500 py-1">
+                        {day}
+                      </div>
+                    ))}
+                  </div>
+                  <div className="grid grid-cols-7 gap-1">
+                    {(() => {
+                      const monthStart = startOfMonth(datePickerMonth)
+                      const monthEnd = endOfMonth(datePickerMonth)
+                      const startDay = getDay(monthStart)
+                      const adjustedStartDay = startDay === 0 ? 6 : startDay - 1
+                      const days = eachDayOfInterval({ start: monthStart, end: monthEnd })
+                      const blanks = Array(adjustedStartDay).fill(null)
+
+                      return [...blanks, ...days].map((day, idx) => {
+                        if (!day) {
+                          return <div key={`blank-${idx}`} className="p-2" />
+                        }
+                        const isSelected = isSameDay(day, currentDate)
+                        const isToday = isSameDay(day, new Date())
+                        return (
+                          <button
+                            key={day.toISOString()}
+                            onClick={() => {
+                              setCurrentDate(day)
+                              setShowDatePicker(false)
+                            }}
+                            className={`p-2 text-sm rounded-lg hover:bg-gray-100 transition-colors ${
+                              isSelected ? 'bg-brand-orange text-white hover:bg-brand-orange' : ''
+                            } ${isToday && !isSelected ? 'ring-2 ring-brand-orange' : ''}`}
+                          >
+                            {format(day, 'd')}
+                          </button>
+                        )
+                      })
+                    })()}
+                  </div>
+                  <div className="mt-3 pt-3 border-t flex justify-between">
+                    <button
+                      onClick={() => {
+                        setCurrentDate(new Date())
+                        setShowDatePicker(false)
+                      }}
+                      className="text-sm text-brand-orange hover:underline"
+                    >
+                      Go to today
+                    </button>
+                    <button
+                      onClick={() => setShowDatePicker(false)}
+                      className="text-sm text-gray-500 hover:underline"
+                    >
+                      Close
+                    </button>
+                  </div>
+                </div>
+              )}
             </div>
             <button
               onClick={goToToday}

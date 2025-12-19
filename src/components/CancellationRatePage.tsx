@@ -37,7 +37,7 @@ const chartConfig = {
     color: "hsl(0, 84%, 60%)",  // Red
   },
   others: {
-    label: "Altre",
+    label: "Confermate",
     color: "hsl(142, 76%, 36%)", // Green
   },
 } satisfies ChartConfig
@@ -83,9 +83,17 @@ export default function CancellationRatePage() {
         startDate.setDate(startDate.getDate() - 29)
     }
 
+    // Format dates without timezone conversion
+    const formatDate = (d: Date) => {
+      const year = d.getFullYear()
+      const month = String(d.getMonth() + 1).padStart(2, '0')
+      const day = String(d.getDate()).padStart(2, '0')
+      return `${year}-${month}-${day}`
+    }
+
     return {
-      startDate: `${startDate.toISOString().split('T')[0]}T00:00:00`,
-      endDate: `${endDate.toISOString().split('T')[0]}T23:59:59`
+      startDate: `${formatDate(startDate)}T00:00:00`,
+      endDate: `${formatDate(endDate)}T23:59:59`
     }
   }, [dateRange, customStartDate, customEndDate])
 
@@ -95,25 +103,47 @@ export default function CancellationRatePage() {
       const range = getDateRange()
       if (!range) return
 
-      // Get bookings in the date range, excluding IMPORTED status
-      const { data, error } = await supabase
-        .from('activity_bookings')
-        .select('id, start_date_time, status')
-        .gte('start_date_time', range.startDate)
-        .lte('start_date_time', range.endDate)
-        .not('status', 'eq', 'IMPORTED')
+      // Get bookings in the date range - fetch all with pagination
+      let allData: { activity_booking_id: string; start_date_time: string; status: string }[] = []
+      let page = 0
+      const pageSize = 1000
+      let hasMore = true
 
-      if (error) {
-        console.error('Error loading data:', error)
-        return
+      console.log('Fetching data for range:', range.startDate, 'to', range.endDate)
+
+      while (hasMore) {
+        const { data, error: fetchError } = await supabase
+          .from('activity_bookings')
+          .select('activity_booking_id, start_date_time, status')
+          .gte('start_date_time', range.startDate)
+          .lte('start_date_time', range.endDate)
+          .range(page * pageSize, (page + 1) * pageSize - 1)
+
+        if (fetchError) {
+          console.error('Error loading data:', fetchError)
+          return
+        }
+
+        console.log(`Page ${page}: fetched ${data?.length || 0} records`)
+
+        if (data && data.length > 0) {
+          allData = [...allData, ...data]
+          page++
+          hasMore = data.length === pageSize
+        } else {
+          hasMore = false
+        }
       }
 
-      // Group by month and count unique booking IDs
+      console.log('Total records fetched:', allData.length)
+      const data = allData
+
+      // Group by month and count unique activity_booking_ids
       const monthlyStats: { [key: string]: { cancelledIds: Set<string>, otherIds: Set<string> } } = {}
 
-      // Process data - count unique booking IDs
+      // Process data - count unique activity_booking_ids
       data?.forEach(booking => {
-        if (booking.start_date_time && booking.id) {
+        if (booking.start_date_time && booking.activity_booking_id) {
           const monthKey = booking.start_date_time.substring(0, 7) // YYYY-MM
 
           if (!monthlyStats[monthKey]) {
@@ -122,9 +152,9 @@ export default function CancellationRatePage() {
 
           // Only CANCELLED goes to cancelled, all others (CONFIRMED, etc.) go to others
           if (booking.status === 'CANCELLED') {
-            monthlyStats[monthKey].cancelledIds.add(booking.id)
+            monthlyStats[monthKey].cancelledIds.add(booking.activity_booking_id)
           } else {
-            monthlyStats[monthKey].otherIds.add(booking.id)
+            monthlyStats[monthKey].otherIds.add(booking.activity_booking_id)
           }
         }
       })
@@ -178,7 +208,7 @@ export default function CancellationRatePage() {
     if (!month) return []
     return [
       {
-        name: "Altre",
+        name: "Confermate",
         value: month.others,
         fill: "hsl(142, 76%, 36%)" // Green
       },
@@ -226,7 +256,7 @@ export default function CancellationRatePage() {
 
   const exportToCSV = () => {
     // Prepare CSV data
-    const headers = ['Mese', 'Altre', 'Cancellate', 'Totale', 'Tasso Cancellazione (%)']
+    const headers = ['Mese', 'Confermate', 'Cancellate', 'Totale', 'Tasso Cancellazione (%)']
     const rows = monthlyData.map(month => [
       month.month,
       month.others,
@@ -264,7 +294,7 @@ export default function CancellationRatePage() {
         ['Report Tasso di Cancellazione'],
         ['Periodo: ' + getDateRangeLabel()],
         [],
-        ['Mese', 'Altre', 'Cancellate', 'Totale', 'Tasso Cancellazione (%)'],
+        ['Mese', 'Confermate', 'Cancellate', 'Totale', 'Tasso Cancellazione (%)'],
         ...monthlyData.map(month => [
           month.month,
           month.others,
@@ -281,7 +311,7 @@ export default function CancellationRatePage() {
       // Auto-size columns
       const colWidths = [
         { wch: 20 }, // Mese
-        { wch: 12 }, // Altre
+        { wch: 12 }, // Confermate
         { wch: 12 }, // Cancellate
         { wch: 12 }, // Totale
         { wch: 20 }  // Tasso Cancellazione
@@ -305,7 +335,7 @@ export default function CancellationRatePage() {
       <div className="flex justify-between items-start">
         <div>
           <h1 className="text-2xl font-bold">Tasso di Cancellazione</h1>
-          <p className="text-gray-600">Analisi delle prenotazioni cancellate vs tutte le altre (esclude IMPORTED)</p>
+          <p className="text-gray-600">Analisi delle prenotazioni cancellate vs confermate</p>
         </div>
 
         {/* Date Range Filter and Export */}
@@ -482,7 +512,7 @@ export default function CancellationRatePage() {
 
         <Card>
           <CardHeader className="pb-3">
-            <CardTitle className="text-base">Altre Prenotazioni</CardTitle>
+            <CardTitle className="text-base">Confermate</CardTitle>
           </CardHeader>
           <CardContent>
             <div className="text-2xl font-bold text-green-600">
@@ -520,7 +550,7 @@ export default function CancellationRatePage() {
               <thead>
                 <tr className="border-b">
                   <th className="text-left py-2">Mese</th>
-                  <th className="text-right py-2">Altre</th>
+                  <th className="text-right py-2">Confermate</th>
                   <th className="text-right py-2">Cancellate</th>
                   <th className="text-right py-2">Totale</th>
                   <th className="text-right py-2">Tasso Cancellazione</th>

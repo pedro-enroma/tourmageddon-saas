@@ -4,7 +4,7 @@ import { useState, useEffect } from 'react'
 import { supabase } from '@/lib/supabase'
 import { printingApi } from '@/lib/api-client'
 import { Calendar as CalendarIcon, ChevronLeft, ChevronRight, Clock, Users, Printer, Search, Save } from 'lucide-react'
-import { format, addDays } from 'date-fns'
+import { format, addDays, addMonths, startOfMonth, endOfMonth, eachDayOfInterval, getDay, isSameDay } from 'date-fns'
 import { Button } from '@/components/ui/button'
 import { Checkbox } from '@/components/ui/checkbox'
 import { Input } from '@/components/ui/input'
@@ -53,6 +53,10 @@ export default function PrintingAssignmentsPage() {
 
   // Track original assignments to compute changes
   const [originalAssignments, setOriginalAssignments] = useState<Set<number>>(new Set())
+
+  // Date picker state
+  const [showDatePicker, setShowDatePicker] = useState(false)
+  const [datePickerMonth, setDatePickerMonth] = useState(new Date())
 
   useEffect(() => {
     fetchData()
@@ -280,8 +284,14 @@ export default function PrintingAssignmentsPage() {
             <ChevronLeft className="w-5 h-5" />
           </button>
 
-          <div className="flex items-center gap-4">
-            <div className="text-center">
+          <div className="flex items-center gap-4 relative">
+            <div
+              className="text-center cursor-pointer hover:bg-gray-100 px-3 py-1 rounded-lg transition-colors"
+              onClick={() => {
+                setDatePickerMonth(currentDate)
+                setShowDatePicker(!showDatePicker)
+              }}
+            >
               <div className="flex items-center gap-2">
                 <CalendarIcon className="w-5 h-5 text-gray-500" />
                 <span className="text-xl font-semibold">
@@ -295,6 +305,77 @@ export default function PrintingAssignmentsPage() {
             >
               Today
             </button>
+
+            {/* Date Picker Popup */}
+            {showDatePicker && (
+              <div className="absolute top-full mt-2 left-1/2 transform -translate-x-1/2 bg-white rounded-lg shadow-lg border p-4 z-50 min-w-[300px]">
+                <div className="flex items-center justify-between mb-4">
+                  <button
+                    onClick={() => setDatePickerMonth(prev => addMonths(prev, -1))}
+                    className="p-1 hover:bg-gray-100 rounded"
+                  >
+                    <ChevronLeft className="w-5 h-5" />
+                  </button>
+                  <span className="font-semibold">{format(datePickerMonth, 'MMMM yyyy')}</span>
+                  <button
+                    onClick={() => setDatePickerMonth(prev => addMonths(prev, 1))}
+                    className="p-1 hover:bg-gray-100 rounded"
+                  >
+                    <ChevronRight className="w-5 h-5" />
+                  </button>
+                </div>
+                <div className="grid grid-cols-7 gap-1 text-center text-sm">
+                  {['Su', 'Mo', 'Tu', 'We', 'Th', 'Fr', 'Sa'].map(day => (
+                    <div key={day} className="p-2 font-medium text-gray-500">{day}</div>
+                  ))}
+                  {(() => {
+                    const monthStart = startOfMonth(datePickerMonth)
+                    const monthEnd = endOfMonth(datePickerMonth)
+                    const days = eachDayOfInterval({ start: monthStart, end: monthEnd })
+                    const startPadding = getDay(monthStart)
+                    const paddedDays = [...Array(startPadding).fill(null), ...days]
+                    return paddedDays.map((day, i) => (
+                      <div key={i} className="p-1">
+                        {day ? (
+                          <button
+                            onClick={() => {
+                              setCurrentDate(day)
+                              setShowDatePicker(false)
+                              setSelectedPrinting(null)
+                              setSelectedSlotIds(new Set())
+                            }}
+                            className={`w-8 h-8 rounded-full hover:bg-cyan-100 ${
+                              isSameDay(day, currentDate) ? 'bg-cyan-500 text-white hover:bg-cyan-600' : ''
+                            } ${isSameDay(day, new Date()) ? 'ring-2 ring-cyan-300' : ''}`}
+                          >
+                            {format(day, 'd')}
+                          </button>
+                        ) : null}
+                      </div>
+                    ))
+                  })()}
+                </div>
+                <div className="mt-4 flex justify-between">
+                  <button
+                    onClick={() => {
+                      setCurrentDate(new Date())
+                      setShowDatePicker(false)
+                      setSelectedPrinting(null)
+                      setSelectedSlotIds(new Set())
+                    }}
+                    className="text-sm text-cyan-600 hover:text-cyan-800"
+                  >
+                    Go to today
+                  </button>
+                  <button
+                    onClick={() => setShowDatePicker(false)}
+                    className="text-sm text-gray-500 hover:text-gray-700"
+                  >
+                    Close
+                  </button>
+                </div>
+              </div>
+            )}
           </div>
 
           <button onClick={goToNext} className="p-2 hover:bg-gray-100 rounded-full">

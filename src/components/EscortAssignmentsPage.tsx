@@ -4,7 +4,7 @@ import { useState, useEffect } from 'react'
 import { supabase } from '@/lib/supabase'
 import { escortsApi } from '@/lib/api-client'
 import { Calendar as CalendarIcon, ChevronLeft, ChevronRight, Clock, Users, UserCheck, Search, Save } from 'lucide-react'
-import { format, addDays } from 'date-fns'
+import { format, addDays, addMonths, startOfMonth, endOfMonth, eachDayOfInterval, getDay, isSameDay } from 'date-fns'
 import { Button } from '@/components/ui/button'
 import { Checkbox } from '@/components/ui/checkbox'
 import { Input } from '@/components/ui/input'
@@ -45,6 +45,8 @@ export default function EscortAssignmentsPage() {
   const [loading, setLoading] = useState(true)
   const [saving, setSaving] = useState(false)
   const [error, setError] = useState<string | null>(null)
+  const [showDatePicker, setShowDatePicker] = useState(false)
+  const [datePickerMonth, setDatePickerMonth] = useState(new Date())
 
   // Selected escort (left panel)
   const [selectedEscort, setSelectedEscort] = useState<Escort | null>(null)
@@ -283,13 +285,66 @@ export default function EscortAssignmentsPage() {
           </button>
 
           <div className="flex items-center gap-4">
-            <div className="text-center">
-              <div className="flex items-center gap-2">
+            <div className="text-center relative">
+              <button
+                onClick={() => {
+                  setDatePickerMonth(currentDate)
+                  setShowDatePicker(!showDatePicker)
+                }}
+                className="flex items-center gap-2 hover:bg-gray-100 px-3 py-2 rounded-lg transition-colors"
+              >
                 <CalendarIcon className="w-5 h-5 text-gray-500" />
                 <span className="text-xl font-semibold">
                   {format(currentDate, 'EEEE, MMMM d, yyyy')}
                 </span>
-              </div>
+              </button>
+
+              {showDatePicker && (
+                <div className="absolute top-full left-1/2 -translate-x-1/2 mt-2 bg-white rounded-lg shadow-xl border z-50 p-4 min-w-[300px]">
+                  <div className="flex items-center justify-between mb-4">
+                    <button onClick={() => setDatePickerMonth(addMonths(datePickerMonth, -1))} className="p-1 hover:bg-gray-100 rounded">
+                      <ChevronLeft className="w-5 h-5" />
+                    </button>
+                    <span className="font-semibold">{format(datePickerMonth, 'MMMM yyyy')}</span>
+                    <button onClick={() => setDatePickerMonth(addMonths(datePickerMonth, 1))} className="p-1 hover:bg-gray-100 rounded">
+                      <ChevronRight className="w-5 h-5" />
+                    </button>
+                  </div>
+                  <div className="grid grid-cols-7 gap-1 text-center mb-2">
+                    {['Mo', 'Tu', 'We', 'Th', 'Fr', 'Sa', 'Su'].map(day => (
+                      <div key={day} className="text-xs font-medium text-gray-500 py-1">{day}</div>
+                    ))}
+                  </div>
+                  <div className="grid grid-cols-7 gap-1">
+                    {(() => {
+                      const monthStart = startOfMonth(datePickerMonth)
+                      const monthEnd = endOfMonth(datePickerMonth)
+                      const startDay = getDay(monthStart)
+                      const adjustedStartDay = startDay === 0 ? 6 : startDay - 1
+                      const days = eachDayOfInterval({ start: monthStart, end: monthEnd })
+                      const blanks = Array(adjustedStartDay).fill(null)
+                      return [...blanks, ...days].map((day, idx) => {
+                        if (!day) return <div key={`blank-${idx}`} className="p-2" />
+                        const isSelected = isSameDay(day, currentDate)
+                        const isToday = isSameDay(day, new Date())
+                        return (
+                          <button
+                            key={day.toISOString()}
+                            onClick={() => { setCurrentDate(day); setShowDatePicker(false) }}
+                            className={`p-2 text-sm rounded-lg hover:bg-gray-100 ${isSelected ? 'bg-orange-500 text-white hover:bg-orange-500' : ''} ${isToday && !isSelected ? 'ring-2 ring-orange-500' : ''}`}
+                          >
+                            {format(day, 'd')}
+                          </button>
+                        )
+                      })
+                    })()}
+                  </div>
+                  <div className="mt-3 pt-3 border-t flex justify-between">
+                    <button onClick={() => { setCurrentDate(new Date()); setShowDatePicker(false) }} className="text-sm text-orange-500 hover:underline">Go to today</button>
+                    <button onClick={() => setShowDatePicker(false)} className="text-sm text-gray-500 hover:underline">Close</button>
+                  </div>
+                </div>
+              )}
             </div>
             <button
               onClick={goToToday}

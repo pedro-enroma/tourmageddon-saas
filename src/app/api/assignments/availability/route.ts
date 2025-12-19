@@ -21,16 +21,49 @@ export async function POST(request: NextRequest) {
     const { ip, userAgent } = getRequestContext(request)
     const results: { guides: unknown[]; escorts: unknown[]; headphones: unknown[]; printing: unknown[] } = { guides: [], escorts: [], headphones: [], printing: [] }
 
-    // Insert guide assignments
+    // Insert guide assignments (with service group auto-assignment)
     if (guide_ids && guide_ids.length > 0) {
-      const guideAssignments = guide_ids.map((guide_id: string) => ({
-        guide_id,
-        activity_availability_id
-      }))
+      // Check if this availability is part of a service group
+      const { data: groupMember } = await supabase
+        .from('guide_service_group_members')
+        .select('group_id')
+        .eq('activity_availability_id', activity_availability_id)
+        .single()
+
+      let allAvailabilityIds = [activity_availability_id]
+
+      if (groupMember) {
+        // Get all availability IDs in this group
+        const { data: groupMembers } = await supabase
+          .from('guide_service_group_members')
+          .select('activity_availability_id')
+          .eq('group_id', groupMember.group_id)
+
+        if (groupMembers) {
+          allAvailabilityIds = groupMembers.map(m => m.activity_availability_id)
+        }
+
+        // Update the service group with the guide_id
+        await supabase
+          .from('guide_service_groups')
+          .update({ guide_id: guide_ids[0] })
+          .eq('id', groupMember.group_id)
+      }
+
+      // Create assignments for all availability IDs (original + group members)
+      const guideAssignments: { guide_id: string; activity_availability_id: number }[] = []
+      for (const availId of allAvailabilityIds) {
+        for (const guide_id of guide_ids) {
+          guideAssignments.push({
+            guide_id,
+            activity_availability_id: availId
+          })
+        }
+      }
 
       const { data: guideData, error: guideError } = await supabase
         .from('guide_assignments')
-        .insert(guideAssignments)
+        .upsert(guideAssignments, { onConflict: 'guide_id,activity_availability_id', ignoreDuplicates: true })
         .select()
 
       if (guideError) {
@@ -142,19 +175,47 @@ export async function DELETE(request: NextRequest) {
     const supabase = getServiceRoleClient()
     const { ip, userAgent } = getRequestContext(request)
 
-    // Delete guide assignments
+    // Delete guide assignments (with service group auto-removal)
     if (guide_ids && guide_ids.length > 0) {
-      // Get old data for audit
+      // Check if this availability is part of a service group
+      const { data: groupMember } = await supabase
+        .from('guide_service_group_members')
+        .select('group_id')
+        .eq('activity_availability_id', Number(activity_availability_id))
+        .single()
+
+      let allAvailabilityIds = [Number(activity_availability_id)]
+
+      if (groupMember) {
+        // Get all availability IDs in this group
+        const { data: groupMembers } = await supabase
+          .from('guide_service_group_members')
+          .select('activity_availability_id')
+          .eq('group_id', groupMember.group_id)
+
+        if (groupMembers) {
+          allAvailabilityIds = groupMembers.map(m => m.activity_availability_id)
+        }
+
+        // Clear the guide_id from the service group
+        await supabase
+          .from('guide_service_groups')
+          .update({ guide_id: null })
+          .eq('id', groupMember.group_id)
+      }
+
+      // Get old data for audit (for all affected availability IDs)
       const { data: oldGuideData } = await supabase
         .from('guide_assignments')
         .select('*')
-        .eq('activity_availability_id', activity_availability_id)
+        .in('activity_availability_id', allAvailabilityIds)
         .in('guide_id', guide_ids)
 
+      // Delete from all availability IDs
       const { error: guideError } = await supabase
         .from('guide_assignments')
         .delete()
-        .eq('activity_availability_id', activity_availability_id)
+        .in('activity_availability_id', allAvailabilityIds)
         .in('guide_id', guide_ids)
 
       if (guideError) {
