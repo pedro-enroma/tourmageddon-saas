@@ -381,10 +381,10 @@ function AppSidebar({ currentView, onNavigate }: {
                             </SidebarMenuSub>
                           )}
                         </SidebarMenuSubItem>
-                      ) : (
+                      ) : item.view ? (
                         <SidebarMenuSubItem key={item.view}>
                           <SidebarMenuSubButton
-                            onClick={() => onNavigate(item.view)}
+                            onClick={() => onNavigate(item.view!)}
                             isActive={currentView === item.view}
                             className={`rounded-lg transition-all ${
                               currentView === item.view
@@ -396,7 +396,7 @@ function AppSidebar({ currentView, onNavigate }: {
                             <span>{item.title}</span>
                           </SidebarMenuSubButton>
                         </SidebarMenuSubItem>
-                      )
+                      ) : null
                     ))}
                   </SidebarMenuSub>
                 )}
