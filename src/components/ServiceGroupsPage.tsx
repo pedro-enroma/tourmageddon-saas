@@ -159,7 +159,7 @@ export default function ServiceGroupsPage() {
         guide_id: string | null
         total_pax: number
         calculated_cost: number | null
-        guide_service_group_members?: { activity_availability_id: number }[]
+        guide_service_group_members?: { id: string; activity_availability_id: number }[]
       }) => ({
         id: g.id,
         service_date: g.service_date,
