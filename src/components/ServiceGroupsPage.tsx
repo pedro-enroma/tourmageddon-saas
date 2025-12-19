@@ -151,7 +151,16 @@ export default function ServiceGroupsPage() {
       }
 
       // Enrich groups with member details
-      const enrichedGroups: ServiceGroup[] = groups?.map(g => ({
+      const enrichedGroups: ServiceGroup[] = groups?.map((g: {
+        id: string
+        service_date: string
+        service_time: string
+        group_name: string | null
+        guide_id: string | null
+        total_pax: number
+        calculated_cost: number | null
+        guide_service_group_members?: { activity_availability_id: number }[]
+      }) => ({
         id: g.id,
         service_date: g.service_date,
         service_time: g.service_time.substring(0, 5), // Normalize to HH:MM
