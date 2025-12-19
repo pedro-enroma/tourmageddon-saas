@@ -140,7 +140,7 @@ export default function ServiceGroupsPage() {
       }
 
       // 3. Fetch guide names for groups that have guides assigned
-      const guideIds = [...new Set(groups?.filter(g => g.guide_id).map(g => g.guide_id) || [])]
+      const guideIds = [...new Set(groups?.filter((g: { guide_id: string | null }) => g.guide_id).map((g: { guide_id: string | null }) => g.guide_id) || [])]
       let guideMap = new Map<string, string>()
       if (guideIds.length > 0) {
         const { data: guides } = await supabase
