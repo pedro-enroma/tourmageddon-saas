@@ -3,7 +3,7 @@
 import { useState, useEffect, useRef, useMemo, useCallback } from 'react'
 import { supabase } from '@/lib/supabase'
 import { attachmentsApi } from '@/lib/api-client'
-import { Download, ChevronDown, Search, X, GripVertical, ChevronRight, User, UserCheck, Paperclip, Upload, Mail, Send, Loader2, MapPin, Ticket, FileText, Headphones, Printer, AlertTriangle, Link2, Users, Trash2, Plus, Settings } from 'lucide-react'
+import { Download, ChevronDown, Search, X, GripVertical, ChevronRight, User, UserCheck, Paperclip, Upload, Mail, Send, Loader2, MapPin, Ticket, FileText, Headphones, Printer, AlertTriangle } from 'lucide-react'
 import { format } from 'date-fns'
 import * as XLSX from 'xlsx-js-style'
 
@@ -61,22 +61,10 @@ import { Input } from "@/components/ui/input"
 import { Label } from "@/components/ui/label"
 import { Checkbox } from "@/components/ui/checkbox"
 import {
-  Select,
-  SelectContent,
-  SelectItem,
-  SelectTrigger,
-  SelectValue,
-} from "@/components/ui/select"
-import {
   Sheet,
   SheetContent,
   SheetTitle,
 } from "@/components/ui/sheet"
-import {
-  HoverCard,
-  HoverCardContent,
-  HoverCardTrigger,
-} from "@/components/ui/hover-card"
 
 interface PaxData {
   activity_id: string
@@ -154,7 +142,7 @@ interface ConsolidatedEmailTemplate {
   subject: string
   body: string
   service_item_template: string | null
-  template_type: 'guide_consolidated' | 'escort_consolidated' | 'headphone_consolidated' | 'printing_consolidated' | 'guide_service_group'
+  template_type: 'guide_consolidated' | 'escort_consolidated' | 'headphone_consolidated' | 'printing_consolidated'
   is_default: boolean
 }
 
@@ -186,31 +174,6 @@ interface VoucherInfo {
   category_name: string | null
   pdf_path: string | null
   entry_time: string | null
-}
-
-interface TimeSlotSplit {
-  id: string
-  activity_availability_id: number
-  split_name: string
-  guide_id: string | null
-  guide?: Person
-  display_order: number
-  bookings: PaxData[]
-  vouchers: VoucherInfo[]
-  time_slot_split_bookings?: { id: string; activity_booking_id: number }[]
-  time_slot_split_vouchers?: { id: string; voucher_id: string }[]
-}
-
-interface SplitModalState {
-  isOpen: boolean
-  availabilityId: number | null
-  tourTitle: string
-  time: string
-  allBookings: PaxData[]
-  allVouchers: VoucherInfo[]
-  splits: TimeSlotSplit[]
-  unsplitBookings: PaxData[]
-  unsplitVouchers: VoucherInfo[]
 }
 
 export default function DailyListPage() {
@@ -270,27 +233,6 @@ export default function DailyListPage() {
   // Vouchers state (activity_availability_id -> vouchers)
   const [slotVouchers, setSlotVouchers] = useState<Map<number, VoucherInfo[]>>(new Map())
 
-  // Service group member type
-  interface ServiceGroupMember {
-    activityTitle: string
-    time: string
-    pax?: number
-  }
-
-  // Service group info type
-  interface ServiceGroupInfo {
-    groupId: string
-    groupName: string
-    guideName?: string
-    members: ServiceGroupMember[]
-  }
-
-  // Service group memberships (activity_availability_id -> group info)
-  const [serviceGroupMemberships, setServiceGroupMemberships] = useState<Map<number, ServiceGroupInfo>>(new Map())
-
-  // Split service group memberships (time_slot_split_id -> group info)
-  const [splitServiceGroupMemberships, setSplitServiceGroupMemberships] = useState<Map<string, ServiceGroupInfo>>(new Map())
-
   // Consolidated email templates
   const [consolidatedTemplates, setConsolidatedTemplates] = useState<ConsolidatedEmailTemplate[]>([])
 
@@ -299,26 +241,6 @@ export default function DailyListPage() {
 
   // Activities missing guide templates (for validation warning)
   const [activitiesWithoutGuideTemplates, setActivitiesWithoutGuideTemplates] = useState<string[]>([])
-
-  // Time slot splits state (activity_availability_id -> splits)
-  const [timeSlotSplits, setTimeSlotSplits] = useState<Map<number, TimeSlotSplit[]>>(new Map())
-  // All active guides for split assignment
-  // eslint-disable-next-line @typescript-eslint/no-unused-vars
-  const [allGuides, setAllGuides] = useState<{ guide_id: string; first_name: string; last_name: string }[]>([])
-  const [splitModal, setSplitModal] = useState<SplitModalState>({
-    isOpen: false,
-    availabilityId: null,
-    tourTitle: '',
-    time: '',
-    allBookings: [],
-    allVouchers: [],
-    splits: [],
-    unsplitBookings: [],
-    unsplitVouchers: []
-  })
-  // eslint-disable-next-line @typescript-eslint/no-unused-vars
-  const [loadingSplits, setLoadingSplits] = useState(false)
-  const [savingSplit, setSavingSplit] = useState(false)
 
   // File upload
   const fileInputRef = useRef<HTMLInputElement>(null)
@@ -348,7 +270,6 @@ export default function DailyListPage() {
     fetchEmailTemplates()
     fetchConsolidatedTemplates()
     fetchActivityGuideTemplates()
-    fetchAllGuides()
   }, [])
 
   // Fetch email templates
@@ -448,337 +369,6 @@ export default function DailyListPage() {
       console.error('Error fetching email logs:', err)
     } finally {
       setLoadingLogs(false)
-    }
-  }
-
-  // Fetch time slot splits for a date
-  const fetchTimeSlotSplits = async (dateStr: string) => {
-    setLoadingSplits(true)
-    try {
-      const response = await fetch(`/api/time-slot-splits?date=${dateStr}`)
-      const result = await response.json()
-      if (response.ok && result.data) {
-        // Group by activity_availability_id
-        const splitsMap = new Map<number, TimeSlotSplit[]>()
-        result.data.forEach((split: TimeSlotSplit) => {
-          const existing = splitsMap.get(split.activity_availability_id) || []
-          existing.push({
-            ...split,
-            bookings: [],
-            vouchers: []
-          })
-          splitsMap.set(split.activity_availability_id, existing)
-        })
-        setTimeSlotSplits(splitsMap)
-      }
-    } catch (err) {
-      console.error('Error fetching splits:', err)
-    } finally {
-      setLoadingSplits(false)
-    }
-  }
-
-  // Fetch all active guides for split assignment
-  const fetchAllGuides = async () => {
-    try {
-      const { data: guides, error } = await supabase
-        .from('guides')
-        .select('guide_id, first_name, last_name')
-        .eq('active', true)
-        .order('first_name')
-
-      if (error) {
-        console.error('Error fetching guides:', error)
-        return
-      }
-
-      setAllGuides(guides || [])
-    } catch (err) {
-      console.error('Error fetching guides:', err)
-    }
-  }
-
-  // Open split modal
-  const openSplitModal = async (
-    availabilityId: number,
-    tourTitle: string,
-    time: string,
-    bookings: PaxData[],
-    vouchers: VoucherInfo[]
-  ) => {
-    // Fetch existing splits for this availability
-    try {
-      const response = await fetch(`/api/time-slot-splits?availability_id=${availabilityId}`)
-      const result = await response.json()
-      const existingSplits: TimeSlotSplit[] = response.ok && result.data ? result.data : []
-
-      // Map booking IDs that are already in splits
-      const assignedBookingIds = new Set<number>()
-      const assignedVoucherIds = new Set<string>()
-
-      existingSplits.forEach((split: TimeSlotSplit) => {
-        split.time_slot_split_bookings?.forEach((b: { activity_booking_id: number }) => {
-          assignedBookingIds.add(b.activity_booking_id)
-        })
-        split.time_slot_split_vouchers?.forEach((v: { voucher_id: string }) => {
-          assignedVoucherIds.add(v.voucher_id)
-        })
-      })
-
-      // Enrich splits with booking/voucher data
-      const enrichedSplits = existingSplits.map((split: TimeSlotSplit) => ({
-        ...split,
-        bookings: bookings.filter(b =>
-          split.time_slot_split_bookings?.some((sb: { activity_booking_id: number }) => sb.activity_booking_id === b.activity_booking_id)
-        ),
-        vouchers: vouchers.filter(v =>
-          split.time_slot_split_vouchers?.some((sv: { voucher_id: string }) => sv.voucher_id === v.id)
-        )
-      }))
-
-      setSplitModal({
-        isOpen: true,
-        availabilityId,
-        tourTitle,
-        time,
-        allBookings: bookings,
-        allVouchers: vouchers,
-        splits: enrichedSplits,
-        unsplitBookings: bookings.filter(b => !assignedBookingIds.has(b.activity_booking_id)),
-        unsplitVouchers: vouchers.filter(v => !assignedVoucherIds.has(v.id))
-      })
-    } catch (err) {
-      console.error('Error opening split modal:', err)
-    }
-  }
-
-  // Create a new split
-  const createSplit = async (splitName: string) => {
-    if (!splitModal.availabilityId) return
-
-    setSavingSplit(true)
-    try {
-      const response = await fetch('/api/time-slot-splits', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          activity_availability_id: splitModal.availabilityId,
-          split_name: splitName
-        })
-      })
-
-      if (response.ok) {
-        const result = await response.json()
-        const newSplit: TimeSlotSplit = {
-          ...result.data,
-          bookings: [],
-          vouchers: [],
-          time_slot_split_bookings: [],
-          time_slot_split_vouchers: []
-        }
-
-        setSplitModal(prev => ({
-          ...prev,
-          splits: [...prev.splits, newSplit]
-        }))
-
-        // Update the main map too
-        await fetchTimeSlotSplits(selectedDate)
-      }
-    } catch (err) {
-      console.error('Error creating split:', err)
-    } finally {
-      setSavingSplit(false)
-    }
-  }
-
-  // Assign bookings to a split
-  const assignBookingsToSplit = async (splitId: string, bookingIds: number[]) => {
-    setSavingSplit(true)
-    try {
-      const response = await fetch('/api/time-slot-splits/assign-bookings', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ split_id: splitId, booking_ids: bookingIds })
-      })
-
-      if (response.ok) {
-        // Update local state
-        const movedBookings = splitModal.allBookings.filter(b => bookingIds.includes(b.activity_booking_id))
-
-        setSplitModal(prev => {
-          // Remove from unsplit or other splits
-          const newUnsplit = prev.unsplitBookings.filter(b => !bookingIds.includes(b.activity_booking_id))
-          const newSplits = prev.splits.map(s => {
-            if (s.id === splitId) {
-              return {
-                ...s,
-                bookings: [...s.bookings, ...movedBookings]
-              }
-            }
-            return {
-              ...s,
-              bookings: s.bookings.filter(b => !bookingIds.includes(b.activity_booking_id))
-            }
-          })
-
-          return {
-            ...prev,
-            splits: newSplits,
-            unsplitBookings: newUnsplit
-          }
-        })
-      }
-    } catch (err) {
-      console.error('Error assigning bookings:', err)
-    } finally {
-      setSavingSplit(false)
-    }
-  }
-
-  // Remove bookings from split (return to unsplit)
-  const removeBookingsFromSplit = async (bookingIds: number[]) => {
-    setSavingSplit(true)
-    try {
-      const response = await fetch('/api/time-slot-splits/assign-bookings', {
-        method: 'DELETE',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ booking_ids: bookingIds })
-      })
-
-      if (response.ok) {
-        const movedBookings = splitModal.allBookings.filter(b => bookingIds.includes(b.activity_booking_id))
-
-        setSplitModal(prev => ({
-          ...prev,
-          splits: prev.splits.map(s => ({
-            ...s,
-            bookings: s.bookings.filter(b => !bookingIds.includes(b.activity_booking_id))
-          })),
-          unsplitBookings: [...prev.unsplitBookings, ...movedBookings]
-        }))
-      }
-    } catch (err) {
-      console.error('Error removing bookings:', err)
-    } finally {
-      setSavingSplit(false)
-    }
-  }
-
-  // Assign vouchers to a split
-  const assignVouchersToSplit = async (splitId: string, voucherIds: string[]) => {
-    setSavingSplit(true)
-    try {
-      const response = await fetch('/api/time-slot-splits/assign-vouchers', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ split_id: splitId, voucher_ids: voucherIds })
-      })
-
-      if (response.ok) {
-        const movedVouchers = splitModal.allVouchers.filter(v => voucherIds.includes(v.id))
-
-        setSplitModal(prev => {
-          const newUnsplit = prev.unsplitVouchers.filter(v => !voucherIds.includes(v.id))
-          const newSplits = prev.splits.map(s => {
-            if (s.id === splitId) {
-              return { ...s, vouchers: [...s.vouchers, ...movedVouchers] }
-            }
-            return { ...s, vouchers: s.vouchers.filter(v => !voucherIds.includes(v.id)) }
-          })
-
-          return { ...prev, splits: newSplits, unsplitVouchers: newUnsplit }
-        })
-      }
-    } catch (err) {
-      console.error('Error assigning vouchers:', err)
-    } finally {
-      setSavingSplit(false)
-    }
-  }
-
-  // Remove vouchers from split
-  const removeVouchersFromSplit = async (voucherIds: string[]) => {
-    setSavingSplit(true)
-    try {
-      const response = await fetch('/api/time-slot-splits/assign-vouchers', {
-        method: 'DELETE',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ voucher_ids: voucherIds })
-      })
-
-      if (response.ok) {
-        const movedVouchers = splitModal.allVouchers.filter(v => voucherIds.includes(v.id))
-
-        setSplitModal(prev => ({
-          ...prev,
-          splits: prev.splits.map(s => ({
-            ...s,
-            vouchers: s.vouchers.filter(v => !voucherIds.includes(v.id))
-          })),
-          unsplitVouchers: [...prev.unsplitVouchers, ...movedVouchers]
-        }))
-      }
-    } catch (err) {
-      console.error('Error removing vouchers:', err)
-    } finally {
-      setSavingSplit(false)
-    }
-  }
-
-  // Assign guide to split
-  const assignGuideToSplit = async (splitId: string, guideId: string | null) => {
-    setSavingSplit(true)
-    try {
-      const response = await fetch('/api/time-slot-splits', {
-        method: 'PUT',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ split_id: splitId, guide_id: guideId })
-      })
-
-      if (response.ok) {
-        setSplitModal(prev => ({
-          ...prev,
-          splits: prev.splits.map(s =>
-            s.id === splitId ? { ...s, guide_id: guideId } : s
-          )
-        }))
-        await fetchTimeSlotSplits(selectedDate)
-      }
-    } catch (err) {
-      console.error('Error assigning guide:', err)
-    } finally {
-      setSavingSplit(false)
-    }
-  }
-
-  // Delete a split
-  const deleteSplit = async (splitId: string) => {
-    if (!confirm('Delete this split? Bookings will return to the unsplit pool.')) return
-
-    setSavingSplit(true)
-    try {
-      const response = await fetch(`/api/time-slot-splits?id=${splitId}`, {
-        method: 'DELETE'
-      })
-
-      if (response.ok) {
-        // Find the split being deleted to move its bookings/vouchers to unsplit
-        const deletedSplit = splitModal.splits.find(s => s.id === splitId)
-
-        setSplitModal(prev => ({
-          ...prev,
-          splits: prev.splits.filter(s => s.id !== splitId),
-          unsplitBookings: [...prev.unsplitBookings, ...(deletedSplit?.bookings || [])],
-          unsplitVouchers: [...prev.unsplitVouchers, ...(deletedSplit?.vouchers || [])]
-        }))
-
-        await fetchTimeSlotSplits(selectedDate)
-      }
-    } catch (err) {
-      console.error('Error deleting split:', err)
-    } finally {
-      setSavingSplit(false)
     }
   }
 
@@ -945,112 +535,6 @@ export default function DailyListPage() {
       setSlotVouchers(vouchersMap)
     } catch (err) {
       console.error('Error fetching vouchers:', err)
-    }
-  }
-
-  // Fetch service group memberships for the selected date
-  const fetchServiceGroupMemberships = async (dateStr: string) => {
-    try {
-      const response = await fetch(`/api/costs/service-groups?service_date=${dateStr}`)
-      if (!response.ok) return
-
-      const result = await response.json()
-      const groups = result.data || []
-
-      // Collect all guide IDs to fetch their names
-      const guideIds = [...new Set(groups.map((g: { guide_id: string | null }) => g.guide_id).filter(Boolean))]
-      const guideNameMap = new Map<string, string>()
-
-      if (guideIds.length > 0) {
-        const { data: guides } = await supabase
-          .from('guides')
-          .select('guide_id, first_name, last_name')
-          .in('guide_id', guideIds)
-
-        guides?.forEach(g => {
-          guideNameMap.set(g.guide_id, `${g.first_name} ${g.last_name}`)
-        })
-      }
-
-      // Collect all availability IDs to fetch their details
-      const allAvailabilityIds: number[] = []
-      groups.forEach((group: { guide_service_group_members?: { activity_availability_id: number }[] }) => {
-        group.guide_service_group_members?.forEach(member => {
-          allAvailabilityIds.push(member.activity_availability_id)
-        })
-      })
-
-      // Fetch availability details (activity title and time)
-      const availabilityDetailsMap = new Map<number, { activityTitle: string; time: string; pax: number }>()
-      if (allAvailabilityIds.length > 0) {
-        const { data: availabilities } = await supabase
-          .from('activity_availability')
-          .select('id, activity_id, local_time, vacancy_sold')
-          .in('id', allAvailabilityIds)
-
-        if (availabilities) {
-          // Get activity titles
-          const activityIds = [...new Set(availabilities.map(a => a.activity_id))]
-          const { data: activities } = await supabase
-            .from('activities')
-            .select('activity_id, title')
-            .in('activity_id', activityIds)
-
-          const activityTitleMap = new Map<string, string>()
-          activities?.forEach(a => activityTitleMap.set(a.activity_id, a.title))
-
-          availabilities.forEach(a => {
-            const time = a.local_time?.substring(0, 5) || ''
-            availabilityDetailsMap.set(a.id, {
-              activityTitle: activityTitleMap.get(a.activity_id) || 'Unknown',
-              time,
-              pax: a.vacancy_sold || 0
-            })
-          })
-        }
-      }
-
-      const membershipMap = new Map<number, ServiceGroupInfo>()
-      const splitMembershipMap = new Map<string, ServiceGroupInfo>()
-
-      groups.forEach((group: { id: string; group_name: string | null; guide_id: string | null; service_time: string; guide_service_group_members?: { activity_availability_id: number; time_slot_split_id: string | null }[] }) => {
-        const guideName = group.guide_id ? guideNameMap.get(group.guide_id) : undefined
-
-        // Build members array for this group
-        const members: ServiceGroupMember[] = []
-        group.guide_service_group_members?.forEach(member => {
-          const details = availabilityDetailsMap.get(member.activity_availability_id)
-          if (details) {
-            members.push({
-              activityTitle: details.activityTitle,
-              time: group.service_time?.substring(0, 5) || details.time,
-              pax: details.pax
-            })
-          }
-        })
-
-        const groupInfo: ServiceGroupInfo = {
-          groupId: group.id,
-          groupName: group.group_name || 'Unnamed Group',
-          guideName,
-          members
-        }
-
-        group.guide_service_group_members?.forEach(member => {
-          if (member.time_slot_split_id) {
-            // This is a split membership
-            splitMembershipMap.set(member.time_slot_split_id, groupInfo)
-          } else {
-            // This is a whole slot membership
-            membershipMap.set(member.activity_availability_id, groupInfo)
-          }
-        })
-      })
-
-      setServiceGroupMemberships(membershipMap)
-      setSplitServiceGroupMemberships(splitMembershipMap)
-    } catch (err) {
-      console.error('Error fetching service group memberships:', err)
     }
   }
 
@@ -1285,8 +769,7 @@ export default function DailyListPage() {
     paxCount: number,
     staff?: StaffAssignment | null,
     activityId?: string,
-    availabilityId?: number,
-    bookings?: PaxData[]
+    availabilityId?: number
   ) => {
     // Get staff info
     const hasGuide = staff?.guides && staff.guides.length > 0
@@ -1317,42 +800,12 @@ export default function DailyListPage() {
     const vouchersForSlot = availabilityId ? slotVouchers.get(availabilityId) || [] : []
     const entryTimeValue = vouchersForSlot.find(v => v.entry_time)?.entry_time?.substring(0, 5) || ''
 
-    // Calculate pax types breakdown from bookings (e.g., "5 Adulto, 3 Niño, 2 Gratuito")
-    let paxTypesText = ''
-    if (bookings && bookings.length > 0) {
-      const paxTypeCounts: { [type: string]: number } = {}
-      bookings.forEach(booking => {
-        booking.passengers?.forEach(p => {
-          const typeName = p.booked_title || 'Unknown'
-          paxTypeCounts[typeName] = (paxTypeCounts[typeName] || 0) + 1
-        })
-      })
-      paxTypesText = Object.entries(paxTypeCounts)
-        .map(([type, count]) => `${count} ${type}`)
-        .join(', ')
-    }
-
-    // Calculate ticket types breakdown from vouchers (e.g., "10 Intero, 3 Ridotto, 2 Gratuito")
-    let ticketTypesText = ''
-    if (vouchersForSlot.length > 0) {
-      const ticketTypeCounts: { [type: string]: number } = {}
-      vouchersForSlot.forEach(voucher => {
-        const typeName = voucher.category_name || 'Standard'
-        ticketTypeCounts[typeName] = (ticketTypeCounts[typeName] || 0) + voucher.total_tickets
-      })
-      ticketTypesText = Object.entries(ticketTypeCounts)
-        .map(([type, count]) => `${count} ${type}`)
-        .join(', ')
-    }
-
     let result = text
       .replace(/\{\{tour_title\}\}/g, tourTitle)
       .replace(/\{\{date\}\}/g, format(new Date(dateStr), 'dd/MM/yyyy'))
       .replace(/\{\{time\}\}/g, time.substring(0, 5))
       .replace(/\{\{entry_time\}\}/g, entryTimeValue)
       .replace(/\{\{pax_count\}\}/g, String(paxCount))
-      .replace(/\{\{pax_types\}\}/g, paxTypesText)
-      .replace(/\{\{ticket_types\}\}/g, ticketTypesText)
       .replace(/\{\{meeting_point\}\}/g, meetingPointText)
       .replace(/\{\{guide_name\}\}/g, guideNames)
       .replace(/\{\{guide_phone\}\}/g, guidePhones)
@@ -1399,8 +852,8 @@ export default function DailyListPage() {
     const staff = staffAssignments.get(emailTimeSlot.availabilityId)
 
     if (template && timeSlot) {
-      setEmailSubject(applyTemplateVariables(template.subject, emailTimeSlot.tourTitle, selectedDate, emailTimeSlot.time, timeSlot.totalParticipants, staff, emailTimeSlot.activityId, emailTimeSlot.availabilityId, timeSlot.bookings))
-      setEmailBody(applyTemplateVariables(template.body, emailTimeSlot.tourTitle, selectedDate, emailTimeSlot.time, timeSlot.totalParticipants, staff, emailTimeSlot.activityId, emailTimeSlot.availabilityId, timeSlot.bookings))
+      setEmailSubject(applyTemplateVariables(template.subject, emailTimeSlot.tourTitle, selectedDate, emailTimeSlot.time, timeSlot.totalParticipants, staff, emailTimeSlot.activityId, emailTimeSlot.availabilityId))
+      setEmailBody(applyTemplateVariables(template.body, emailTimeSlot.tourTitle, selectedDate, emailTimeSlot.time, timeSlot.totalParticipants, staff, emailTimeSlot.activityId, emailTimeSlot.availabilityId))
     }
   }
 
@@ -1428,8 +881,8 @@ export default function DailyListPage() {
     const defaultTemplate = emailTemplates.find(t => t.is_default) || emailTemplates[0]
     if (defaultTemplate) {
       setSelectedTemplateId(defaultTemplate.id)
-      setEmailSubject(applyTemplateVariables(defaultTemplate.subject, tour.tourTitle, selectedDate, timeSlot.time, timeSlot.totalParticipants, staff, firstBooking.activity_id, availabilityId, timeSlot.bookings))
-      setEmailBody(applyTemplateVariables(defaultTemplate.body, tour.tourTitle, selectedDate, timeSlot.time, timeSlot.totalParticipants, staff, firstBooking.activity_id, availabilityId, timeSlot.bookings))
+      setEmailSubject(applyTemplateVariables(defaultTemplate.subject, tour.tourTitle, selectedDate, timeSlot.time, timeSlot.totalParticipants, staff, firstBooking.activity_id, availabilityId))
+      setEmailBody(applyTemplateVariables(defaultTemplate.body, tour.tourTitle, selectedDate, timeSlot.time, timeSlot.totalParticipants, staff, firstBooking.activity_id, availabilityId))
     } else {
       setSelectedTemplateId('')
       setEmailSubject(`Service Assignment: ${tour.tourTitle} - ${format(new Date(selectedDate), 'MMM d, yyyy')} at ${timeSlot.time.substring(0, 5)}`)
@@ -1489,106 +942,64 @@ export default function DailyListPage() {
         return
       }
 
-      // Check if this time slot has splits
-      const splitsForSlot = timeSlotSplits.get(emailTimeSlot.availabilityId) || []
+      // Get attachment URLs
+      const slotAttachments = attachments.filter(a => a.activity_availability_id === emailTimeSlot.availabilityId)
+      const attachmentUrls: string[] = includeAttachments ? slotAttachments.map(a => a.file_path) : []
 
-      // Get base tour and time slot data
-      const tour = groupedTours.find(t => t.tourTitle === emailTimeSlot.tourTitle)
-      const baseTimeSlot = tour?.timeSlots.find(ts => ts.time === emailTimeSlot.time)
-      const vouchersForSlot = slotVouchers.get(emailTimeSlot.availabilityId) || []
-
-      // For each recipient, potentially filter based on their split assignment
-      for (const recipient of recipients) {
-        let filteredBookings = baseTimeSlot?.bookings || []
-        let filteredVouchers = vouchersForSlot
-
-        // If recipient is a guide and there are splits, check if they're assigned to one
-        if (recipient.type === 'guide' && splitsForSlot.length > 0) {
-          // Fetch the actual split data with bookings/vouchers for this guide
-          try {
-            const response = await fetch(`/api/time-slot-splits?availability_id=${emailTimeSlot.availabilityId}`)
-            const result = await response.json()
-            if (response.ok && result.data) {
-              const guideSplit = result.data.find((s: TimeSlotSplit) => s.guide_id === recipient.id)
-              if (guideSplit) {
-                // Filter bookings to only those in this split
-                const splitBookingIds = new Set(
-                  guideSplit.time_slot_split_bookings?.map((b: { activity_booking_id: number }) => b.activity_booking_id) || []
-                )
-                const splitVoucherIds = new Set(
-                  guideSplit.time_slot_split_vouchers?.map((v: { voucher_id: string }) => v.voucher_id) || []
-                )
-
-                if (splitBookingIds.size > 0) {
-                  filteredBookings = filteredBookings.filter(b => splitBookingIds.has(b.activity_booking_id))
-                }
-                if (splitVoucherIds.size > 0) {
-                  filteredVouchers = filteredVouchers.filter(v => splitVoucherIds.has(v.id))
-                }
-              }
-            }
-          } catch (err) {
-            console.error('Error fetching split data for email:', err)
+      // Add voucher PDF URLs if enabled
+      if (includeVouchers) {
+        const vouchersForSlot = slotVouchers.get(emailTimeSlot.availabilityId) || []
+        const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL
+        for (const voucher of vouchersForSlot) {
+          if (voucher.pdf_path) {
+            // Build public URL for the voucher PDF
+            const pdfUrl = `${supabaseUrl}/storage/v1/object/public/ticket-vouchers/${voucher.pdf_path}`
+            attachmentUrls.push(pdfUrl)
           }
         }
+      }
 
-        // Get attachment URLs
-        const slotAttachments = attachments.filter(a => a.activity_availability_id === emailTimeSlot.availabilityId)
-        const attachmentUrls: string[] = includeAttachments ? slotAttachments.map(a => a.file_path) : []
+      // Generate daily list
+      let dailyListData: string | undefined
+      let dailyListFileName: string | undefined
 
-        // Add voucher PDF URLs if enabled (filtered by split if applicable)
-        if (includeVouchers) {
-          const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL
-          for (const voucher of filteredVouchers) {
-            if (voucher.pdf_path) {
-              const pdfUrl = `${supabaseUrl}/storage/v1/object/public/ticket-vouchers/${voucher.pdf_path}`
-              attachmentUrls.push(pdfUrl)
-            }
-          }
-        }
-
-        // Generate daily list with filtered bookings
-        let dailyListData: string | undefined
-        let dailyListFileName: string | undefined
-
-        if (includeDailyList && tour && baseTimeSlot) {
-          // Create a modified timeSlot with filtered bookings
-          const filteredTimeSlot = {
-            ...baseTimeSlot,
-            bookings: filteredBookings,
-            totalParticipants: filteredBookings.reduce((sum, b) => sum + b.total_participants, 0)
-          }
-          const dailyList = await generateDailyListExcel(tour, filteredTimeSlot, recipient.name)
+      if (includeDailyList) {
+        const tour = groupedTours.find(t => t.tourTitle === emailTimeSlot.tourTitle)
+        const timeSlot = tour?.timeSlots.find(ts => ts.time === emailTimeSlot.time)
+        if (tour && timeSlot) {
+          // Get guide name for the Excel
+          const guideNames = staff?.guides.map(g => `${g.first_name} ${g.last_name}`).join(', ') || ''
+          const dailyList = await generateDailyListExcel(tour, timeSlot, guideNames)
           if (dailyList) {
             dailyListData = dailyList.data
             dailyListFileName = dailyList.fileName
           }
         }
-
-        const response = await fetch('/api/email/send', {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({
-            recipients: [recipient],
-            subject: emailSubject,
-            body: emailBody,
-            activityAvailabilityId: emailTimeSlot.availabilityId,
-            attachmentUrls,
-            dailyListData,
-            dailyListFileName,
-            serviceDate: selectedDate
-          })
-        })
-
-        const result = await response.json()
-
-        if (!response.ok) {
-          const errorMsg = result.debug ? `${result.error} ${result.debug}` : result.error
-          console.error(`Failed to send email to ${recipient.email}:`, errorMsg)
-        }
       }
 
-      setEmailSuccess(`Successfully sent ${recipients.length} email(s)`)
+      const response = await fetch('/api/email/send', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          recipients,
+          subject: emailSubject,
+          body: emailBody,
+          activityAvailabilityId: emailTimeSlot.availabilityId,
+          attachmentUrls,
+          dailyListData,
+          dailyListFileName,
+          serviceDate: selectedDate
+        })
+      })
+
+      const result = await response.json()
+
+      if (!response.ok) {
+        const errorMsg = result.debug ? `${result.error} ${result.debug}` : result.error
+        throw new Error(errorMsg || 'Failed to send emails')
+      }
+
+      setEmailSuccess(`Successfully sent ${result.sent} email(s)${result.failed > 0 ? `, ${result.failed} failed` : ''}`)
 
       setTimeout(() => {
         setShowEmailModal(false)
@@ -2393,7 +1804,6 @@ export default function DailyListPage() {
   }
 
   // Send bulk emails to selected guides using activity-specific templates
-  // For services in a group, sends ONE consolidated email using guide_service_group template
   const handleSendToSelectedGuides = async () => {
     if (bulkSelectedRecipients.size === 0) {
       alert('Please select at least one guide')
@@ -2414,130 +1824,13 @@ export default function DailyListPage() {
     let sentCount = 0
     const errors: string[] = []
 
-    // Get the guide_service_group template for grouped services
-    const serviceGroupTemplate = consolidatedTemplates.find(
-      t => t.template_type === 'guide_service_group' && t.is_default
-    ) || consolidatedTemplates.find(t => t.template_type === 'guide_service_group')
-
     for (const [guideId, { guide, services }] of guideServices.entries()) {
       if (!bulkSelectedRecipients.has(guideId)) continue
 
       try {
-        const guideName = `${guide.first_name} ${guide.last_name}`
-
-        // Separate services into grouped and non-grouped
-        const groupedServices = new Map<string, { groupName: string; services: typeof services }>()
-        const nonGroupedServices: typeof services = []
-
         for (const service of services) {
-          const groupInfo = serviceGroupMemberships.get(service.availabilityId)
-          if (groupInfo) {
-            if (!groupedServices.has(groupInfo.groupId)) {
-              groupedServices.set(groupInfo.groupId, { groupName: groupInfo.groupName, services: [] })
-            }
-            groupedServices.get(groupInfo.groupId)!.services.push(service)
-          } else {
-            nonGroupedServices.push(service)
-          }
-        }
-
-        // Send ONE email per service group
-        for (const [, { groupName, services: groupServices }] of groupedServices.entries()) {
-          if (!serviceGroupTemplate) {
-            // Fallback: if no group template, send individual emails
-            console.warn('No guide_service_group template found, sending individual emails for group:', groupName)
-            nonGroupedServices.push(...groupServices)
-            continue
-          }
-
-          // Sort services by time
-          const sortedGroupServices = [...groupServices].sort((a, b) =>
-            a.timeSlot.time.localeCompare(b.timeSlot.time)
-          )
-
-          // Get the earliest time for this group
-          const earliestTime = sortedGroupServices[0]?.timeSlot.time || ''
-
-          // Calculate total pax for the group
-          const totalGroupPax = sortedGroupServices.reduce(
-            (sum, s) => sum + s.timeSlot.totalParticipants,
-            0
-          )
-
-          // Generate services list using the service item template
-          const serviceItemTemplate = serviceGroupTemplate.service_item_template ||
-            '- **{{service.title}}**: {{service.pax_count}} pax'
-
-          const servicesList = sortedGroupServices.map(service => {
-            return serviceItemTemplate
-              .replace(/\{\{service\.title\}\}/g, service.tour.tourTitle)
-              .replace(/\{\{service\.pax_count\}\}/g, String(service.timeSlot.totalParticipants))
-              .replace(/\{\{service\.time\}\}/g, service.timeSlot.time)
-          }).join('\n')
-
-          // Apply template variables
-          const emailSubject = serviceGroupTemplate.subject
-            .replace(/\{\{name\}\}/g, guideName)
-            .replace(/\{\{date\}\}/g, format(new Date(selectedDate), 'dd/MM/yyyy'))
-            .replace(/\{\{time\}\}/g, earliestTime)
-            .replace(/\{\{group_name\}\}/g, groupName)
-            .replace(/\{\{total_pax\}\}/g, String(totalGroupPax))
-
-          const emailBody = serviceGroupTemplate.body
-            .replace(/\{\{name\}\}/g, guideName)
-            .replace(/\{\{date\}\}/g, format(new Date(selectedDate), 'dd/MM/yyyy'))
-            .replace(/\{\{time\}\}/g, earliestTime)
-            .replace(/\{\{group_name\}\}/g, groupName)
-            .replace(/\{\{total_pax\}\}/g, String(totalGroupPax))
-            .replace(/\{\{services_list\}\}/g, servicesList)
-
-          // Collect all attachments and vouchers for all services in the group
-          const allAttachmentUrls: string[] = []
-          const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL
-
-          for (const service of sortedGroupServices) {
-            const slotAttachments = attachments.filter(a => a.activity_availability_id === service.availabilityId)
-            allAttachmentUrls.push(...slotAttachments.map(a => a.file_path))
-
-            const vouchersForSlot = slotVouchers.get(service.availabilityId) || []
-            for (const voucher of vouchersForSlot) {
-              if (voucher.pdf_path) {
-                const pdfUrl = `${supabaseUrl}/storage/v1/object/public/ticket-vouchers/${voucher.pdf_path}`
-                allAttachmentUrls.push(pdfUrl)
-              }
-            }
-          }
-
-          // Use the first availability ID for logging purposes
-          const primaryAvailabilityId = sortedGroupServices[0]?.availabilityId
-
-          const response = await fetch('/api/email/send', {
-            method: 'POST',
-            headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({
-              recipients: [{
-                email: guide.email,
-                name: guideName,
-                type: 'guide',
-                id: guide.id
-              }],
-              subject: emailSubject,
-              body: emailBody,
-              activityAvailabilityId: primaryAvailabilityId,
-              attachmentUrls: allAttachmentUrls,
-              serviceDate: selectedDate
-            })
-          })
-
-          if (!response.ok) {
-            const result = await response.json()
-            throw new Error(result.error || 'Failed to send email')
-          }
-        }
-
-        // Send individual emails for non-grouped services
-        for (const service of nonGroupedServices) {
           const { tour, timeSlot, availabilityId } = service
+          const guideName = `${guide.first_name} ${guide.last_name}`
           const activityId = timeSlot.bookings[0]?.activity_id
 
           // Get template for this activity
@@ -2558,8 +1851,7 @@ export default function DailyListPage() {
             timeSlot.totalParticipants,
             staffAssignment,
             activityId,
-            availabilityId,
-            timeSlot.bookings
+            availabilityId
           )
           // Replace {{name}} with guide name
           emailSubject = emailSubject.replace(/\{\{name\}\}/g, guideName)
@@ -2573,8 +1865,7 @@ export default function DailyListPage() {
             timeSlot.totalParticipants,
             staffAssignment,
             activityId,
-            availabilityId,
-            timeSlot.bookings
+            availabilityId
           )
           // Replace {{name}} with guide name
           emailBody = emailBody.replace(/\{\{name\}\}/g, guideName)
@@ -2697,37 +1988,12 @@ export default function DailyListPage() {
           const headphoneNames = staffAssignment?.headphones.map(h => `${h.first_name} ${h.last_name}`).join(', ') || 'TBD'
           const headphonePhone = staffAssignment?.headphones.map(h => h.phone_number).filter(Boolean).join(', ') || ''
 
-          // Calculate pax types breakdown
-          const paxTypeCounts: { [type: string]: number } = {}
-          service.timeSlot.bookings.forEach(booking => {
-            booking.passengers?.forEach(p => {
-              const typeName = p.booked_title || 'Unknown'
-              paxTypeCounts[typeName] = (paxTypeCounts[typeName] || 0) + 1
-            })
-          })
-          const paxTypesText = Object.entries(paxTypeCounts)
-            .map(([type, count]) => `${count} ${type}`)
-            .join(', ')
-
-          // Calculate ticket types breakdown from vouchers
-          const vouchersForService = slotVouchers.get(service.availabilityId) || []
-          const ticketTypeCounts: { [type: string]: number } = {}
-          vouchersForService.forEach(voucher => {
-            const typeName = voucher.category_name || 'Standard'
-            ticketTypeCounts[typeName] = (ticketTypeCounts[typeName] || 0) + voucher.total_tickets
-          })
-          const ticketTypesText = Object.entries(ticketTypeCounts)
-            .map(([type, count]) => `${count} ${type}`)
-            .join(', ')
-
           // Replace service item template variables
           const serviceText = serviceItemTemplate
             .replace(/\{\{service\.title\}\}/g, service.tour.tourTitle)
             .replace(/\{\{service\.time\}\}/g, service.timeSlot.time.substring(0, 5))
             .replace(/\{\{service\.meeting_point\}\}/g, meetingPoint?.address || meetingPoint?.name || '')
             .replace(/\{\{service\.pax_count\}\}/g, String(service.timeSlot.totalParticipants))
-            .replace(/\{\{service\.pax_types\}\}/g, paxTypesText)
-            .replace(/\{\{service\.ticket_types\}\}/g, ticketTypesText)
             .replace(/\{\{service\.guide_name\}\}/g, service.guideName || 'TBD')
             .replace(/\{\{service\.guide_phone\}\}/g, guidePhone)
             .replace(/\{\{service\.escort_name\}\}/g, escortName)
@@ -2851,37 +2117,12 @@ export default function DailyListPage() {
           const escortNames = service.escortNames.join(', ') || 'TBD'
           const escortPhone = service.escortPhone || ''
 
-          // Calculate pax types breakdown
-          const paxTypeCounts: { [type: string]: number } = {}
-          service.timeSlot.bookings.forEach(booking => {
-            booking.passengers?.forEach(p => {
-              const typeName = p.booked_title || 'Unknown'
-              paxTypeCounts[typeName] = (paxTypeCounts[typeName] || 0) + 1
-            })
-          })
-          const paxTypesText = Object.entries(paxTypeCounts)
-            .map(([type, count]) => `${count} ${type}`)
-            .join(', ')
-
-          // Calculate ticket types breakdown from vouchers
-          const vouchersForService = slotVouchers.get(service.availabilityId) || []
-          const ticketTypeCounts: { [type: string]: number } = {}
-          vouchersForService.forEach(voucher => {
-            const typeName = voucher.category_name || 'Standard'
-            ticketTypeCounts[typeName] = (ticketTypeCounts[typeName] || 0) + voucher.total_tickets
-          })
-          const ticketTypesText = Object.entries(ticketTypeCounts)
-            .map(([type, count]) => `${count} ${type}`)
-            .join(', ')
-
           // Replace service item template variables
           const serviceText = serviceItemTemplate
             .replace(/\{\{service\.title\}\}/g, service.tour.tourTitle)
             .replace(/\{\{service\.time\}\}/g, service.timeSlot.time.substring(0, 5))
             .replace(/\{\{service\.meeting_point\}\}/g, meetingPoint?.address || meetingPoint?.name || '')
             .replace(/\{\{service\.pax_count\}\}/g, String(service.timeSlot.totalParticipants))
-            .replace(/\{\{service\.pax_types\}\}/g, paxTypesText)
-            .replace(/\{\{service\.ticket_types\}\}/g, ticketTypesText)
             .replace(/\{\{service\.guide_name\}\}/g, service.guideName || 'TBD')
             .replace(/\{\{service\.guide_phone\}\}/g, guidePhone)
             .replace(/\{\{service\.escort_name\}\}/g, escortNames)
@@ -3003,37 +2244,12 @@ export default function DailyListPage() {
           const headphoneNames = staffAssignment?.headphones.map(h => `${h.first_name} ${h.last_name}`).join(', ') || 'TBD'
           const headphonePhone = staffAssignment?.headphones.map(h => h.phone_number).filter(Boolean).join(', ') || ''
 
-          // Calculate pax types breakdown
-          const paxTypeCounts: { [type: string]: number } = {}
-          service.timeSlot.bookings.forEach(booking => {
-            booking.passengers?.forEach(p => {
-              const typeName = p.booked_title || 'Unknown'
-              paxTypeCounts[typeName] = (paxTypeCounts[typeName] || 0) + 1
-            })
-          })
-          const paxTypesText = Object.entries(paxTypeCounts)
-            .map(([type, count]) => `${count} ${type}`)
-            .join(', ')
-
-          // Calculate ticket types breakdown from vouchers
-          const vouchersForService = slotVouchers.get(service.availabilityId) || []
-          const ticketTypeCounts: { [type: string]: number } = {}
-          vouchersForService.forEach(voucher => {
-            const typeName = voucher.category_name || 'Standard'
-            ticketTypeCounts[typeName] = (ticketTypeCounts[typeName] || 0) + voucher.total_tickets
-          })
-          const ticketTypesText = Object.entries(ticketTypeCounts)
-            .map(([type, count]) => `${count} ${type}`)
-            .join(', ')
-
           // Replace service item template variables
           const serviceText = serviceItemTemplate
             .replace(/\{\{service\.title\}\}/g, service.tour.tourTitle)
             .replace(/\{\{service\.time\}\}/g, service.timeSlot.time.substring(0, 5))
             .replace(/\{\{service\.meeting_point\}\}/g, meetingPoint?.address || meetingPoint?.name || '')
             .replace(/\{\{service\.pax_count\}\}/g, String(service.timeSlot.totalParticipants))
-            .replace(/\{\{service\.pax_types\}\}/g, paxTypesText)
-            .replace(/\{\{service\.ticket_types\}\}/g, ticketTypesText)
             .replace(/\{\{service\.guide_name\}\}/g, service.guideName || 'TBD')
             .replace(/\{\{service\.guide_phone\}\}/g, guidePhone)
             .replace(/\{\{service\.escort_name\}\}/g, escortNames)
@@ -3163,10 +2379,6 @@ export default function DailyListPage() {
       await fetchMeetingPoints(allActivityIds)
       // Fetch vouchers for the day
       await fetchVouchers(selectedDate)
-      // Fetch service group memberships for the day
-      await fetchServiceGroupMemberships(selectedDate)
-      // Fetch time slot splits for the day
-      await fetchTimeSlotSplits(selectedDate)
     }
   }
 
@@ -3497,10 +2709,6 @@ export default function DailyListPage() {
     await fetchEmailLogs(date)
     // Fetch vouchers for the new date
     await fetchVouchers(date)
-    // Fetch service group memberships for the new date
-    await fetchServiceGroupMemberships(date)
-    // Fetch time slot splits for the new date
-    await fetchTimeSlotSplits(date)
   }
 
   // Group data by tour and time slot - memoized for performance
@@ -4084,23 +3292,8 @@ export default function DailyListPage() {
     console.log(`Exported ${fileCount} file(s)`)
   }
 
-  // Split colors for visual indication (up to 5 distinct colors)
-  const splitColors = [
-    'bg-purple-100 border-l-4 border-l-purple-500',
-    'bg-blue-100 border-l-4 border-l-blue-500',
-    'bg-green-100 border-l-4 border-l-green-500',
-    'bg-orange-100 border-l-4 border-l-orange-500',
-    'bg-pink-100 border-l-4 border-l-pink-500',
-  ]
-
   // Sortable row component for drag & drop
-  const SortableBookingRow = ({ booking, splitIndex, splitName, guideName, serviceGroupName }: {
-    booking: PaxData;
-    splitIndex?: number;
-    splitName?: string;
-    guideName?: string;
-    serviceGroupName?: string;
-  }) => {
+  const SortableBookingRow = ({ booking }: { booking: PaxData }) => {
     const {
       attributes,
       listeners,
@@ -4116,26 +3309,14 @@ export default function DailyListPage() {
       opacity: isDragging ? 0.5 : 1,
     }
 
-    // Get the background class based on split assignment
-    const splitClass = splitIndex !== undefined ? splitColors[splitIndex % splitColors.length] : ''
-
     return (
-      <TableRow ref={setNodeRef} style={style} className={`${isDragging ? 'bg-gray-100' : splitClass}`}>
+      <TableRow ref={setNodeRef} style={style} className={isDragging ? 'bg-gray-100' : ''}>
         <TableCell>
           <div {...attributes} {...listeners} className="cursor-grab active:cursor-grabbing">
             <GripVertical className="h-4 w-4 text-gray-400" />
           </div>
         </TableCell>
-        <TableCell className="font-medium">
-          <div className="flex flex-col">
-            <span>{booking.activity_title}</span>
-            {splitName && (
-              <span className="text-xs font-semibold text-purple-600">
-                {splitName}{guideName ? ` - ${guideName}` : ''}{serviceGroupName ? ` • ${serviceGroupName}` : ''}
-              </span>
-            )}
-          </div>
-        </TableCell>
+        <TableCell className="font-medium">{booking.activity_title}</TableCell>
         <TableCell>{new Date(booking.booking_date).toLocaleDateString('it-IT')}</TableCell>
         <TableCell>{booking.start_time}</TableCell>
         <TableCell>{booking.participants_detail}</TableCell>
@@ -4404,7 +3585,6 @@ export default function DailyListPage() {
                     const slotGuides = slotStaff?.staff.guides || []
                     const slotEscorts = slotStaff?.staff.escorts || []
                     const slotHeadphones = slotStaff?.staff.headphones || []
-                    const slotPrinting = slotStaff?.staff.printing || []
                     const slotAvailabilityId = slotStaff?.availId
 
                     // Get vouchers for this time slot
@@ -4423,100 +3603,6 @@ export default function DailyListPage() {
                             <span className="text-sm font-medium text-gray-700 bg-gray-200 px-2 py-1 rounded">
                               {timeSlot.totalParticipants} participants
                             </span>
-                            {/* Service Group Badge with HoverCard - shows for whole availability or splits in service groups */}
-                            {(() => {
-                              // Check if whole availability is in a service group
-                              if (slotAvailabilityId && serviceGroupMemberships.has(slotAvailabilityId)) {
-                                const groupInfo = serviceGroupMemberships.get(slotAvailabilityId)!
-                                return (
-                                  <HoverCard>
-                                    <HoverCardTrigger asChild>
-                                      <span className="text-sm font-medium px-2 py-1 rounded flex items-center gap-1 bg-green-100 text-green-700 border border-green-300 cursor-pointer hover:bg-green-200">
-                                        <Link2 className="w-4 h-4" />
-                                        {groupInfo.groupName}
-                                      </span>
-                                    </HoverCardTrigger>
-                                    <HoverCardContent className="w-96">
-                                      <div className="space-y-2">
-                                        <h4 className="text-sm font-semibold">Service Group: {groupInfo.groupName}</h4>
-                                        {groupInfo.guideName && (
-                                          <p className="text-sm text-gray-600">
-                                            <span className="font-medium">Guide:</span> {groupInfo.guideName}
-                                          </p>
-                                        )}
-                                        {groupInfo.members && groupInfo.members.length > 0 && (
-                                          <div className="mt-2">
-                                            <p className="text-xs font-medium text-gray-700 mb-1">Services in this group:</p>
-                                            <ul className="text-xs text-gray-600 space-y-1">
-                                              {groupInfo.members.map((member, idx) => (
-                                                <li key={idx} className="flex justify-between">
-                                                  <span className="truncate mr-2">• {member.activityTitle}</span>
-                                                  <span className="text-gray-400 whitespace-nowrap">at {member.time}</span>
-                                                </li>
-                                              ))}
-                                            </ul>
-                                          </div>
-                                        )}
-                                      </div>
-                                    </HoverCardContent>
-                                  </HoverCard>
-                                )
-                              }
-                              // Check if any split in this slot is in a service group
-                              const splitsInSlot = slotAvailabilityId ? timeSlotSplits.get(slotAvailabilityId) || [] : []
-                              const splitGroupInfos = splitsInSlot
-                                .filter(split => splitServiceGroupMemberships.has(split.id))
-                                .map(split => splitServiceGroupMemberships.get(split.id)!)
-
-                              // Get unique service groups
-                              const uniqueGroups = new Map<string, typeof splitGroupInfos[0]>()
-                              splitGroupInfos.forEach(info => uniqueGroups.set(info.groupId, info))
-
-                              if (uniqueGroups.size > 0) {
-                                const groups = Array.from(uniqueGroups.values())
-                                return groups.map(groupInfo => (
-                                  <HoverCard key={groupInfo.groupId}>
-                                    <HoverCardTrigger asChild>
-                                      <span className="text-sm font-medium px-2 py-1 rounded flex items-center gap-1 bg-green-100 text-green-700 border border-green-300 cursor-pointer hover:bg-green-200">
-                                        <Link2 className="w-4 h-4" />
-                                        {groupInfo.groupName}
-                                      </span>
-                                    </HoverCardTrigger>
-                                    <HoverCardContent className="w-96">
-                                      <div className="space-y-2">
-                                        <h4 className="text-sm font-semibold">Service Group: {groupInfo.groupName}</h4>
-                                        {groupInfo.guideName && (
-                                          <p className="text-sm text-gray-600">
-                                            <span className="font-medium">Guide:</span> {groupInfo.guideName}
-                                          </p>
-                                        )}
-                                        {groupInfo.members && groupInfo.members.length > 0 && (
-                                          <div className="mt-2">
-                                            <p className="text-xs font-medium text-gray-700 mb-1">Services in this group:</p>
-                                            <ul className="text-xs text-gray-600 space-y-1">
-                                              {groupInfo.members.map((member, idx) => (
-                                                <li key={idx} className="flex justify-between">
-                                                  <span className="truncate mr-2">• {member.activityTitle}</span>
-                                                  <span className="text-gray-400 whitespace-nowrap">at {member.time}</span>
-                                                </li>
-                                              ))}
-                                            </ul>
-                                          </div>
-                                        )}
-                                      </div>
-                                    </HoverCardContent>
-                                  </HoverCard>
-                                ))
-                              }
-                              return null
-                            })()}
-                            {/* Splits Badge */}
-                            {slotAvailabilityId && timeSlotSplits.has(slotAvailabilityId) && timeSlotSplits.get(slotAvailabilityId)!.length > 0 && (
-                              <span className="text-sm font-medium px-2 py-1 rounded flex items-center gap-1 bg-purple-100 text-purple-700 border border-purple-300">
-                                <Users className="w-4 h-4" />
-                                {timeSlotSplits.get(slotAvailabilityId)!.length} split{timeSlotSplits.get(slotAvailabilityId)!.length !== 1 ? 's' : ''}
-                              </span>
-                            )}
                             {/* Voucher Tickets Badge */}
                             {vouchersForSlot.length > 0 && (
                               <span className={`text-sm font-medium px-2 py-1 rounded flex items-center gap-1 ${
@@ -4561,26 +3647,6 @@ export default function DailyListPage() {
                               <Mail className="w-4 h-4 mr-1" />
                               Send Email
                             </Button>
-                            {/* Split Group Button */}
-                            <Button
-                              size="sm"
-                              variant="outline"
-                              onClick={() => {
-                                if (slotAvailabilityId) {
-                                  openSplitModal(
-                                    slotAvailabilityId,
-                                    tour.tourTitle,
-                                    timeSlot.time,
-                                    timeSlot.bookings,
-                                    vouchersForSlot
-                                  )
-                                }
-                              }}
-                              disabled={!slotAvailabilityId}
-                            >
-                              <Settings className="w-4 h-4 mr-1" />
-                              Split {timeSlotSplits.has(slotAvailabilityId!) && timeSlotSplits.get(slotAvailabilityId!)!.length > 0 && `(${timeSlotSplits.get(slotAvailabilityId!)!.length})`}
-                            </Button>
                           </div>
                         </div>
 
@@ -4622,21 +3688,9 @@ export default function DailyListPage() {
                               ))}
                             </div>
                           )}
-                          {/* Printing */}
-                          {slotPrinting.length > 0 && (
-                            <div className="flex items-center gap-2">
-                              <Printer className="w-4 h-4 text-cyan-600" />
-                              <span className="text-cyan-700 font-medium">Printing:</span>
-                              {slotPrinting.map((p) => (
-                                <span key={p.id} className="bg-cyan-100 text-cyan-800 px-2 py-0.5 rounded">
-                                  {p.first_name} {p.last_name}
-                                </span>
-                              ))}
-                            </div>
-                          )}
                           {/* No staff assigned */}
-                          {slotGuides.length === 0 && slotEscorts.length === 0 && slotHeadphones.length === 0 && slotPrinting.length === 0 && (
-                            <span className="text-gray-500 italic">No staff assigned</span>
+                          {slotGuides.length === 0 && slotEscorts.length === 0 && slotHeadphones.length === 0 && (
+                            <span className="text-gray-500 italic">No guides, escorts, or headphones assigned</span>
                           )}
                           {/* Attachments */}
                           {slotAttachments.length > 0 && (
@@ -4709,48 +3763,12 @@ export default function DailyListPage() {
                               items={timeSlot.bookings.map((b) => b.activity_booking_id)}
                               strategy={verticalListSortingStrategy}
                             >
-                              {timeSlot.bookings.map((booking) => {
-                                // Find which split this booking belongs to (if any)
-                                const splitsForSlot = slotAvailabilityId ? timeSlotSplits.get(slotAvailabilityId) || [] : []
-                                const staffForSlot = slotAvailabilityId ? staffAssignments.get(slotAvailabilityId) : undefined
-                                const splitIndex = splitsForSlot.findIndex(split =>
-                                  split.time_slot_split_bookings?.some(
-                                    (sb: { activity_booking_id: number }) => sb.activity_booking_id === booking.activity_booking_id
-                                  )
-                                )
-                                // Get split info if booking is in a split
-                                let splitName: string | undefined
-                                let guideName: string | undefined
-                                let serviceGroupName: string | undefined
-                                if (splitIndex >= 0) {
-                                  const split = splitsForSlot[splitIndex]
-                                  splitName = split.split_name
-                                  // Get guide name from staff assignments
-                                  if (split.guide_id) {
-                                    const guide = staffForSlot?.guides.find(g => g.id === split.guide_id)
-                                    guideName = guide ? `${guide.first_name} ${guide.last_name}` : undefined
-                                  }
-                                  // Get service group info (with its guide name)
-                                  const serviceGroup = splitServiceGroupMemberships.get(split.id)
-                                  if (serviceGroup) {
-                                    serviceGroupName = serviceGroup.groupName
-                                    // If the service group has a guide and we don't have a split guide name yet, use it
-                                    if (!guideName && serviceGroup.guideName) {
-                                      guideName = serviceGroup.guideName
-                                    }
-                                  }
-                                }
-                                return (
-                                  <SortableBookingRow
-                                    key={booking.activity_booking_id}
-                                    booking={booking}
-                                    splitIndex={splitIndex >= 0 ? splitIndex : undefined}
-                                    splitName={splitName}
-                                    guideName={guideName}
-                                    serviceGroupName={serviceGroupName}
-                                  />
-                                )
-                              })}
+                              {timeSlot.bookings.map((booking) => (
+                                <SortableBookingRow
+                                  key={booking.activity_booking_id}
+                                  booking={booking}
+                                />
+                              ))}
                             </SortableContext>
                           </TableBody>
                         </Table>
@@ -5154,284 +4172,6 @@ export default function DailyListPage() {
                   )}
                 </Button>
               </div>
-            </div>
-          </div>
-        </div>
-      )}
-
-      {/* Split Groups Modal */}
-      {splitModal.isOpen && (
-        <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50 p-4">
-          <div className="bg-white rounded-lg shadow-xl max-w-4xl w-full max-h-[90vh] overflow-hidden flex flex-col">
-            {/* Header */}
-            <div className="p-6 border-b flex justify-between items-start">
-              <div>
-                <h2 className="text-xl font-semibold">Split Time Slot</h2>
-                <p className="text-sm text-gray-500 mt-1">
-                  {splitModal.tourTitle} - {splitModal.time.substring(0, 5)}
-                </p>
-              </div>
-              <button
-                onClick={() => {
-                  setSplitModal(prev => ({ ...prev, isOpen: false }))
-                  fetchTimeSlotSplits(selectedDate)
-                }}
-                className="text-gray-500 hover:text-gray-700"
-              >
-                <X className="w-6 h-6" />
-              </button>
-            </div>
-
-            {/* Content */}
-            <div className="flex-1 overflow-auto p-6">
-              <div className="grid grid-cols-2 gap-6">
-                {/* Left: Unsplit Pool */}
-                <div>
-                  <h3 className="font-medium mb-3">Unsplit Bookings ({splitModal.unsplitBookings.length})</h3>
-                  <div className="border rounded-lg p-3 space-y-2 max-h-64 overflow-auto bg-gray-50">
-                    {splitModal.unsplitBookings.length === 0 ? (
-                      <p className="text-sm text-gray-400 text-center py-4">All bookings are assigned to splits</p>
-                    ) : (
-                      splitModal.unsplitBookings.map(booking => (
-                        <div
-                          key={booking.activity_booking_id}
-                          className="flex items-center justify-between p-2 bg-white rounded border"
-                        >
-                          <div className="flex-1">
-                            <span className="text-sm font-medium">
-                              {booking.customer?.first_name} {booking.customer?.last_name}
-                            </span>
-                            <span className="text-sm text-gray-500 ml-2">
-                              ({booking.total_participants} pax)
-                            </span>
-                          </div>
-                          {splitModal.splits.length > 0 && (
-                            <Select
-                              onValueChange={(splitId) => assignBookingsToSplit(splitId, [booking.activity_booking_id])}
-                            >
-                              <SelectTrigger className="w-32 h-8 text-xs">
-                                <SelectValue placeholder="Add to..." />
-                              </SelectTrigger>
-                              <SelectContent>
-                                {splitModal.splits.map(split => (
-                                  <SelectItem key={split.id} value={split.id}>
-                                    {split.split_name}
-                                  </SelectItem>
-                                ))}
-                              </SelectContent>
-                            </Select>
-                          )}
-                        </div>
-                      ))
-                    )}
-                  </div>
-
-                  {/* Unsplit Vouchers */}
-                  {splitModal.allVouchers.length > 0 && (
-                    <>
-                      <h3 className="font-medium mt-4 mb-3">Unsplit Vouchers ({splitModal.unsplitVouchers.length})</h3>
-                      <div className="border rounded-lg p-3 space-y-2 max-h-32 overflow-auto bg-orange-50">
-                        {splitModal.unsplitVouchers.length === 0 ? (
-                          <p className="text-sm text-gray-400 text-center py-2">All vouchers are assigned</p>
-                        ) : (
-                          splitModal.unsplitVouchers.map(voucher => (
-                            <div key={voucher.id} className="flex items-center justify-between p-2 bg-white rounded border">
-                              <span className="text-sm">{voucher.booking_number} ({voucher.total_tickets} tickets)</span>
-                              {splitModal.splits.length > 0 && (
-                                <Select
-                                  onValueChange={(splitId) => assignVouchersToSplit(splitId, [voucher.id])}
-                                >
-                                  <SelectTrigger className="w-32 h-8 text-xs">
-                                    <SelectValue placeholder="Add to..." />
-                                  </SelectTrigger>
-                                  <SelectContent>
-                                    {splitModal.splits.map(split => (
-                                      <SelectItem key={split.id} value={split.id}>
-                                        {split.split_name}
-                                      </SelectItem>
-                                    ))}
-                                  </SelectContent>
-                                </Select>
-                              )}
-                            </div>
-                          ))
-                        )}
-                      </div>
-                    </>
-                  )}
-                </div>
-
-                {/* Right: Split Groups */}
-                <div>
-                  <div className="flex justify-between items-center mb-3">
-                    <h3 className="font-medium">Groups ({splitModal.splits.length})</h3>
-                    <Button
-                      size="sm"
-                      onClick={() => createSplit(`Group ${splitModal.splits.length + 1}`)}
-                      disabled={savingSplit}
-                    >
-                      <Plus className="w-4 h-4 mr-1" />
-                      Add Group
-                    </Button>
-                  </div>
-
-                  <div className="space-y-4">
-                    {splitModal.splits.length === 0 ? (
-                      <p className="text-sm text-gray-400 text-center py-8 border rounded-lg bg-gray-50">
-                        No splits yet. Click &quot;Add Group&quot; to create one.
-                      </p>
-                    ) : (
-                      splitModal.splits.map(split => {
-                        const splitPaxCount = split.bookings.reduce((sum, b) => sum + b.total_participants, 0)
-
-                        return (
-                          <div key={split.id} className="border rounded-lg p-3 bg-purple-50">
-                            <div className="flex justify-between items-center mb-2">
-                              <span className="font-medium text-purple-700">{split.split_name}</span>
-                              <Button
-                                size="sm"
-                                variant="ghost"
-                                onClick={() => deleteSplit(split.id)}
-                                disabled={savingSplit}
-                              >
-                                <Trash2 className="w-4 h-4 text-red-500" />
-                              </Button>
-                            </div>
-
-                            {/* Guide Assignment - only show guides assigned to this time slot */}
-                            <div className="mb-2">
-                              <Label className="text-xs text-gray-500 mb-1 block">Assign Guide</Label>
-                              {(() => {
-                                const assignedGuides = splitModal.availabilityId
-                                  ? staffAssignments.get(splitModal.availabilityId)?.guides || []
-                                  : []
-                                return (
-                                  <Select
-                                    value={split.guide_id || 'none'}
-                                    onValueChange={(value) => assignGuideToSplit(split.id, value === 'none' ? null : value)}
-                                  >
-                                    <SelectTrigger className="h-8 text-sm">
-                                      <SelectValue placeholder="Select guide..." />
-                                    </SelectTrigger>
-                                    <SelectContent>
-                                      <SelectItem value="none">No guide</SelectItem>
-                                      {assignedGuides.map(guide => (
-                                        <SelectItem key={guide.id} value={guide.id}>
-                                          {guide.first_name} {guide.last_name}
-                                        </SelectItem>
-                                      ))}
-                                    </SelectContent>
-                                  </Select>
-                                )
-                              })()}
-                            </div>
-
-                            {/* Assigned Bookings */}
-                            <div className="space-y-1 min-h-[40px] bg-white rounded p-2 border">
-                              {split.bookings.length === 0 ? (
-                                <p className="text-xs text-gray-400 text-center py-2">No bookings assigned</p>
-                              ) : (
-                                split.bookings.map(booking => (
-                                  <div key={booking.activity_booking_id} className="flex items-center justify-between text-sm p-1 bg-gray-50 rounded gap-2">
-                                    <span className="flex-1 truncate">
-                                      {booking.customer?.first_name} {booking.customer?.last_name} ({booking.total_participants})
-                                    </span>
-                                    <div className="flex items-center gap-1">
-                                      {/* Move to another split */}
-                                      {splitModal.splits.length > 1 && (
-                                        <Select
-                                          onValueChange={(targetSplitId) => assignBookingsToSplit(targetSplitId, [booking.activity_booking_id])}
-                                        >
-                                          <SelectTrigger className="w-20 h-6 text-xs">
-                                            <SelectValue placeholder="Move..." />
-                                          </SelectTrigger>
-                                          <SelectContent>
-                                            {splitModal.splits
-                                              .filter(s => s.id !== split.id)
-                                              .map(s => (
-                                                <SelectItem key={s.id} value={s.id}>
-                                                  {s.split_name}
-                                                </SelectItem>
-                                              ))}
-                                          </SelectContent>
-                                        </Select>
-                                      )}
-                                      <button
-                                        onClick={() => removeBookingsFromSplit([booking.activity_booking_id])}
-                                        className="text-red-500 hover:text-red-700 text-xs whitespace-nowrap"
-                                      >
-                                        Remove
-                                      </button>
-                                    </div>
-                                  </div>
-                                ))
-                              )}
-                            </div>
-
-                            {/* Assigned Vouchers */}
-                            {split.vouchers.length > 0 && (
-                              <div className="mt-2 space-y-1 bg-orange-50 rounded p-2 border border-orange-200">
-                                {split.vouchers.map(voucher => (
-                                  <div key={voucher.id} className="flex items-center justify-between text-sm gap-2">
-                                    <span className="text-orange-700 flex-1 truncate">{voucher.booking_number} ({voucher.total_tickets})</span>
-                                    <div className="flex items-center gap-1">
-                                      {/* Move to another split */}
-                                      {splitModal.splits.length > 1 && (
-                                        <Select
-                                          onValueChange={(targetSplitId) => assignVouchersToSplit(targetSplitId, [voucher.id])}
-                                        >
-                                          <SelectTrigger className="w-20 h-6 text-xs">
-                                            <SelectValue placeholder="Move..." />
-                                          </SelectTrigger>
-                                          <SelectContent>
-                                            {splitModal.splits
-                                              .filter(s => s.id !== split.id)
-                                              .map(s => (
-                                                <SelectItem key={s.id} value={s.id}>
-                                                  {s.split_name}
-                                                </SelectItem>
-                                              ))}
-                                          </SelectContent>
-                                        </Select>
-                                      )}
-                                      <button
-                                        onClick={() => removeVouchersFromSplit([voucher.id])}
-                                        className="text-red-500 hover:text-red-700 text-xs whitespace-nowrap"
-                                      >
-                                        Remove
-                                      </button>
-                                    </div>
-                                  </div>
-                                ))}
-                              </div>
-                            )}
-
-                            <div className="mt-2 text-xs text-gray-500">
-                              Total: {splitPaxCount} pax
-                            </div>
-                          </div>
-                        )
-                      })
-                    )}
-                  </div>
-                </div>
-              </div>
-            </div>
-
-            {/* Footer */}
-            <div className="p-4 border-t bg-gray-50 flex justify-end gap-2">
-              {savingSplit && (
-                <span className="text-sm text-gray-500 flex items-center">
-                  <Loader2 className="w-4 h-4 animate-spin mr-1" />
-                  Saving...
-                </span>
-              )}
-              <Button variant="outline" onClick={() => {
-                setSplitModal(prev => ({ ...prev, isOpen: false }))
-                fetchTimeSlotSplits(selectedDate)
-              }}>
-                Close
-              </Button>
             </div>
           </div>
         </div>
