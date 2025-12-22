@@ -1,5 +1,5 @@
 import { NextRequest, NextResponse } from 'next/server'
-import OpenAI from 'openai'
+import { GoogleGenerativeAI } from '@google/generative-ai'
 import { extractText } from 'unpdf'
 import { verifySession } from '@/lib/supabase-server'
 
@@ -28,13 +28,13 @@ function detectPDFType(text: string): PDFType {
   return 'unknown'
 }
 
-const getOpenAI = () => {
-  const apiKey = process.env.OPENAI_API_KEY
+const getGoogleAI = () => {
+  const apiKey = process.env.GOOGLE_AI_API_KEY
   if (!apiKey) {
-    console.error('OPENAI_API_KEY not found')
+    console.error('GOOGLE_AI_API_KEY not found')
     return null
   }
-  return new OpenAI({ apiKey })
+  return new GoogleGenerativeAI(apiKey)
 }
 
 interface ExtractedTicket {
@@ -77,10 +77,10 @@ export async function POST(request: NextRequest) {
       return NextResponse.json({ error: 'File must be a PDF' }, { status: 400 })
     }
 
-    const openai = getOpenAI()
-    if (!openai) {
+    const genAI = getGoogleAI()
+    if (!genAI) {
       return NextResponse.json({
-        error: 'OpenAI service not configured. Please set OPENAI_API_KEY.'
+        error: 'Google AI service not configured. Please set GOOGLE_AI_API_KEY.'
       }, { status: 500 })
     }
 
@@ -139,8 +139,8 @@ export async function POST(request: NextRequest) {
     } else if (pdfType === 'italo' || pdfType === 'trenitalia') {
       // Train tickets don't have per-passenger codes like museum entries
       // All passengers share the same booking code (CODICE BIGLIETTO or PNR)
-      // GPT will extract unique passengers and generate synthetic ticket codes
-      // We leave uniqueTicketCodes empty - the count will be determined by GPT
+      // Gemini will extract unique passengers and generate synthetic ticket codes
+      // We leave uniqueTicketCodes empty - the count will be determined by Gemini
       uniqueTicketCodes = []
     } else {
       // Colosseum: 16-character codes starting with SPC
@@ -154,8 +154,8 @@ export async function POST(request: NextRequest) {
 
     console.log(`Pre-extracted ${expectedTicketCount} ticket codes (${pdfType}): ${uniqueTicketCodes.slice(0, 5).join(', ')}${uniqueTicketCodes.length > 5 ? '...' : ''}`)
 
-    // Use GPT-4o to extract structured data - but we'll also do our own extraction
-    console.log('Sending text to GPT-4o...')
+    // Use Gemini to extract structured data - but we'll also do our own extraction
+    console.log('Sending text to Gemini...')
 
     // Different prompts based on PDF type
     let systemPrompt: string
@@ -335,23 +335,19 @@ IMPORTANT: You MUST return exactly ${expectedTicketCount} tickets in the tickets
       ? `Extract all unique passengers from this train ticket PDF. Here is the PDF text:\n\n${pdfText}`
       : `Extract data for all ${expectedTicketCount} tickets. Here is the PDF text:\n\n${pdfText}`
 
-    const response = await openai.chat.completions.create({
-      model: 'gpt-4o',
-      messages: [
-        {
-          role: 'system',
-          content: systemPrompt
-        },
-        {
-          role: 'user',
-          content: userMessage
-        }
-      ],
-      max_tokens: 16000,
-      response_format: { type: 'json_object' }
+    // Add JSON instruction to prompt for Gemini
+    const fullPrompt = `${systemPrompt}\n\nIMPORTANT: Respond with ONLY valid JSON, no markdown code blocks, no explanatory text before or after.\n\n${userMessage}`
+
+    const model = genAI.getGenerativeModel({
+      model: 'gemini-2.5-flash',
+      generationConfig: {
+        responseMimeType: 'application/json'
+      }
     })
 
-    const content = response.choices[0]?.message?.content
+    const result = await model.generateContent(fullPrompt)
+    const response = result.response
+    const content = response.text()
     if (!content) {
       return NextResponse.json({ error: 'No response from AI' }, { status: 500 })
     }
@@ -370,7 +366,7 @@ IMPORTANT: You MUST return exactly ${expectedTicketCount} tickets in the tickets
 
     // Validate required fields
     if (!extractedData.booking_number || !extractedData.visit_date || !extractedData.entry_time) {
-      console.error('Missing required fields. GPT returned:', JSON.stringify(extractedData, null, 2))
+      console.error('Missing required fields. Gemini returned:', JSON.stringify(extractedData, null, 2))
       return NextResponse.json({
         error: 'Missing required fields in extracted data',
         details: `booking_number: ${extractedData.booking_number || 'MISSING'}, visit_date: ${extractedData.visit_date || 'MISSING'}, entry_time: ${extractedData.entry_time || 'MISSING'}`,
@@ -378,9 +374,9 @@ IMPORTANT: You MUST return exactly ${expectedTicketCount} tickets in the tickets
       }, { status: 400 })
     }
 
-    // For train PDFs, if GPT returned no tickets, try manual extraction
+    // For train PDFs, if Gemini returned no tickets, try manual extraction
     if ((pdfType === 'italo' || pdfType === 'trenitalia') && (!extractedData.tickets || extractedData.tickets.length === 0)) {
-      console.log(`GPT returned no tickets for ${pdfType}. Attempting manual extraction...`)
+      console.log(`Gemini returned no tickets for ${pdfType}. Attempting manual extraction...`)
       extractedData.tickets = []
 
       if (pdfType === 'italo') {
@@ -447,12 +443,12 @@ IMPORTANT: You MUST return exactly ${expectedTicketCount} tickets in the tickets
     }
 
     // CRITICAL: Ensure all ticket codes are included
-    // GPT sometimes misses tickets, so we add any missing codes
+    // Gemini sometimes misses tickets, so we add any missing codes
     const extractedCodes = new Set((extractedData.tickets || []).map(t => t.ticket_code))
     const missingCodes = uniqueTicketCodes.filter(code => !extractedCodes.has(code))
 
     if (missingCodes.length > 0) {
-      console.log(`GPT missed ${missingCodes.length} tickets. Adding them manually...`)
+      console.log(`Gemini missed ${missingCodes.length} tickets. Adding them manually...`)
 
       // For each missing code, try to extract info from the page containing it
       for (const code of missingCodes) {

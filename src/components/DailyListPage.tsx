@@ -3,7 +3,7 @@
 import { useState, useEffect, useRef, useMemo, useCallback } from 'react'
 import { supabase } from '@/lib/supabase'
 import { attachmentsApi } from '@/lib/api-client'
-import { Download, ChevronDown, Search, X, GripVertical, ChevronRight, User, UserCheck, Paperclip, Upload, Mail, Send, Loader2, MapPin, Ticket, FileText, Headphones, Printer, AlertTriangle, Link2 } from 'lucide-react'
+import { Download, ChevronDown, Search, X, GripVertical, ChevronRight, User, UserCheck, Paperclip, Upload, Mail, Send, Loader2, MapPin, Ticket, FileText, Headphones, Printer, AlertTriangle, Link2, Users, Trash2, Plus } from 'lucide-react'
 import { format } from 'date-fns'
 import * as XLSX from 'xlsx-js-style'
 
@@ -60,6 +60,13 @@ import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
 import { Label } from "@/components/ui/label"
 import { Checkbox } from "@/components/ui/checkbox"
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from "@/components/ui/select"
 import {
   Sheet,
   SheetContent,
@@ -176,6 +183,31 @@ interface VoucherInfo {
   entry_time: string | null
 }
 
+interface TimeSlotSplit {
+  id: string
+  activity_availability_id: number
+  split_name: string
+  guide_id: string | null
+  guide?: Person
+  display_order: number
+  bookings: PaxData[]
+  vouchers: VoucherInfo[]
+  time_slot_split_bookings?: { id: string; activity_booking_id: number }[]
+  time_slot_split_vouchers?: { id: string; voucher_id: string }[]
+}
+
+interface SplitModalState {
+  isOpen: boolean
+  availabilityId: number | null
+  tourTitle: string
+  time: string
+  allBookings: PaxData[]
+  allVouchers: VoucherInfo[]
+  splits: TimeSlotSplit[]
+  unsplitBookings: PaxData[]
+  unsplitVouchers: VoucherInfo[]
+}
+
 export default function DailyListPage() {
   const [data, setData] = useState<PaxData[]>([])
   const [groupedTours, setGroupedTours] = useState<TourGroup[]>([])
@@ -245,6 +277,25 @@ export default function DailyListPage() {
   // Activities missing guide templates (for validation warning)
   const [activitiesWithoutGuideTemplates, setActivitiesWithoutGuideTemplates] = useState<string[]>([])
 
+  // Time slot splits state (activity_availability_id -> splits)
+  const [timeSlotSplits, setTimeSlotSplits] = useState<Map<number, TimeSlotSplit[]>>(new Map())
+  // All active guides for split assignment
+  const [allGuides, setAllGuides] = useState<{ guide_id: string; first_name: string; last_name: string }[]>([])
+  const [splitModal, setSplitModal] = useState<SplitModalState>({
+    isOpen: false,
+    availabilityId: null,
+    tourTitle: '',
+    time: '',
+    allBookings: [],
+    allVouchers: [],
+    splits: [],
+    unsplitBookings: [],
+    unsplitVouchers: []
+  })
+  // eslint-disable-next-line @typescript-eslint/no-unused-vars
+  const [loadingSplits, setLoadingSplits] = useState(false)
+  const [savingSplit, setSavingSplit] = useState(false)
+
   // File upload
   const fileInputRef = useRef<HTMLInputElement>(null)
   const [uploadingFor, setUploadingFor] = useState<number | null>(null)
@@ -273,6 +324,7 @@ export default function DailyListPage() {
     fetchEmailTemplates()
     fetchConsolidatedTemplates()
     fetchActivityGuideTemplates()
+    fetchAllGuides()
   }, [])
 
   // Fetch email templates
@@ -372,6 +424,337 @@ export default function DailyListPage() {
       console.error('Error fetching email logs:', err)
     } finally {
       setLoadingLogs(false)
+    }
+  }
+
+  // Fetch time slot splits for a date
+  const fetchTimeSlotSplits = async (dateStr: string) => {
+    setLoadingSplits(true)
+    try {
+      const response = await fetch(`/api/time-slot-splits?date=${dateStr}`)
+      const result = await response.json()
+      if (response.ok && result.data) {
+        // Group by activity_availability_id
+        const splitsMap = new Map<number, TimeSlotSplit[]>()
+        result.data.forEach((split: TimeSlotSplit) => {
+          const existing = splitsMap.get(split.activity_availability_id) || []
+          existing.push({
+            ...split,
+            bookings: [],
+            vouchers: []
+          })
+          splitsMap.set(split.activity_availability_id, existing)
+        })
+        setTimeSlotSplits(splitsMap)
+      }
+    } catch (err) {
+      console.error('Error fetching splits:', err)
+    } finally {
+      setLoadingSplits(false)
+    }
+  }
+
+  // Fetch all active guides for split assignment
+  const fetchAllGuides = async () => {
+    try {
+      const { data: guides, error } = await supabase
+        .from('guides')
+        .select('guide_id, first_name, last_name')
+        .eq('is_active', true)
+        .order('first_name')
+
+      if (error) {
+        console.error('Error fetching guides:', error)
+        return
+      }
+
+      setAllGuides(guides || [])
+    } catch (err) {
+      console.error('Error fetching guides:', err)
+    }
+  }
+
+  // Open split modal
+  const openSplitModal = async (
+    availabilityId: number,
+    tourTitle: string,
+    time: string,
+    bookings: PaxData[],
+    vouchers: VoucherInfo[]
+  ) => {
+    // Fetch existing splits for this availability
+    try {
+      const response = await fetch(`/api/time-slot-splits?availability_id=${availabilityId}`)
+      const result = await response.json()
+      const existingSplits: TimeSlotSplit[] = response.ok && result.data ? result.data : []
+
+      // Map booking IDs that are already in splits
+      const assignedBookingIds = new Set<number>()
+      const assignedVoucherIds = new Set<string>()
+
+      existingSplits.forEach((split: TimeSlotSplit) => {
+        split.time_slot_split_bookings?.forEach((b: { activity_booking_id: number }) => {
+          assignedBookingIds.add(b.activity_booking_id)
+        })
+        split.time_slot_split_vouchers?.forEach((v: { voucher_id: string }) => {
+          assignedVoucherIds.add(v.voucher_id)
+        })
+      })
+
+      // Enrich splits with booking/voucher data
+      const enrichedSplits = existingSplits.map((split: TimeSlotSplit) => ({
+        ...split,
+        bookings: bookings.filter(b =>
+          split.time_slot_split_bookings?.some((sb: { activity_booking_id: number }) => sb.activity_booking_id === b.activity_booking_id)
+        ),
+        vouchers: vouchers.filter(v =>
+          split.time_slot_split_vouchers?.some((sv: { voucher_id: string }) => sv.voucher_id === v.id)
+        )
+      }))
+
+      setSplitModal({
+        isOpen: true,
+        availabilityId,
+        tourTitle,
+        time,
+        allBookings: bookings,
+        allVouchers: vouchers,
+        splits: enrichedSplits,
+        unsplitBookings: bookings.filter(b => !assignedBookingIds.has(b.activity_booking_id)),
+        unsplitVouchers: vouchers.filter(v => !assignedVoucherIds.has(v.id))
+      })
+    } catch (err) {
+      console.error('Error opening split modal:', err)
+    }
+  }
+
+  // Create a new split
+  const createSplit = async (splitName: string) => {
+    if (!splitModal.availabilityId) return
+
+    setSavingSplit(true)
+    try {
+      const response = await fetch('/api/time-slot-splits', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          activity_availability_id: splitModal.availabilityId,
+          split_name: splitName
+        })
+      })
+
+      if (response.ok) {
+        const result = await response.json()
+        const newSplit: TimeSlotSplit = {
+          ...result.data,
+          bookings: [],
+          vouchers: [],
+          time_slot_split_bookings: [],
+          time_slot_split_vouchers: []
+        }
+
+        setSplitModal(prev => ({
+          ...prev,
+          splits: [...prev.splits, newSplit]
+        }))
+
+        // Update the main map too
+        await fetchTimeSlotSplits(selectedDate)
+      }
+    } catch (err) {
+      console.error('Error creating split:', err)
+    } finally {
+      setSavingSplit(false)
+    }
+  }
+
+  // Assign bookings to a split
+  const assignBookingsToSplit = async (splitId: string, bookingIds: number[]) => {
+    setSavingSplit(true)
+    try {
+      const response = await fetch('/api/time-slot-splits/assign-bookings', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ split_id: splitId, booking_ids: bookingIds })
+      })
+
+      if (response.ok) {
+        // Update local state
+        const movedBookings = splitModal.allBookings.filter(b => bookingIds.includes(b.activity_booking_id))
+
+        setSplitModal(prev => {
+          // Remove from unsplit or other splits
+          const newUnsplit = prev.unsplitBookings.filter(b => !bookingIds.includes(b.activity_booking_id))
+          const newSplits = prev.splits.map(s => {
+            if (s.id === splitId) {
+              return {
+                ...s,
+                bookings: [...s.bookings, ...movedBookings]
+              }
+            }
+            return {
+              ...s,
+              bookings: s.bookings.filter(b => !bookingIds.includes(b.activity_booking_id))
+            }
+          })
+
+          return {
+            ...prev,
+            splits: newSplits,
+            unsplitBookings: newUnsplit
+          }
+        })
+      }
+    } catch (err) {
+      console.error('Error assigning bookings:', err)
+    } finally {
+      setSavingSplit(false)
+    }
+  }
+
+  // Remove bookings from split (return to unsplit)
+  const removeBookingsFromSplit = async (bookingIds: number[]) => {
+    setSavingSplit(true)
+    try {
+      const response = await fetch('/api/time-slot-splits/assign-bookings', {
+        method: 'DELETE',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ booking_ids: bookingIds })
+      })
+
+      if (response.ok) {
+        const movedBookings = splitModal.allBookings.filter(b => bookingIds.includes(b.activity_booking_id))
+
+        setSplitModal(prev => ({
+          ...prev,
+          splits: prev.splits.map(s => ({
+            ...s,
+            bookings: s.bookings.filter(b => !bookingIds.includes(b.activity_booking_id))
+          })),
+          unsplitBookings: [...prev.unsplitBookings, ...movedBookings]
+        }))
+      }
+    } catch (err) {
+      console.error('Error removing bookings:', err)
+    } finally {
+      setSavingSplit(false)
+    }
+  }
+
+  // Assign vouchers to a split
+  const assignVouchersToSplit = async (splitId: string, voucherIds: string[]) => {
+    setSavingSplit(true)
+    try {
+      const response = await fetch('/api/time-slot-splits/assign-vouchers', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ split_id: splitId, voucher_ids: voucherIds })
+      })
+
+      if (response.ok) {
+        const movedVouchers = splitModal.allVouchers.filter(v => voucherIds.includes(v.id))
+
+        setSplitModal(prev => {
+          const newUnsplit = prev.unsplitVouchers.filter(v => !voucherIds.includes(v.id))
+          const newSplits = prev.splits.map(s => {
+            if (s.id === splitId) {
+              return { ...s, vouchers: [...s.vouchers, ...movedVouchers] }
+            }
+            return { ...s, vouchers: s.vouchers.filter(v => !voucherIds.includes(v.id)) }
+          })
+
+          return { ...prev, splits: newSplits, unsplitVouchers: newUnsplit }
+        })
+      }
+    } catch (err) {
+      console.error('Error assigning vouchers:', err)
+    } finally {
+      setSavingSplit(false)
+    }
+  }
+
+  // Remove vouchers from split
+  const removeVouchersFromSplit = async (voucherIds: string[]) => {
+    setSavingSplit(true)
+    try {
+      const response = await fetch('/api/time-slot-splits/assign-vouchers', {
+        method: 'DELETE',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ voucher_ids: voucherIds })
+      })
+
+      if (response.ok) {
+        const movedVouchers = splitModal.allVouchers.filter(v => voucherIds.includes(v.id))
+
+        setSplitModal(prev => ({
+          ...prev,
+          splits: prev.splits.map(s => ({
+            ...s,
+            vouchers: s.vouchers.filter(v => !voucherIds.includes(v.id))
+          })),
+          unsplitVouchers: [...prev.unsplitVouchers, ...movedVouchers]
+        }))
+      }
+    } catch (err) {
+      console.error('Error removing vouchers:', err)
+    } finally {
+      setSavingSplit(false)
+    }
+  }
+
+  // Assign guide to split
+  const assignGuideToSplit = async (splitId: string, guideId: string | null) => {
+    setSavingSplit(true)
+    try {
+      const response = await fetch('/api/time-slot-splits', {
+        method: 'PUT',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ split_id: splitId, guide_id: guideId })
+      })
+
+      if (response.ok) {
+        setSplitModal(prev => ({
+          ...prev,
+          splits: prev.splits.map(s =>
+            s.id === splitId ? { ...s, guide_id: guideId } : s
+          )
+        }))
+        await fetchTimeSlotSplits(selectedDate)
+      }
+    } catch (err) {
+      console.error('Error assigning guide:', err)
+    } finally {
+      setSavingSplit(false)
+    }
+  }
+
+  // Delete a split
+  const deleteSplit = async (splitId: string) => {
+    if (!confirm('Delete this split? Bookings will return to the unsplit pool.')) return
+
+    setSavingSplit(true)
+    try {
+      const response = await fetch(`/api/time-slot-splits?id=${splitId}`, {
+        method: 'DELETE'
+      })
+
+      if (response.ok) {
+        // Find the split being deleted to move its bookings/vouchers to unsplit
+        const deletedSplit = splitModal.splits.find(s => s.id === splitId)
+
+        setSplitModal(prev => ({
+          ...prev,
+          splits: prev.splits.filter(s => s.id !== splitId),
+          unsplitBookings: [...prev.unsplitBookings, ...(deletedSplit?.bookings || [])],
+          unsplitVouchers: [...prev.unsplitVouchers, ...(deletedSplit?.vouchers || [])]
+        }))
+
+        await fetchTimeSlotSplits(selectedDate)
+      }
+    } catch (err) {
+      console.error('Error deleting split:', err)
+    } finally {
+      setSavingSplit(false)
     }
   }
 
@@ -1001,70 +1384,106 @@ export default function DailyListPage() {
         return
       }
 
-      // Get attachment URLs
-      const slotAttachments = attachments.filter(a => a.activity_availability_id === emailTimeSlot.availabilityId)
-      const attachmentUrls: string[] = includeAttachments ? slotAttachments.map(a => a.file_path) : []
+      // Check if this time slot has splits
+      const splitsForSlot = timeSlotSplits.get(emailTimeSlot.availabilityId) || []
 
-      // Add voucher PDF URLs if enabled
-      if (includeVouchers) {
-        const vouchersForSlot = slotVouchers.get(emailTimeSlot.availabilityId) || []
-        const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL
-        console.log('[DEBUG] includeVouchers:', includeVouchers)
-        console.log('[DEBUG] emailTimeSlot.availabilityId:', emailTimeSlot.availabilityId)
-        console.log('[DEBUG] slotVouchers keys:', Array.from(slotVouchers.keys()))
-        console.log('[DEBUG] vouchersForSlot:', vouchersForSlot)
-        for (const voucher of vouchersForSlot) {
-          if (voucher.pdf_path) {
-            // Build public URL for the voucher PDF
-            const pdfUrl = `${supabaseUrl}/storage/v1/object/public/ticket-vouchers/${voucher.pdf_path}`
-            attachmentUrls.push(pdfUrl)
-            console.log('[DEBUG] Added voucher URL:', pdfUrl)
+      // Get base tour and time slot data
+      const tour = groupedTours.find(t => t.tourTitle === emailTimeSlot.tourTitle)
+      const baseTimeSlot = tour?.timeSlots.find(ts => ts.time === emailTimeSlot.time)
+      const vouchersForSlot = slotVouchers.get(emailTimeSlot.availabilityId) || []
+
+      // For each recipient, potentially filter based on their split assignment
+      for (const recipient of recipients) {
+        let filteredBookings = baseTimeSlot?.bookings || []
+        let filteredVouchers = vouchersForSlot
+
+        // If recipient is a guide and there are splits, check if they're assigned to one
+        if (recipient.type === 'guide' && splitsForSlot.length > 0) {
+          // Fetch the actual split data with bookings/vouchers for this guide
+          try {
+            const response = await fetch(`/api/time-slot-splits?availability_id=${emailTimeSlot.availabilityId}`)
+            const result = await response.json()
+            if (response.ok && result.data) {
+              const guideSplit = result.data.find((s: TimeSlotSplit) => s.guide_id === recipient.id)
+              if (guideSplit) {
+                // Filter bookings to only those in this split
+                const splitBookingIds = new Set(
+                  guideSplit.time_slot_split_bookings?.map((b: { activity_booking_id: number }) => b.activity_booking_id) || []
+                )
+                const splitVoucherIds = new Set(
+                  guideSplit.time_slot_split_vouchers?.map((v: { voucher_id: string }) => v.voucher_id) || []
+                )
+
+                if (splitBookingIds.size > 0) {
+                  filteredBookings = filteredBookings.filter(b => splitBookingIds.has(b.activity_booking_id))
+                }
+                if (splitVoucherIds.size > 0) {
+                  filteredVouchers = filteredVouchers.filter(v => splitVoucherIds.has(v.id))
+                }
+              }
+            }
+          } catch (err) {
+            console.error('Error fetching split data for email:', err)
           }
         }
-      }
-      console.log('[DEBUG] Final attachmentUrls:', attachmentUrls)
 
-      // Generate daily list
-      let dailyListData: string | undefined
-      let dailyListFileName: string | undefined
+        // Get attachment URLs
+        const slotAttachments = attachments.filter(a => a.activity_availability_id === emailTimeSlot.availabilityId)
+        const attachmentUrls: string[] = includeAttachments ? slotAttachments.map(a => a.file_path) : []
 
-      if (includeDailyList) {
-        const tour = groupedTours.find(t => t.tourTitle === emailTimeSlot.tourTitle)
-        const timeSlot = tour?.timeSlots.find(ts => ts.time === emailTimeSlot.time)
-        if (tour && timeSlot) {
-          // Get guide name for the Excel
-          const guideNames = staff?.guides.map(g => `${g.first_name} ${g.last_name}`).join(', ') || ''
-          const dailyList = await generateDailyListExcel(tour, timeSlot, guideNames)
+        // Add voucher PDF URLs if enabled (filtered by split if applicable)
+        if (includeVouchers) {
+          const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL
+          for (const voucher of filteredVouchers) {
+            if (voucher.pdf_path) {
+              const pdfUrl = `${supabaseUrl}/storage/v1/object/public/ticket-vouchers/${voucher.pdf_path}`
+              attachmentUrls.push(pdfUrl)
+            }
+          }
+        }
+
+        // Generate daily list with filtered bookings
+        let dailyListData: string | undefined
+        let dailyListFileName: string | undefined
+
+        if (includeDailyList && tour && baseTimeSlot) {
+          // Create a modified timeSlot with filtered bookings
+          const filteredTimeSlot = {
+            ...baseTimeSlot,
+            bookings: filteredBookings,
+            totalParticipants: filteredBookings.reduce((sum, b) => sum + b.total_participants, 0)
+          }
+          const dailyList = await generateDailyListExcel(tour, filteredTimeSlot, recipient.name)
           if (dailyList) {
             dailyListData = dailyList.data
             dailyListFileName = dailyList.fileName
           }
         }
-      }
 
-      const response = await fetch('/api/email/send', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          recipients,
-          subject: emailSubject,
-          body: emailBody,
-          activityAvailabilityId: emailTimeSlot.availabilityId,
-          attachmentUrls,
-          dailyListData,
-          dailyListFileName,
-          serviceDate: selectedDate
+        const response = await fetch('/api/email/send', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            recipients: [recipient],
+            subject: emailSubject,
+            body: emailBody,
+            activityAvailabilityId: emailTimeSlot.availabilityId,
+            attachmentUrls,
+            dailyListData,
+            dailyListFileName,
+            serviceDate: selectedDate
+          })
         })
-      })
 
-      const result = await response.json()
+        const result = await response.json()
 
-      if (!response.ok) {
-        const errorMsg = result.debug ? `${result.error} ${result.debug}` : result.error
-        throw new Error(errorMsg || 'Failed to send emails')
+        if (!response.ok) {
+          const errorMsg = result.debug ? `${result.error} ${result.debug}` : result.error
+          console.error(`Failed to send email to ${recipient.email}:`, errorMsg)
+        }
       }
 
-      setEmailSuccess(`Successfully sent ${result.sent} email(s)${result.failed > 0 ? `, ${result.failed} failed` : ''}`)
+      setEmailSuccess(`Successfully sent ${recipients.length} email(s)`)
 
       setTimeout(() => {
         setShowEmailModal(false)
@@ -2641,6 +3060,8 @@ export default function DailyListPage() {
       await fetchVouchers(selectedDate)
       // Fetch service group memberships for the day
       await fetchServiceGroupMemberships(selectedDate)
+      // Fetch time slot splits for the day
+      await fetchTimeSlotSplits(selectedDate)
     }
   }
 
@@ -2973,6 +3394,8 @@ export default function DailyListPage() {
     await fetchVouchers(date)
     // Fetch service group memberships for the new date
     await fetchServiceGroupMemberships(date)
+    // Fetch time slot splits for the new date
+    await fetchTimeSlotSplits(date)
   }
 
   // Group data by tour and time slot - memoized for performance
@@ -3875,6 +4298,13 @@ export default function DailyListPage() {
                                 {serviceGroupMemberships.get(slotAvailabilityId)?.groupName}
                               </span>
                             )}
+                            {/* Splits Badge */}
+                            {slotAvailabilityId && timeSlotSplits.has(slotAvailabilityId) && timeSlotSplits.get(slotAvailabilityId)!.length > 0 && (
+                              <span className="text-sm font-medium px-2 py-1 rounded flex items-center gap-1 bg-purple-100 text-purple-700 border border-purple-300">
+                                <Users className="w-4 h-4" />
+                                {timeSlotSplits.get(slotAvailabilityId)!.length} split{timeSlotSplits.get(slotAvailabilityId)!.length !== 1 ? 's' : ''}
+                              </span>
+                            )}
                             {/* Voucher Tickets Badge */}
                             {vouchersForSlot.length > 0 && (
                               <span className={`text-sm font-medium px-2 py-1 rounded flex items-center gap-1 ${
@@ -3918,6 +4348,26 @@ export default function DailyListPage() {
                             >
                               <Mail className="w-4 h-4 mr-1" />
                               Send Email
+                            </Button>
+                            {/* Split Group Button */}
+                            <Button
+                              size="sm"
+                              variant="outline"
+                              onClick={() => {
+                                if (slotAvailabilityId) {
+                                  openSplitModal(
+                                    slotAvailabilityId,
+                                    tour.tourTitle,
+                                    timeSlot.time,
+                                    timeSlot.bookings,
+                                    vouchersForSlot
+                                  )
+                                }
+                              }}
+                              disabled={!slotAvailabilityId}
+                            >
+                              <Users className="w-4 h-4 mr-1" />
+                              Split {timeSlotSplits.has(slotAvailabilityId!) && timeSlotSplits.get(slotAvailabilityId!)!.length > 0 && `(${timeSlotSplits.get(slotAvailabilityId!)!.length})`}
                             </Button>
                           </div>
                         </div>
@@ -4456,6 +4906,277 @@ export default function DailyListPage() {
                   )}
                 </Button>
               </div>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Split Groups Modal */}
+      {splitModal.isOpen && (
+        <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50 p-4">
+          <div className="bg-white rounded-lg shadow-xl max-w-4xl w-full max-h-[90vh] overflow-hidden flex flex-col">
+            {/* Header */}
+            <div className="p-6 border-b flex justify-between items-start">
+              <div>
+                <h2 className="text-xl font-semibold">Split Time Slot</h2>
+                <p className="text-sm text-gray-500 mt-1">
+                  {splitModal.tourTitle} - {splitModal.time.substring(0, 5)}
+                </p>
+              </div>
+              <button
+                onClick={() => {
+                  setSplitModal(prev => ({ ...prev, isOpen: false }))
+                  fetchTimeSlotSplits(selectedDate)
+                }}
+                className="text-gray-500 hover:text-gray-700"
+              >
+                <X className="w-6 h-6" />
+              </button>
+            </div>
+
+            {/* Content */}
+            <div className="flex-1 overflow-auto p-6">
+              <div className="grid grid-cols-2 gap-6">
+                {/* Left: Unsplit Pool */}
+                <div>
+                  <h3 className="font-medium mb-3">Unsplit Bookings ({splitModal.unsplitBookings.length})</h3>
+                  <div className="border rounded-lg p-3 space-y-2 max-h-64 overflow-auto bg-gray-50">
+                    {splitModal.unsplitBookings.length === 0 ? (
+                      <p className="text-sm text-gray-400 text-center py-4">All bookings are assigned to splits</p>
+                    ) : (
+                      splitModal.unsplitBookings.map(booking => (
+                        <div
+                          key={booking.activity_booking_id}
+                          className="flex items-center justify-between p-2 bg-white rounded border"
+                        >
+                          <div className="flex-1">
+                            <span className="text-sm font-medium">
+                              {booking.customer?.first_name} {booking.customer?.last_name}
+                            </span>
+                            <span className="text-sm text-gray-500 ml-2">
+                              ({booking.total_participants} pax)
+                            </span>
+                          </div>
+                          {splitModal.splits.length > 0 && (
+                            <Select
+                              onValueChange={(splitId) => assignBookingsToSplit(splitId, [booking.activity_booking_id])}
+                            >
+                              <SelectTrigger className="w-32 h-8 text-xs">
+                                <SelectValue placeholder="Add to..." />
+                              </SelectTrigger>
+                              <SelectContent>
+                                {splitModal.splits.map(split => (
+                                  <SelectItem key={split.id} value={split.id}>
+                                    {split.split_name}
+                                  </SelectItem>
+                                ))}
+                              </SelectContent>
+                            </Select>
+                          )}
+                        </div>
+                      ))
+                    )}
+                  </div>
+
+                  {/* Unsplit Vouchers */}
+                  {splitModal.allVouchers.length > 0 && (
+                    <>
+                      <h3 className="font-medium mt-4 mb-3">Unsplit Vouchers ({splitModal.unsplitVouchers.length})</h3>
+                      <div className="border rounded-lg p-3 space-y-2 max-h-32 overflow-auto bg-orange-50">
+                        {splitModal.unsplitVouchers.length === 0 ? (
+                          <p className="text-sm text-gray-400 text-center py-2">All vouchers are assigned</p>
+                        ) : (
+                          splitModal.unsplitVouchers.map(voucher => (
+                            <div key={voucher.id} className="flex items-center justify-between p-2 bg-white rounded border">
+                              <span className="text-sm">{voucher.booking_number} ({voucher.total_tickets} tickets)</span>
+                              {splitModal.splits.length > 0 && (
+                                <Select
+                                  onValueChange={(splitId) => assignVouchersToSplit(splitId, [voucher.id])}
+                                >
+                                  <SelectTrigger className="w-32 h-8 text-xs">
+                                    <SelectValue placeholder="Add to..." />
+                                  </SelectTrigger>
+                                  <SelectContent>
+                                    {splitModal.splits.map(split => (
+                                      <SelectItem key={split.id} value={split.id}>
+                                        {split.split_name}
+                                      </SelectItem>
+                                    ))}
+                                  </SelectContent>
+                                </Select>
+                              )}
+                            </div>
+                          ))
+                        )}
+                      </div>
+                    </>
+                  )}
+                </div>
+
+                {/* Right: Split Groups */}
+                <div>
+                  <div className="flex justify-between items-center mb-3">
+                    <h3 className="font-medium">Groups ({splitModal.splits.length})</h3>
+                    <Button
+                      size="sm"
+                      onClick={() => createSplit(`Group ${splitModal.splits.length + 1}`)}
+                      disabled={savingSplit}
+                    >
+                      <Plus className="w-4 h-4 mr-1" />
+                      Add Group
+                    </Button>
+                  </div>
+
+                  <div className="space-y-4">
+                    {splitModal.splits.length === 0 ? (
+                      <p className="text-sm text-gray-400 text-center py-8 border rounded-lg bg-gray-50">
+                        No splits yet. Click &quot;Add Group&quot; to create one.
+                      </p>
+                    ) : (
+                      splitModal.splits.map(split => {
+                        const splitPaxCount = split.bookings.reduce((sum, b) => sum + b.total_participants, 0)
+
+                        return (
+                          <div key={split.id} className="border rounded-lg p-3 bg-purple-50">
+                            <div className="flex justify-between items-center mb-2">
+                              <span className="font-medium text-purple-700">{split.split_name}</span>
+                              <Button
+                                size="sm"
+                                variant="ghost"
+                                onClick={() => deleteSplit(split.id)}
+                                disabled={savingSplit}
+                              >
+                                <Trash2 className="w-4 h-4 text-red-500" />
+                              </Button>
+                            </div>
+
+                            {/* Guide Assignment */}
+                            <div className="mb-2">
+                              <Label className="text-xs text-gray-500 mb-1 block">Assign Guide</Label>
+                              <Select
+                                value={split.guide_id || 'none'}
+                                onValueChange={(value) => assignGuideToSplit(split.id, value === 'none' ? null : value)}
+                              >
+                                <SelectTrigger className="h-8 text-sm">
+                                  <SelectValue placeholder="Select guide..." />
+                                </SelectTrigger>
+                                <SelectContent>
+                                  <SelectItem value="none">No guide</SelectItem>
+                                  {allGuides.map(guide => (
+                                    <SelectItem key={guide.guide_id} value={guide.guide_id}>
+                                      {guide.first_name} {guide.last_name}
+                                    </SelectItem>
+                                  ))}
+                                </SelectContent>
+                              </Select>
+                            </div>
+
+                            {/* Assigned Bookings */}
+                            <div className="space-y-1 min-h-[40px] bg-white rounded p-2 border">
+                              {split.bookings.length === 0 ? (
+                                <p className="text-xs text-gray-400 text-center py-2">No bookings assigned</p>
+                              ) : (
+                                split.bookings.map(booking => (
+                                  <div key={booking.activity_booking_id} className="flex items-center justify-between text-sm p-1 bg-gray-50 rounded gap-2">
+                                    <span className="flex-1 truncate">
+                                      {booking.customer?.first_name} {booking.customer?.last_name} ({booking.total_participants})
+                                    </span>
+                                    <div className="flex items-center gap-1">
+                                      {/* Move to another split */}
+                                      {splitModal.splits.length > 1 && (
+                                        <Select
+                                          onValueChange={(targetSplitId) => assignBookingsToSplit(targetSplitId, [booking.activity_booking_id])}
+                                        >
+                                          <SelectTrigger className="w-20 h-6 text-xs">
+                                            <SelectValue placeholder="Move..." />
+                                          </SelectTrigger>
+                                          <SelectContent>
+                                            {splitModal.splits
+                                              .filter(s => s.id !== split.id)
+                                              .map(s => (
+                                                <SelectItem key={s.id} value={s.id}>
+                                                  {s.split_name}
+                                                </SelectItem>
+                                              ))}
+                                          </SelectContent>
+                                        </Select>
+                                      )}
+                                      <button
+                                        onClick={() => removeBookingsFromSplit([booking.activity_booking_id])}
+                                        className="text-red-500 hover:text-red-700 text-xs whitespace-nowrap"
+                                      >
+                                        Remove
+                                      </button>
+                                    </div>
+                                  </div>
+                                ))
+                              )}
+                            </div>
+
+                            {/* Assigned Vouchers */}
+                            {split.vouchers.length > 0 && (
+                              <div className="mt-2 space-y-1 bg-orange-50 rounded p-2 border border-orange-200">
+                                {split.vouchers.map(voucher => (
+                                  <div key={voucher.id} className="flex items-center justify-between text-sm gap-2">
+                                    <span className="text-orange-700 flex-1 truncate">{voucher.booking_number} ({voucher.total_tickets})</span>
+                                    <div className="flex items-center gap-1">
+                                      {/* Move to another split */}
+                                      {splitModal.splits.length > 1 && (
+                                        <Select
+                                          onValueChange={(targetSplitId) => assignVouchersToSplit(targetSplitId, [voucher.id])}
+                                        >
+                                          <SelectTrigger className="w-20 h-6 text-xs">
+                                            <SelectValue placeholder="Move..." />
+                                          </SelectTrigger>
+                                          <SelectContent>
+                                            {splitModal.splits
+                                              .filter(s => s.id !== split.id)
+                                              .map(s => (
+                                                <SelectItem key={s.id} value={s.id}>
+                                                  {s.split_name}
+                                                </SelectItem>
+                                              ))}
+                                          </SelectContent>
+                                        </Select>
+                                      )}
+                                      <button
+                                        onClick={() => removeVouchersFromSplit([voucher.id])}
+                                        className="text-red-500 hover:text-red-700 text-xs whitespace-nowrap"
+                                      >
+                                        Remove
+                                      </button>
+                                    </div>
+                                  </div>
+                                ))}
+                              </div>
+                            )}
+
+                            <div className="mt-2 text-xs text-gray-500">
+                              Total: {splitPaxCount} pax
+                            </div>
+                          </div>
+                        )
+                      })
+                    )}
+                  </div>
+                </div>
+              </div>
+            </div>
+
+            {/* Footer */}
+            <div className="p-4 border-t bg-gray-50 flex justify-end gap-2">
+              {savingSplit && (
+                <span className="text-sm text-gray-500 flex items-center">
+                  <Loader2 className="w-4 h-4 animate-spin mr-1" />
+                  Saving...
+                </span>
+              )}
+              <Button variant="outline" onClick={() => {
+                setSplitModal(prev => ({ ...prev, isOpen: false }))
+                fetchTimeSlotSplits(selectedDate)
+              }}>
+                Close
+              </Button>
             </div>
           </div>
         </div>
