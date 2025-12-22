@@ -3,7 +3,7 @@
 import { useState, useEffect, useRef, useMemo, useCallback } from 'react'
 import { supabase } from '@/lib/supabase'
 import { attachmentsApi } from '@/lib/api-client'
-import { Download, ChevronDown, Search, X, GripVertical, ChevronRight, User, UserCheck, Paperclip, Upload, Mail, Send, Loader2, MapPin, Ticket, FileText, Headphones, Printer, AlertTriangle, Link2, Users, Trash2, Plus } from 'lucide-react'
+import { Download, ChevronDown, Search, X, GripVertical, ChevronRight, User, UserCheck, Paperclip, Upload, Mail, Send, Loader2, MapPin, Ticket, FileText, Headphones, Printer, AlertTriangle, Link2, Users, Trash2, Plus, Settings } from 'lucide-react'
 import { format } from 'date-fns'
 import * as XLSX from 'xlsx-js-style'
 
@@ -72,6 +72,11 @@ import {
   SheetContent,
   SheetTitle,
 } from "@/components/ui/sheet"
+import {
+  HoverCard,
+  HoverCardContent,
+  HoverCardTrigger,
+} from "@/components/ui/hover-card"
 
 interface PaxData {
   activity_id: string
@@ -265,8 +270,26 @@ export default function DailyListPage() {
   // Vouchers state (activity_availability_id -> vouchers)
   const [slotVouchers, setSlotVouchers] = useState<Map<number, VoucherInfo[]>>(new Map())
 
+  // Service group member type
+  interface ServiceGroupMember {
+    activityTitle: string
+    time: string
+    pax?: number
+  }
+
+  // Service group info type
+  interface ServiceGroupInfo {
+    groupId: string
+    groupName: string
+    guideName?: string
+    members: ServiceGroupMember[]
+  }
+
   // Service group memberships (activity_availability_id -> group info)
-  const [serviceGroupMemberships, setServiceGroupMemberships] = useState<Map<number, { groupId: string; groupName: string }>>(new Map())
+  const [serviceGroupMemberships, setServiceGroupMemberships] = useState<Map<number, ServiceGroupInfo>>(new Map())
+
+  // Split service group memberships (time_slot_split_id -> group info)
+  const [splitServiceGroupMemberships, setSplitServiceGroupMemberships] = useState<Map<string, ServiceGroupInfo>>(new Map())
 
   // Consolidated email templates
   const [consolidatedTemplates, setConsolidatedTemplates] = useState<ConsolidatedEmailTemplate[]>([])
@@ -933,17 +956,98 @@ export default function DailyListPage() {
       const result = await response.json()
       const groups = result.data || []
 
-      const membershipMap = new Map<number, { groupId: string; groupName: string }>()
-      groups.forEach((group: { id: string; group_name: string | null; guide_service_group_members?: { activity_availability_id: number }[] }) => {
+      // Collect all guide IDs to fetch their names
+      const guideIds = [...new Set(groups.map((g: { guide_id: string | null }) => g.guide_id).filter(Boolean))]
+      const guideNameMap = new Map<string, string>()
+
+      if (guideIds.length > 0) {
+        const { data: guides } = await supabase
+          .from('guides')
+          .select('guide_id, first_name, last_name')
+          .in('guide_id', guideIds)
+
+        guides?.forEach(g => {
+          guideNameMap.set(g.guide_id, `${g.first_name} ${g.last_name}`)
+        })
+      }
+
+      // Collect all availability IDs to fetch their details
+      const allAvailabilityIds: number[] = []
+      groups.forEach((group: { guide_service_group_members?: { activity_availability_id: number }[] }) => {
         group.guide_service_group_members?.forEach(member => {
-          membershipMap.set(member.activity_availability_id, {
-            groupId: group.id,
-            groupName: group.group_name || 'Unnamed Group'
+          allAvailabilityIds.push(member.activity_availability_id)
+        })
+      })
+
+      // Fetch availability details (activity title and time)
+      const availabilityDetailsMap = new Map<number, { activityTitle: string; time: string; pax: number }>()
+      if (allAvailabilityIds.length > 0) {
+        const { data: availabilities } = await supabase
+          .from('activity_availability')
+          .select('id, activity_id, local_time, vacancy_sold')
+          .in('id', allAvailabilityIds)
+
+        if (availabilities) {
+          // Get activity titles
+          const activityIds = [...new Set(availabilities.map(a => a.activity_id))]
+          const { data: activities } = await supabase
+            .from('activities')
+            .select('activity_id, title')
+            .in('activity_id', activityIds)
+
+          const activityTitleMap = new Map<string, string>()
+          activities?.forEach(a => activityTitleMap.set(a.activity_id, a.title))
+
+          availabilities.forEach(a => {
+            const time = a.local_time?.substring(0, 5) || ''
+            availabilityDetailsMap.set(a.id, {
+              activityTitle: activityTitleMap.get(a.activity_id) || 'Unknown',
+              time,
+              pax: a.vacancy_sold || 0
+            })
           })
+        }
+      }
+
+      const membershipMap = new Map<number, ServiceGroupInfo>()
+      const splitMembershipMap = new Map<string, ServiceGroupInfo>()
+
+      groups.forEach((group: { id: string; group_name: string | null; guide_id: string | null; service_time: string; guide_service_group_members?: { activity_availability_id: number; time_slot_split_id: string | null }[] }) => {
+        const guideName = group.guide_id ? guideNameMap.get(group.guide_id) : undefined
+
+        // Build members array for this group
+        const members: ServiceGroupMember[] = []
+        group.guide_service_group_members?.forEach(member => {
+          const details = availabilityDetailsMap.get(member.activity_availability_id)
+          if (details) {
+            members.push({
+              activityTitle: details.activityTitle,
+              time: group.service_time?.substring(0, 5) || details.time,
+              pax: details.pax
+            })
+          }
+        })
+
+        const groupInfo: ServiceGroupInfo = {
+          groupId: group.id,
+          groupName: group.group_name || 'Unnamed Group',
+          guideName,
+          members
+        }
+
+        group.guide_service_group_members?.forEach(member => {
+          if (member.time_slot_split_id) {
+            // This is a split membership
+            splitMembershipMap.set(member.time_slot_split_id, groupInfo)
+          } else {
+            // This is a whole slot membership
+            membershipMap.set(member.activity_availability_id, groupInfo)
+          }
         })
       })
 
       setServiceGroupMemberships(membershipMap)
+      setSplitServiceGroupMemberships(splitMembershipMap)
     } catch (err) {
       console.error('Error fetching service group memberships:', err)
     }
@@ -3989,7 +4093,13 @@ export default function DailyListPage() {
   ]
 
   // Sortable row component for drag & drop
-  const SortableBookingRow = ({ booking, splitIndex }: { booking: PaxData; splitIndex?: number }) => {
+  const SortableBookingRow = ({ booking, splitIndex, splitName, guideName, serviceGroupName }: {
+    booking: PaxData;
+    splitIndex?: number;
+    splitName?: string;
+    guideName?: string;
+    serviceGroupName?: string;
+  }) => {
     const {
       attributes,
       listeners,
@@ -4015,7 +4125,16 @@ export default function DailyListPage() {
             <GripVertical className="h-4 w-4 text-gray-400" />
           </div>
         </TableCell>
-        <TableCell className="font-medium">{booking.activity_title}</TableCell>
+        <TableCell className="font-medium">
+          <div className="flex flex-col">
+            <span>{booking.activity_title}</span>
+            {splitName && (
+              <span className="text-xs font-semibold text-purple-600">
+                {splitName}{guideName ? ` - ${guideName}` : ''}{serviceGroupName ? ` • ${serviceGroupName}` : ''}
+              </span>
+            )}
+          </div>
+        </TableCell>
         <TableCell>{new Date(booking.booking_date).toLocaleDateString('it-IT')}</TableCell>
         <TableCell>{booking.start_time}</TableCell>
         <TableCell>{booking.participants_detail}</TableCell>
@@ -4303,13 +4422,93 @@ export default function DailyListPage() {
                             <span className="text-sm font-medium text-gray-700 bg-gray-200 px-2 py-1 rounded">
                               {timeSlot.totalParticipants} participants
                             </span>
-                            {/* Service Group Badge */}
-                            {slotAvailabilityId && serviceGroupMemberships.has(slotAvailabilityId) && (
-                              <span className="text-sm font-medium px-2 py-1 rounded flex items-center gap-1 bg-green-100 text-green-700 border border-green-300">
-                                <Link2 className="w-4 h-4" />
-                                {serviceGroupMemberships.get(slotAvailabilityId)?.groupName}
-                              </span>
-                            )}
+                            {/* Service Group Badge with HoverCard - shows for whole availability or splits in service groups */}
+                            {(() => {
+                              // Check if whole availability is in a service group
+                              if (slotAvailabilityId && serviceGroupMemberships.has(slotAvailabilityId)) {
+                                const groupInfo = serviceGroupMemberships.get(slotAvailabilityId)!
+                                return (
+                                  <HoverCard>
+                                    <HoverCardTrigger asChild>
+                                      <span className="text-sm font-medium px-2 py-1 rounded flex items-center gap-1 bg-green-100 text-green-700 border border-green-300 cursor-pointer hover:bg-green-200">
+                                        <Link2 className="w-4 h-4" />
+                                        {groupInfo.groupName}
+                                      </span>
+                                    </HoverCardTrigger>
+                                    <HoverCardContent className="w-96">
+                                      <div className="space-y-2">
+                                        <h4 className="text-sm font-semibold">Service Group: {groupInfo.groupName}</h4>
+                                        {groupInfo.guideName && (
+                                          <p className="text-sm text-gray-600">
+                                            <span className="font-medium">Guide:</span> {groupInfo.guideName}
+                                          </p>
+                                        )}
+                                        {groupInfo.members && groupInfo.members.length > 0 && (
+                                          <div className="mt-2">
+                                            <p className="text-xs font-medium text-gray-700 mb-1">Services in this group:</p>
+                                            <ul className="text-xs text-gray-600 space-y-1">
+                                              {groupInfo.members.map((member, idx) => (
+                                                <li key={idx} className="flex justify-between">
+                                                  <span className="truncate mr-2">• {member.activityTitle}</span>
+                                                  <span className="text-gray-400 whitespace-nowrap">at {member.time}</span>
+                                                </li>
+                                              ))}
+                                            </ul>
+                                          </div>
+                                        )}
+                                      </div>
+                                    </HoverCardContent>
+                                  </HoverCard>
+                                )
+                              }
+                              // Check if any split in this slot is in a service group
+                              const splitsInSlot = slotAvailabilityId ? timeSlotSplits.get(slotAvailabilityId) || [] : []
+                              const splitGroupInfos = splitsInSlot
+                                .filter(split => splitServiceGroupMemberships.has(split.id))
+                                .map(split => splitServiceGroupMemberships.get(split.id)!)
+
+                              // Get unique service groups
+                              const uniqueGroups = new Map<string, typeof splitGroupInfos[0]>()
+                              splitGroupInfos.forEach(info => uniqueGroups.set(info.groupId, info))
+
+                              if (uniqueGroups.size > 0) {
+                                const groups = Array.from(uniqueGroups.values())
+                                return groups.map(groupInfo => (
+                                  <HoverCard key={groupInfo.groupId}>
+                                    <HoverCardTrigger asChild>
+                                      <span className="text-sm font-medium px-2 py-1 rounded flex items-center gap-1 bg-green-100 text-green-700 border border-green-300 cursor-pointer hover:bg-green-200">
+                                        <Link2 className="w-4 h-4" />
+                                        {groupInfo.groupName}
+                                      </span>
+                                    </HoverCardTrigger>
+                                    <HoverCardContent className="w-96">
+                                      <div className="space-y-2">
+                                        <h4 className="text-sm font-semibold">Service Group: {groupInfo.groupName}</h4>
+                                        {groupInfo.guideName && (
+                                          <p className="text-sm text-gray-600">
+                                            <span className="font-medium">Guide:</span> {groupInfo.guideName}
+                                          </p>
+                                        )}
+                                        {groupInfo.members && groupInfo.members.length > 0 && (
+                                          <div className="mt-2">
+                                            <p className="text-xs font-medium text-gray-700 mb-1">Services in this group:</p>
+                                            <ul className="text-xs text-gray-600 space-y-1">
+                                              {groupInfo.members.map((member, idx) => (
+                                                <li key={idx} className="flex justify-between">
+                                                  <span className="truncate mr-2">• {member.activityTitle}</span>
+                                                  <span className="text-gray-400 whitespace-nowrap">at {member.time}</span>
+                                                </li>
+                                              ))}
+                                            </ul>
+                                          </div>
+                                        )}
+                                      </div>
+                                    </HoverCardContent>
+                                  </HoverCard>
+                                ))
+                              }
+                              return null
+                            })()}
                             {/* Splits Badge */}
                             {slotAvailabilityId && timeSlotSplits.has(slotAvailabilityId) && timeSlotSplits.get(slotAvailabilityId)!.length > 0 && (
                               <span className="text-sm font-medium px-2 py-1 rounded flex items-center gap-1 bg-purple-100 text-purple-700 border border-purple-300">
@@ -4378,7 +4577,7 @@ export default function DailyListPage() {
                               }}
                               disabled={!slotAvailabilityId}
                             >
-                              <Users className="w-4 h-4 mr-1" />
+                              <Settings className="w-4 h-4 mr-1" />
                               Split {timeSlotSplits.has(slotAvailabilityId!) && timeSlotSplits.get(slotAvailabilityId!)!.length > 0 && `(${timeSlotSplits.get(slotAvailabilityId!)!.length})`}
                             </Button>
                           </div>
@@ -4512,16 +4711,42 @@ export default function DailyListPage() {
                               {timeSlot.bookings.map((booking) => {
                                 // Find which split this booking belongs to (if any)
                                 const splitsForSlot = slotAvailabilityId ? timeSlotSplits.get(slotAvailabilityId) || [] : []
+                                const staffForSlot = slotAvailabilityId ? staffAssignments.get(slotAvailabilityId) : undefined
                                 const splitIndex = splitsForSlot.findIndex(split =>
                                   split.time_slot_split_bookings?.some(
                                     (sb: { activity_booking_id: number }) => sb.activity_booking_id === booking.activity_booking_id
                                   )
                                 )
+                                // Get split info if booking is in a split
+                                let splitName: string | undefined
+                                let guideName: string | undefined
+                                let serviceGroupName: string | undefined
+                                if (splitIndex >= 0) {
+                                  const split = splitsForSlot[splitIndex]
+                                  splitName = split.split_name
+                                  // Get guide name from staff assignments
+                                  if (split.guide_id) {
+                                    const guide = staffForSlot?.guides.find(g => g.id === split.guide_id)
+                                    guideName = guide ? `${guide.first_name} ${guide.last_name}` : undefined
+                                  }
+                                  // Get service group info (with its guide name)
+                                  const serviceGroup = splitServiceGroupMemberships.get(split.id)
+                                  if (serviceGroup) {
+                                    serviceGroupName = serviceGroup.groupName
+                                    // If the service group has a guide and we don't have a split guide name yet, use it
+                                    if (!guideName && serviceGroup.guideName) {
+                                      guideName = serviceGroup.guideName
+                                    }
+                                  }
+                                }
                                 return (
                                   <SortableBookingRow
                                     key={booking.activity_booking_id}
                                     booking={booking}
                                     splitIndex={splitIndex >= 0 ? splitIndex : undefined}
+                                    splitName={splitName}
+                                    guideName={guideName}
+                                    serviceGroupName={serviceGroupName}
                                   />
                                 )
                               })}
@@ -5072,25 +5297,32 @@ export default function DailyListPage() {
                               </Button>
                             </div>
 
-                            {/* Guide Assignment */}
+                            {/* Guide Assignment - only show guides assigned to this time slot */}
                             <div className="mb-2">
                               <Label className="text-xs text-gray-500 mb-1 block">Assign Guide</Label>
-                              <Select
-                                value={split.guide_id || 'none'}
-                                onValueChange={(value) => assignGuideToSplit(split.id, value === 'none' ? null : value)}
-                              >
-                                <SelectTrigger className="h-8 text-sm">
-                                  <SelectValue placeholder="Select guide..." />
-                                </SelectTrigger>
-                                <SelectContent>
-                                  <SelectItem value="none">No guide</SelectItem>
-                                  {allGuides.map(guide => (
-                                    <SelectItem key={guide.guide_id} value={guide.guide_id}>
-                                      {guide.first_name} {guide.last_name}
-                                    </SelectItem>
-                                  ))}
-                                </SelectContent>
-                              </Select>
+                              {(() => {
+                                const assignedGuides = splitModal.availabilityId
+                                  ? staffAssignments.get(splitModal.availabilityId)?.guides || []
+                                  : []
+                                return (
+                                  <Select
+                                    value={split.guide_id || 'none'}
+                                    onValueChange={(value) => assignGuideToSplit(split.id, value === 'none' ? null : value)}
+                                  >
+                                    <SelectTrigger className="h-8 text-sm">
+                                      <SelectValue placeholder="Select guide..." />
+                                    </SelectTrigger>
+                                    <SelectContent>
+                                      <SelectItem value="none">No guide</SelectItem>
+                                      {assignedGuides.map(guide => (
+                                        <SelectItem key={guide.id} value={guide.id}>
+                                          {guide.first_name} {guide.last_name}
+                                        </SelectItem>
+                                      ))}
+                                    </SelectContent>
+                                  </Select>
+                                )
+                              })()}
                             </div>
 
                             {/* Assigned Bookings */}

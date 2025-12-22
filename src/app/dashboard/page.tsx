@@ -100,6 +100,11 @@ function AppSidebar({ currentView, onNavigate }: {
           view: "daily-list",
         },
         {
+          title: "Service Groups",
+          icon: Link2,
+          view: "service-groups",
+        },
+        {
           title: "Notifications",
           icon: Bell,
           view: "notifications",
@@ -193,11 +198,6 @@ function AppSidebar({ currentView, onNavigate }: {
               view: "printing-assignments",
             },
           ],
-        },
-        {
-          title: "Service Groups",
-          icon: Link2,
-          view: "service-groups",
         },
         {
           title: "Staff Cost",
@@ -1102,13 +1102,13 @@ export default function DashboardLayout() {
   }
 
   const getBreadcrumbSection = () => {
-    if (['recap', 'consumed', 'pax-names', 'daily-list', 'notifications'].includes(currentView)) {
+    if (['recap', 'consumed', 'pax-names', 'daily-list', 'service-groups', 'notifications'].includes(currentView)) {
       return 'Operations'
     }
     if (['voucher-upload', 'vouchers-list', 'ticket-categories', 'product-mappings', 'type-mappings'].includes(currentView)) {
       return 'Tickets'
     }
-    if (['guides-list', 'escorts-list', 'headphones-list', 'printing-list', 'guide-assignments', 'escort-assignments', 'headphone-assignments', 'printing-assignments', 'service-groups', 'resource-costs'].includes(currentView)) {
+    if (['guides-list', 'escorts-list', 'headphones-list', 'printing-list', 'guide-assignments', 'escort-assignments', 'headphone-assignments', 'printing-assignments', 'resource-costs'].includes(currentView)) {
       return 'Staff'
     }
     if (['marketing-export', 'staff-reports'].includes(currentView)) {
