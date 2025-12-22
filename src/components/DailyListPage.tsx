@@ -460,7 +460,7 @@ export default function DailyListPage() {
       const { data: guides, error } = await supabase
         .from('guides')
         .select('guide_id, first_name, last_name')
-        .eq('is_active', true)
+        .eq('active', true)
         .order('first_name')
 
       if (error) {
@@ -3979,8 +3979,17 @@ export default function DailyListPage() {
     console.log(`Exported ${fileCount} file(s)`)
   }
 
+  // Split colors for visual indication (up to 5 distinct colors)
+  const splitColors = [
+    'bg-purple-100 border-l-4 border-l-purple-500',
+    'bg-blue-100 border-l-4 border-l-blue-500',
+    'bg-green-100 border-l-4 border-l-green-500',
+    'bg-orange-100 border-l-4 border-l-orange-500',
+    'bg-pink-100 border-l-4 border-l-pink-500',
+  ]
+
   // Sortable row component for drag & drop
-  const SortableBookingRow = ({ booking }: { booking: PaxData }) => {
+  const SortableBookingRow = ({ booking, splitIndex }: { booking: PaxData; splitIndex?: number }) => {
     const {
       attributes,
       listeners,
@@ -3996,8 +4005,11 @@ export default function DailyListPage() {
       opacity: isDragging ? 0.5 : 1,
     }
 
+    // Get the background class based on split assignment
+    const splitClass = splitIndex !== undefined ? splitColors[splitIndex % splitColors.length] : ''
+
     return (
-      <TableRow ref={setNodeRef} style={style} className={isDragging ? 'bg-gray-100' : ''}>
+      <TableRow ref={setNodeRef} style={style} className={`${isDragging ? 'bg-gray-100' : splitClass}`}>
         <TableCell>
           <div {...attributes} {...listeners} className="cursor-grab active:cursor-grabbing">
             <GripVertical className="h-4 w-4 text-gray-400" />
@@ -4497,12 +4509,22 @@ export default function DailyListPage() {
                               items={timeSlot.bookings.map((b) => b.activity_booking_id)}
                               strategy={verticalListSortingStrategy}
                             >
-                              {timeSlot.bookings.map((booking) => (
-                                <SortableBookingRow
-                                  key={booking.activity_booking_id}
-                                  booking={booking}
-                                />
-                              ))}
+                              {timeSlot.bookings.map((booking) => {
+                                // Find which split this booking belongs to (if any)
+                                const splitsForSlot = slotAvailabilityId ? timeSlotSplits.get(slotAvailabilityId) || [] : []
+                                const splitIndex = splitsForSlot.findIndex(split =>
+                                  split.time_slot_split_bookings?.some(
+                                    (sb: { activity_booking_id: number }) => sb.activity_booking_id === booking.activity_booking_id
+                                  )
+                                )
+                                return (
+                                  <SortableBookingRow
+                                    key={booking.activity_booking_id}
+                                    booking={booking}
+                                    splitIndex={splitIndex >= 0 ? splitIndex : undefined}
+                                  />
+                                )
+                              })}
                             </SortableContext>
                           </TableBody>
                         </Table>
