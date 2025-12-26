@@ -655,6 +655,7 @@ export interface CostReportSummary {
   label: string
   total_cost: number
   count: number
+  total_pax: number
 }
 
 export interface CostReportResponse {

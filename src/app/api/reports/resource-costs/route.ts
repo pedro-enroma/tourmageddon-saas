@@ -62,7 +62,7 @@ export async function GET(request: NextRequest) {
     const supabase = getServiceRoleClient()
     const costItems: CostItem[] = []
 
-    // Fetch all data in parallel - use joins for assignments to filter by date
+    // Phase 1: Fetch assignments and reference data in parallel
     const [
       guidesResult,
       escortsResult,
@@ -77,7 +77,6 @@ export async function GET(request: NextRequest) {
       overridesResult,
       serviceGroupsResult,
       activitiesResult,
-      availabilityResult,
       seasonsResult,
       seasonalCostsResult,
       specialDatesResult,
@@ -93,35 +92,34 @@ export async function GET(request: NextRequest) {
         .select('assignment_id, guide_id, activity_availability_id, activity_availability!inner(local_date)')
         .gte('activity_availability.local_date', start_date)
         .lte('activity_availability.local_date', end_date)
+        .limit(10000)
         : { data: [] },
       resource_types.includes('escort') ? supabase
         .from('escort_assignments')
         .select('assignment_id, escort_id, activity_availability_id, activity_availability!inner(local_date)')
         .gte('activity_availability.local_date', start_date)
         .lte('activity_availability.local_date', end_date)
+        .limit(10000)
         : { data: [] },
       resource_types.includes('headphone') ? supabase
         .from('headphone_assignments')
         .select('assignment_id, headphone_id, activity_availability_id, activity_availability!inner(local_date)')
         .gte('activity_availability.local_date', start_date)
         .lte('activity_availability.local_date', end_date)
+        .limit(10000)
         : { data: [] },
       resource_types.includes('printing') ? supabase
         .from('printing_assignments')
         .select('assignment_id, printing_id, activity_availability_id, activity_availability!inner(local_date)')
         .gte('activity_availability.local_date', start_date)
         .lte('activity_availability.local_date', end_date)
+        .limit(10000)
         : { data: [] },
       supabase.from('guide_activity_costs').select('*'),
       supabase.from('resource_rates').select('*'),
       supabase.from('assignment_cost_overrides').select('*'),
       supabase.from('guide_service_groups').select('*, guide_service_group_members(*)'),
       supabase.from('activities').select('activity_id, title'),
-      supabase
-        .from('activity_availability')
-        .select('id, activity_id, local_date, local_time, vacancy_sold')
-        .gte('local_date', start_date)
-        .lte('local_date', end_date),
       // Seasonal pricing tables
       supabase.from('cost_seasons').select('id, year, name, start_date, end_date'),
       supabase.from('guide_seasonal_costs').select('activity_id, season_id, cost_amount'),
@@ -129,14 +127,65 @@ export async function GET(request: NextRequest) {
       supabase.from('guide_special_date_costs').select('activity_id, special_date_id, cost_amount')
     ])
 
+    // Phase 2: Collect all unique activity_availability_ids from assignments and service groups
+    const allAvailabilityIds = new Set<number>()
+
+    guideAssignmentsResult.data?.forEach(a => allAvailabilityIds.add(a.activity_availability_id))
+    escortAssignmentsResult.data?.forEach(a => allAvailabilityIds.add(a.activity_availability_id))
+    headphoneAssignmentsResult.data?.forEach(a => allAvailabilityIds.add(a.activity_availability_id))
+    printingAssignmentsResult.data?.forEach(a => allAvailabilityIds.add(a.activity_availability_id))
+
+    // Also include availability IDs from service groups
+    serviceGroupsResult.data?.forEach(g => {
+      g.guide_service_group_members?.forEach((m: { activity_availability_id: number }) => {
+        allAvailabilityIds.add(m.activity_availability_id)
+      })
+    })
+
+    // Phase 3: Fetch only the availability records we need (by ID, not date range)
+    // Split into batches of 500 to avoid URL length limits
+    const availabilityIdsArray = Array.from(allAvailabilityIds)
+    const availabilityBatches: number[][] = []
+    for (let i = 0; i < availabilityIdsArray.length; i += 500) {
+      availabilityBatches.push(availabilityIdsArray.slice(i, i + 500))
+    }
+
+    const availabilityResults = await Promise.all(
+      availabilityBatches.map(batch =>
+        supabase
+          .from('activity_availability')
+          .select('id, activity_id, local_date, local_time, vacancy_sold')
+          .in('id', batch)
+      )
+    )
+
+    // Combine all availability results
+    const allAvailabilityData = availabilityResults.flatMap(r => r.data || [])
+
+    // Debug logging
+    console.log('=== RESOURCE COSTS DEBUG ===')
+    console.log('Guide assignments returned:', guideAssignmentsResult.data?.length || 0)
+    console.log('Unique availability IDs needed:', allAvailabilityIds.size)
+    console.log('Availability records fetched:', allAvailabilityData.length)
+    console.log('Service groups returned:', serviceGroupsResult.data?.length || 0)
+    console.log('Seasons loaded:', seasonsResult.data?.length || 0)
+    console.log('Seasonal costs loaded:', seasonalCostsResult.data?.length || 0)
+    console.log('Legacy activity costs loaded:', guideActivityCostsResult.data?.length || 0)
+    if (seasonsResult.data?.length) {
+      console.log('Seasons:', seasonsResult.data.map(s => `${s.name}: ${s.start_date} to ${s.end_date}`))
+    }
+    if (seasonalCostsResult.data?.length) {
+      console.log('Sample seasonal costs:', seasonalCostsResult.data.slice(0, 5).map(sc => `activity ${sc.activity_id} season ${sc.season_id}: €${sc.cost_amount}`))
+    }
+
     // Build lookup maps
     const guidesMap = new Map(guidesResult.data?.map(g => [g.guide_id, `${g.first_name} ${g.last_name}`]) || [])
     const escortsMap = new Map(escortsResult.data?.map(e => [e.escort_id, `${e.first_name} ${e.last_name}`]) || [])
     const headphonesMap = new Map(headphonesResult.data?.map(h => [h.headphone_id, h.name]) || [])
     const printingMap = new Map(printingResult.data?.map(p => [p.printing_id, p.name]) || [])
-    const activitiesMap = new Map(activitiesResult.data?.map(a => [a.activity_id, a.title]) || [])
+    const activitiesMap = new Map(activitiesResult.data?.map(a => [String(a.activity_id), a.title]) || [])
 
-    const availabilityMap = new Map(availabilityResult.data?.map(a => [a.id, a]) || [])
+    const availabilityMap = new Map(allAvailabilityData.map(a => [a.id, a]))
 
     // Build activity costs map - prefer global costs (null guide_id), fall back to guide-specific
     const activityCostsMap = new Map<string, number>()
@@ -145,10 +194,10 @@ export async function GET(request: NextRequest) {
     guideActivityCostsResult.data?.forEach(c => {
       if (!c.guide_id) {
         // Global cost (applies to all guides)
-        activityCostsMap.set(c.activity_id, c.cost_amount)
+        activityCostsMap.set(String(c.activity_id), c.cost_amount)
       } else {
         // Guide-specific cost (for backward compatibility)
-        guideSpecificCostsMap.set(`${c.guide_id}:${c.activity_id}`, c.cost_amount)
+        guideSpecificCostsMap.set(`${c.guide_id}:${String(c.activity_id)}`, c.cost_amount)
       }
     })
 
@@ -162,23 +211,37 @@ export async function GET(request: NextRequest) {
     const specialDateMap = new Map(specialDates.map(sd => [sd.date, sd.id]))
 
     // Map: activity_id:special_date_id -> cost
+    // IMPORTANT: Convert activity_id to string to ensure consistent lookups
     const specialDateCostMap = new Map(
-      specialDateCosts.map(sdc => [`${sdc.activity_id}:${sdc.special_date_id}`, sdc.cost_amount])
+      specialDateCosts.map(sdc => [`${String(sdc.activity_id)}:${String(sdc.special_date_id)}`, sdc.cost_amount])
     )
 
     // Map: activity_id:season_id -> cost
+    // IMPORTANT: Convert activity_id to string to ensure consistent lookups
     const seasonalCostMap = new Map(
-      seasonalCosts.map(sc => [`${sc.activity_id}:${sc.season_id}`, sc.cost_amount])
+      seasonalCosts.map(sc => [`${String(sc.activity_id)}:${String(sc.season_id)}`, sc.cost_amount])
     )
 
+    // Debug: log the seasonal cost map keys
+    console.log('Seasonal cost map keys:', Array.from(seasonalCostMap.keys()).slice(0, 10))
+    console.log('Seasonal cost map sample values:', Array.from(seasonalCostMap.entries()).slice(0, 5))
+
     // Helper to get guide cost for a specific activity and date
-    const getGuideCostForDate = (activityId: string, date: string, guideId?: string): number => {
-      // 1. Check special date cost first
+    // Returns the HIGHEST cost among all applicable costs (special date, seasonal, legacy)
+    // Track statistics for debugging
+    const costLookupStats = { found: 0, notFound: 0, noCostActivities: new Set<string>() }
+
+    const getGuideCostForDate = (activityId: string | number, date: string, guideId?: string): number => {
+      const applicableCosts: number[] = []
+      // Normalize activity_id to string for consistent lookups
+      const activityIdStr = String(activityId)
+
+      // 1. Check special date cost
       const specialDateId = specialDateMap.get(date)
       if (specialDateId) {
-        const specialCost = specialDateCostMap.get(`${activityId}:${specialDateId}`)
+        const specialCost = specialDateCostMap.get(`${activityIdStr}:${specialDateId}`)
         if (specialCost !== undefined) {
-          return specialCost
+          applicableCosts.push(specialCost)
         }
       }
 
@@ -188,28 +251,38 @@ export async function GET(request: NextRequest) {
         const seasonStart = new Date(season.start_date)
         const seasonEnd = new Date(season.end_date)
         if (dateObj >= seasonStart && dateObj <= seasonEnd) {
-          const seasonalCost = seasonalCostMap.get(`${activityId}:${season.id}`)
+          const lookupKey = `${activityIdStr}:${String(season.id)}`
+          const seasonalCost = seasonalCostMap.get(lookupKey)
           if (seasonalCost !== undefined) {
-            return seasonalCost
+            applicableCosts.push(seasonalCost)
           }
         }
       }
 
-      // 3. Fall back to legacy costs
-      const globalCost = activityCostsMap.get(activityId)
+      // 3. Check legacy global cost
+      const globalCost = activityCostsMap.get(activityIdStr)
       if (globalCost !== undefined) {
-        return globalCost
+        applicableCosts.push(globalCost)
       }
 
       // 4. Guide-specific cost (backward compatibility)
       if (guideId) {
-        const guideSpecificCost = guideSpecificCostsMap.get(`${guideId}:${activityId}`)
+        const guideSpecificCost = guideSpecificCostsMap.get(`${guideId}:${activityIdStr}`)
         if (guideSpecificCost !== undefined) {
-          return guideSpecificCost
+          applicableCosts.push(guideSpecificCost)
         }
       }
 
-      return 0
+      // Track statistics
+      if (applicableCosts.length > 0) {
+        costLookupStats.found++
+      } else {
+        costLookupStats.notFound++
+        costLookupStats.noCostActivities.add(activityIdStr)
+      }
+
+      // Return the highest cost, or 0 if no costs found
+      return applicableCosts.length > 0 ? Math.max(...applicableCosts) : 0
     }
 
     const resourceRatesMap = new Map<string, { rate_amount: number; rate_type: string }>()
@@ -225,13 +298,30 @@ export async function GET(request: NextRequest) {
       overridesMap.set(`${o.assignment_type}:${o.assignment_id}`, o.override_amount)
     })
 
-    // Build service groups map (assignment_id -> group info)
-    const assignmentToGroupMap = new Map<string, { group_id: string; is_primary: boolean }>()
+    // Build service groups map (activity_availability_id -> group info)
+    // Service groups share one guide across multiple availabilities - we should only count ONCE per group
+    // with the HIGHEST cost activity in that group
+    const availabilityToGroupMap = new Map<number, {
+      group_id: string
+      guide_id: string | null
+      service_date: string
+      calculated_cost: number | null
+      all_availability_ids: number[]
+    }>()
+
+    // Track which groups we've already processed (to avoid counting multiple times)
+    const processedGroups = new Set<string>()
+
     serviceGroupsResult.data?.forEach(g => {
-      g.guide_service_group_members?.forEach((m: { guide_assignment_id: string }) => {
-        assignmentToGroupMap.set(m.guide_assignment_id, {
+      const availabilityIds = g.guide_service_group_members?.map((m: { activity_availability_id: number }) => m.activity_availability_id) || []
+
+      availabilityIds.forEach((availId: number) => {
+        availabilityToGroupMap.set(availId, {
           group_id: g.id,
-          is_primary: g.primary_assignment_id === m.guide_assignment_id
+          guide_id: g.guide_id,
+          service_date: g.service_date,
+          calculated_cost: g.calculated_cost,
+          all_availability_ids: availabilityIds
         })
       })
     })
@@ -242,32 +332,71 @@ export async function GET(request: NextRequest) {
         const availability = availabilityMap.get(assignment.activity_availability_id)
         if (!availability) return
 
-        const groupInfo = assignmentToGroupMap.get(assignment.assignment_id)
+        const groupInfo = availabilityToGroupMap.get(assignment.activity_availability_id)
 
-        // Skip non-primary grouped assignments (cost is 0)
-        if (groupInfo && !groupInfo.is_primary) return
+        // If this assignment is part of a service group
+        if (groupInfo) {
+          // Skip if we've already processed this group
+          if (processedGroups.has(groupInfo.group_id)) return
+          processedGroups.add(groupInfo.group_id)
 
-        // Check for override first (highest priority)
-        let cost = overridesMap.get(`guide:${assignment.assignment_id}`)
+          // For service groups, find the HIGHEST cost among all activities in the group
+          let highestCost = 0
+          let highestCostActivityId = String(availability.activity_id)
+          let highestCostActivityTitle = activitiesMap.get(String(availability.activity_id)) || 'Unknown Activity'
 
-        if (cost === undefined) {
-          // Use seasonal cost lookup: special date > seasonal > legacy
-          cost = getGuideCostForDate(availability.activity_id, availability.local_date, assignment.guide_id)
+          for (const availId of groupInfo.all_availability_ids) {
+            const avail = availabilityMap.get(availId)
+            if (!avail) continue
+
+            const activityCost = getGuideCostForDate(String(avail.activity_id), avail.local_date, assignment.guide_id)
+            if (activityCost > highestCost) {
+              highestCost = activityCost
+              highestCostActivityId = String(avail.activity_id)
+              highestCostActivityTitle = activitiesMap.get(String(avail.activity_id)) || 'Unknown Activity'
+            }
+          }
+
+          // Use group's calculated_cost if set, otherwise use highest computed cost
+          const finalCost = groupInfo.calculated_cost ?? highestCost
+
+          costItems.push({
+            resource_type: 'guide',
+            resource_id: assignment.guide_id,
+            resource_name: guidesMap.get(assignment.guide_id) || 'Unknown Guide',
+            date: availability.local_date,
+            activity_id: highestCostActivityId,
+            activity_title: highestCostActivityTitle,
+            assignment_id: assignment.assignment_id,
+            cost_amount: finalCost,
+            currency: 'EUR',
+            is_grouped: true,
+            group_id: groupInfo.group_id
+          })
+        } else {
+          // Regular assignment (not in a group)
+          // Check for override first (highest priority)
+          let cost = overridesMap.get(`guide:${assignment.assignment_id}`)
+
+          if (cost === undefined) {
+            // Use cost lookup - returns highest among all applicable costs
+            cost = getGuideCostForDate(String(availability.activity_id), availability.local_date, assignment.guide_id)
+          }
+
+          costItems.push({
+            resource_type: 'guide',
+            resource_id: assignment.guide_id,
+            resource_name: guidesMap.get(assignment.guide_id) || 'Unknown Guide',
+            date: availability.local_date,
+            activity_id: String(availability.activity_id),
+            activity_title: activitiesMap.get(String(availability.activity_id)) || 'Unknown Activity',
+            assignment_id: assignment.assignment_id,
+            cost_amount: cost,
+            currency: 'EUR',
+            is_grouped: false,
+            group_id: undefined
+          })
         }
-
-        costItems.push({
-          resource_type: 'guide',
-          resource_id: assignment.guide_id,
-          resource_name: guidesMap.get(assignment.guide_id) || 'Unknown Guide',
-          date: availability.local_date,
-          activity_id: availability.activity_id,
-          activity_title: activitiesMap.get(availability.activity_id) || 'Unknown Activity',
-          assignment_id: assignment.assignment_id,
-          cost_amount: cost,
-          currency: 'EUR',
-          is_grouped: !!groupInfo,
-          group_id: groupInfo?.group_id
-        })
       })
     }
 
@@ -324,8 +453,8 @@ export async function GET(request: NextRequest) {
           resource_id: assignment.headphone_id,
           resource_name: headphonesMap.get(assignment.headphone_id) || 'Unknown Headphone',
           date: availability.local_date,
-          activity_id: availability.activity_id,
-          activity_title: activitiesMap.get(availability.activity_id) || 'Unknown Activity',
+          activity_id: String(availability.activity_id),
+          activity_title: activitiesMap.get(String(availability.activity_id)) || 'Unknown Activity',
           assignment_id: assignment.assignment_id,
           pax_count: paxCount,
           cost_amount: cost,
@@ -355,8 +484,8 @@ export async function GET(request: NextRequest) {
           resource_id: assignment.printing_id,
           resource_name: printingMap.get(assignment.printing_id) || 'Unknown Printing',
           date: availability.local_date,
-          activity_id: availability.activity_id,
-          activity_title: activitiesMap.get(availability.activity_id) || 'Unknown Activity',
+          activity_id: String(availability.activity_id),
+          activity_title: activitiesMap.get(String(availability.activity_id)) || 'Unknown Activity',
           assignment_id: assignment.assignment_id,
           pax_count: paxCount,
           cost_amount: cost,
@@ -366,7 +495,7 @@ export async function GET(request: NextRequest) {
     }
 
     // Calculate summaries based on group_by
-    const summaries: Record<string, { key: string; label: string; total_cost: number; count: number }> = {}
+    const summaries: Record<string, { key: string; label: string; total_cost: number; count: number; total_pax: number }> = {}
 
     costItems.forEach(item => {
       let key: string
@@ -388,13 +517,27 @@ export async function GET(request: NextRequest) {
       }
 
       if (!summaries[key]) {
-        summaries[key] = { key, label, total_cost: 0, count: 0 }
+        summaries[key] = { key, label, total_cost: 0, count: 0, total_pax: 0 }
       }
       summaries[key].total_cost += item.cost_amount
       summaries[key].count += 1
+      // Add pax_count for headphones and printing resources
+      if (item.pax_count) {
+        summaries[key].total_pax += item.pax_count
+      }
     })
 
     const totalCost = costItems.reduce((sum, item) => sum + item.cost_amount, 0)
+
+    // Log cost lookup statistics
+    console.log('=== COST LOOKUP STATS ===')
+    console.log(`Found costs: ${costLookupStats.found} lookups`)
+    console.log(`No costs found: ${costLookupStats.notFound} lookups`)
+    if (costLookupStats.noCostActivities.size > 0) {
+      console.log('Activities with NO cost configured:', Array.from(costLookupStats.noCostActivities))
+    }
+    console.log(`Total cost items: ${costItems.length}`)
+    console.log(`Total cost: €${totalCost}`)
 
     return NextResponse.json({
       data: {

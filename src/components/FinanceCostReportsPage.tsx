@@ -61,7 +61,7 @@ export default function FinanceCostReportsPage() {
     return date.toISOString().split('T')[0]
   })
   const [groupBy, setGroupBy] = useState<GroupBy>('staff')
-  const [resourceTypes, setResourceTypes] = useState<string[]>(['guide', 'escort', 'headphone', 'printing'])
+  const [resourceTypes, setResourceTypes] = useState<string[]>(['guide'])
 
   // Staff details specific state
   const [guides, setGuides] = useState<Guide[]>([])
@@ -198,17 +198,26 @@ export default function FinanceCostReportsPage() {
         .map(item => ({
           'Date': item.date,
           'Activity': item.activity_title || '-',
-          'Cost (EUR)': item.cost_amount.toFixed(2)
+          'Cost (EUR)': item.cost_amount
         }))
 
       // Add total row
       sheetData.push({
         'Date': 'TOTAL',
         'Activity': `${items.length} services`,
-        'Cost (EUR)': summary.total_cost.toFixed(2)
+        'Cost (EUR)': summary.total_cost
       })
 
       const sheet = XLSX.utils.json_to_sheet(sheetData)
+
+      // Apply EUR currency format to Cost column (column C)
+      const range = XLSX.utils.decode_range(sheet['!ref'] || 'A1')
+      for (let row = 1; row <= range.e.r; row++) {
+        const cellRef = XLSX.utils.encode_cell({ r: row, c: 2 })
+        if (sheet[cellRef]) {
+          sheet[cellRef].z = '#,##0.00 €'
+        }
+      }
 
       // Clean sheet name (max 31 chars, no special chars)
       const sheetName = summary.label
@@ -226,60 +235,209 @@ export default function FinanceCostReportsPage() {
     const wb = XLSX.utils.book_new()
 
     if (reportType === 'staff-costs' && costReport) {
-      // Summary sheet
-      const summaryData = costReport.summaries.map(s => ({
-        'Name': s.label,
-        'Services': s.count,
-        'Total Cost (EUR)': s.total_cost.toFixed(2)
-      }))
-      summaryData.push({
-        'Name': 'TOTAL',
-        'Services': costReport.summaries.reduce((sum, s) => sum + s.count, 0),
-        'Total Cost (EUR)': costReport.total_cost.toFixed(2)
+      // Group items by resource type first, then by individual resource
+      const itemsByType = new Map<string, typeof costReport.items>()
+      costReport.items.forEach(item => {
+        if (!itemsByType.has(item.resource_type)) {
+          itemsByType.set(item.resource_type, [])
+        }
+        itemsByType.get(item.resource_type)!.push(item)
       })
-      const summarySheet = XLSX.utils.json_to_sheet(summaryData)
-      XLSX.utils.book_append_sheet(wb, summarySheet, 'Summary')
 
-      // Detail sheet
-      const detailData = costReport.items.map(item => ({
-        'Date': item.date,
-        'Resource Type': item.resource_type,
-        'Resource Name': item.resource_name,
-        'Activity': item.activity_title || '-',
-        'Pax': item.pax_count || '-',
-        'Cost (EUR)': item.cost_amount.toFixed(2),
-        'Grouped': item.is_grouped ? 'Yes' : 'No'
-      }))
-      const detailSheet = XLSX.utils.json_to_sheet(detailData)
-      XLSX.utils.book_append_sheet(wb, detailSheet, 'Details')
+      // Get unique resource types in the report
+      const resourceTypesInReport = Array.from(itemsByType.keys())
+
+      // Create a separate workbook for each resource type
+      resourceTypesInReport.forEach(resType => {
+        const typeItems = itemsByType.get(resType) || []
+        if (typeItems.length === 0) return
+
+        const typeWb = XLSX.utils.book_new()
+
+        // Summary sheet for this resource type
+        const typeSummaries = costReport.summaries.filter(s => s.key.startsWith(`${resType}:`))
+        const isPerPax = resType === 'headphone' || resType === 'printing'
+        const typeSummaryData = typeSummaries.map(s => {
+          const row: Record<string, string | number> = {
+            'Name': s.label,
+            'Services': s.count
+          }
+          if (isPerPax) {
+            row['Total Pax'] = s.total_pax
+          }
+          row['Total Cost (EUR)'] = s.total_cost
+          return row
+        })
+        const typeTotal = typeSummaries.reduce((sum, s) => sum + s.total_cost, 0)
+        const typeCount = typeSummaries.reduce((sum, s) => sum + s.count, 0)
+        const typeTotalPax = typeSummaries.reduce((sum, s) => sum + s.total_pax, 0)
+        const totalRow: Record<string, string | number> = {
+          'Name': 'TOTAL',
+          'Services': typeCount
+        }
+        if (isPerPax) {
+          totalRow['Total Pax'] = typeTotalPax
+        }
+        totalRow['Total Cost (EUR)'] = typeTotal
+        typeSummaryData.push(totalRow)
+        const typeSummarySheet = XLSX.utils.json_to_sheet(typeSummaryData)
+
+        // Apply EUR currency format to Total Cost column
+        // Column C (index 2) for headphones/printing (has Total Pax), Column C (index 2) for others
+        const summaryCostColIndex = isPerPax ? 3 : 2
+        const summaryRange = XLSX.utils.decode_range(typeSummarySheet['!ref'] || 'A1')
+        for (let row = 1; row <= summaryRange.e.r; row++) {
+          const cellRef = XLSX.utils.encode_cell({ r: row, c: summaryCostColIndex })
+          if (typeSummarySheet[cellRef]) {
+            typeSummarySheet[cellRef].z = '#,##0.00 €'
+          }
+        }
+        XLSX.utils.book_append_sheet(typeWb, typeSummarySheet, 'Summary')
+
+        // Group items by individual resource
+        const itemsByResource = new Map<string, typeof typeItems>()
+        typeItems.forEach(item => {
+          const key = `${item.resource_type}:${item.resource_id}`
+          if (!itemsByResource.has(key)) {
+            itemsByResource.set(key, [])
+          }
+          itemsByResource.get(key)!.push(item)
+        })
+
+        // Create a sheet for each resource of this type
+        typeSummaries.forEach(summary => {
+          const key = summary.key
+          const resourceItems = itemsByResource.get(key) || []
+
+          if (resourceItems.length === 0) return
+
+          // Sort by date
+          const sortedItems = [...resourceItems].sort((a, b) => a.date.localeCompare(b.date))
+
+          // Only include "Shared" column for guides, exclude Activity for escorts
+          // Include "Pax" column for headphones and printing
+          const isGuide = resType === 'guide'
+          const isEscort = resType === 'escort'
+          const isHeadphoneOrPrinting = resType === 'headphone' || resType === 'printing'
+          const sheetData = sortedItems.map(item => {
+            const row: Record<string, string | number> = {
+              'Date': item.date
+            }
+            // Include Activity column for all except escorts
+            if (!isEscort) {
+              row['Activity'] = item.activity_title || '-'
+            }
+            // Include Pax column for headphones and printing
+            if (isHeadphoneOrPrinting) {
+              row['Pax'] = item.pax_count || 0
+            }
+            row['Cost (EUR)'] = item.cost_amount
+            if (isGuide) {
+              row['Shared'] = item.is_grouped ? 'Yes' : 'No'
+            }
+            return row
+          })
+
+          // Add total row
+          const totalCost = sortedItems.reduce((sum, item) => sum + item.cost_amount, 0)
+          const totalPax = sortedItems.reduce((sum, item) => sum + (item.pax_count || 0), 0)
+          const totalRow: Record<string, string | number> = {
+            'Date': 'TOTAL'
+          }
+          if (!isEscort) {
+            totalRow['Activity'] = `${sortedItems.length} services`
+          } else {
+            totalRow['Date'] = `TOTAL (${sortedItems.length} days)`
+          }
+          if (isHeadphoneOrPrinting) {
+            totalRow['Pax'] = totalPax
+          }
+          totalRow['Cost (EUR)'] = totalCost
+          if (isGuide) {
+            totalRow['Shared'] = ''
+          }
+          sheetData.push(totalRow)
+
+          const sheet = XLSX.utils.json_to_sheet(sheetData)
+
+          // Apply EUR currency format to Cost column
+          // Column position depends on which columns are present
+          // Escort: Date, Cost -> Cost at index 1
+          // Guide: Date, Activity, Cost, Shared -> Cost at index 2
+          // Headphone/Printing: Date, Activity, Pax, Cost -> Cost at index 3
+          let costColIndex = 2 // Default for guides
+          if (isEscort) {
+            costColIndex = 1
+          } else if (isHeadphoneOrPrinting) {
+            costColIndex = 3
+          }
+          const sheetRange = XLSX.utils.decode_range(sheet['!ref'] || 'A1')
+          for (let row = 1; row <= sheetRange.e.r; row++) {
+            const cellRef = XLSX.utils.encode_cell({ r: row, c: costColIndex })
+            if (sheet[cellRef]) {
+              sheet[cellRef].z = '#,##0.00 €'
+            }
+          }
+
+          // Sheet name max 31 chars, remove invalid characters
+          const sheetName = summary.label
+            .replace(/[\\/*?[\]:]/g, '')
+            .substring(0, 31)
+
+          XLSX.utils.book_append_sheet(typeWb, sheet, sheetName)
+        })
+
+        // Save this resource type's workbook
+        const typeLabel = resType.charAt(0).toUpperCase() + resType.slice(1) + 's'
+        const typeFilename = `${typeLabel}-costs-${startDate}-to-${endDate}.xlsx`
+        XLSX.writeFile(typeWb, typeFilename)
+      })
+
+      return // Don't continue to the generic file save
     } else if (reportType === 'profitability' && profitabilityReport) {
       const data = profitabilityReport.items.map(item => ({
         'Name': item.label,
-        'Revenue (EUR)': item.revenue.toFixed(2),
-        'Guide Costs (EUR)': item.guide_costs.toFixed(2),
-        'Escort Costs (EUR)': item.escort_costs.toFixed(2),
-        'Headphone Costs (EUR)': item.headphone_costs.toFixed(2),
-        'Printing Costs (EUR)': item.printing_costs.toFixed(2),
-        'Total Costs (EUR)': item.total_costs.toFixed(2),
-        'Profit (EUR)': item.profit.toFixed(2),
-        'Margin (%)': item.margin.toFixed(1),
+        'Revenue (EUR)': item.revenue,
+        'Guide Costs (EUR)': item.guide_costs,
+        'Escort Costs (EUR)': item.escort_costs,
+        'Headphone Costs (EUR)': item.headphone_costs,
+        'Printing Costs (EUR)': item.printing_costs,
+        'Total Costs (EUR)': item.total_costs,
+        'Profit (EUR)': item.profit,
+        'Margin (%)': item.margin,
         'Bookings': item.booking_count,
         'Pax': item.pax_count
       }))
       data.push({
         'Name': 'TOTAL',
-        'Revenue (EUR)': profitabilityReport.totals.revenue.toFixed(2),
-        'Guide Costs (EUR)': profitabilityReport.totals.guide_costs.toFixed(2),
-        'Escort Costs (EUR)': profitabilityReport.totals.escort_costs.toFixed(2),
-        'Headphone Costs (EUR)': profitabilityReport.totals.headphone_costs.toFixed(2),
-        'Printing Costs (EUR)': profitabilityReport.totals.printing_costs.toFixed(2),
-        'Total Costs (EUR)': profitabilityReport.totals.total_costs.toFixed(2),
-        'Profit (EUR)': profitabilityReport.totals.profit.toFixed(2),
-        'Margin (%)': profitabilityReport.totals.margin.toFixed(1),
+        'Revenue (EUR)': profitabilityReport.totals.revenue,
+        'Guide Costs (EUR)': profitabilityReport.totals.guide_costs,
+        'Escort Costs (EUR)': profitabilityReport.totals.escort_costs,
+        'Headphone Costs (EUR)': profitabilityReport.totals.headphone_costs,
+        'Printing Costs (EUR)': profitabilityReport.totals.printing_costs,
+        'Total Costs (EUR)': profitabilityReport.totals.total_costs,
+        'Profit (EUR)': profitabilityReport.totals.profit,
+        'Margin (%)': profitabilityReport.totals.margin,
         'Bookings': profitabilityReport.totals.booking_count,
         'Pax': profitabilityReport.totals.pax_count
       })
       const sheet = XLSX.utils.json_to_sheet(data)
+
+      // Apply EUR currency format to columns B-H (Revenue through Profit)
+      const profitRange = XLSX.utils.decode_range(sheet['!ref'] || 'A1')
+      for (let row = 1; row <= profitRange.e.r; row++) {
+        for (let col = 1; col <= 7; col++) { // Columns B-H
+          const cellRef = XLSX.utils.encode_cell({ r: row, c: col })
+          if (sheet[cellRef]) {
+            sheet[cellRef].z = '#,##0.00 €'
+          }
+        }
+        // Format Margin column (I) as percentage
+        const marginRef = XLSX.utils.encode_cell({ r: row, c: 8 })
+        if (sheet[marginRef]) {
+          sheet[marginRef].z = '0.0%'
+        }
+      }
       XLSX.utils.book_append_sheet(wb, sheet, 'Profitability')
     } else if (reportType === 'staff-details' && staffDetails.length > 0) {
       const selectedGuide = guides.find(g => g.guide_id === selectedGuideId)
@@ -288,14 +446,23 @@ export default function FinanceCostReportsPage() {
       const data = staffDetails.map(item => ({
         'Date': item.date,
         'Activity': item.activity,
-        'Cost (EUR)': item.cost.toFixed(2)
+        'Cost (EUR)': item.cost
       }))
       data.push({
         'Date': 'TOTAL',
         'Activity': `${staffDetails.length} services`,
-        'Cost (EUR)': staffDetails.reduce((sum, item) => sum + item.cost, 0).toFixed(2)
+        'Cost (EUR)': staffDetails.reduce((sum, item) => sum + item.cost, 0)
       })
       const sheet = XLSX.utils.json_to_sheet(data)
+
+      // Apply EUR currency format to Cost column (column C)
+      const detailsRange = XLSX.utils.decode_range(sheet['!ref'] || 'A1')
+      for (let row = 1; row <= detailsRange.e.r; row++) {
+        const cellRef = XLSX.utils.encode_cell({ r: row, c: 2 })
+        if (sheet[cellRef]) {
+          sheet[cellRef].z = '#,##0.00 €'
+        }
+      }
       XLSX.utils.book_append_sheet(wb, sheet, guideName.substring(0, 31))
     }
 
@@ -362,8 +529,8 @@ export default function FinanceCostReportsPage() {
     <div className="p-6 space-y-6">
       <div className="flex items-center justify-between">
         <div>
-          <h1 className="text-2xl font-bold text-gray-900">Cost Reports</h1>
-          <p className="text-gray-600 mt-1">Analyze resource costs and profitability</p>
+          <h1 className="text-2xl font-bold text-gray-900">Staff Cost Reports</h1>
+          <p className="text-gray-600 mt-1">Analyze staff costs and profitability</p>
         </div>
         {(costReport || profitabilityReport || staffDetails.length > 0) && (
           <Button onClick={exportToExcel} variant="outline">
@@ -719,6 +886,9 @@ export default function FinanceCostReportsPage() {
                     Services
                   </th>
                   <th className="px-6 py-3 text-right text-xs font-medium text-gray-500 uppercase tracking-wider">
+                    Total Pax
+                  </th>
+                  <th className="px-6 py-3 text-right text-xs font-medium text-gray-500 uppercase tracking-wider">
                     Total Cost (EUR)
                   </th>
                 </tr>
@@ -732,6 +902,9 @@ export default function FinanceCostReportsPage() {
                     <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-500 text-right">
                       {summary.count}
                     </td>
+                    <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-500 text-right">
+                      {summary.total_pax > 0 ? summary.total_pax : '-'}
+                    </td>
                     <td className="px-6 py-4 whitespace-nowrap text-sm font-medium text-gray-900 text-right">
                       €{summary.total_cost.toFixed(2)}
                     </td>
@@ -743,6 +916,9 @@ export default function FinanceCostReportsPage() {
                   </td>
                   <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-900 text-right">
                     {costReport.summaries.reduce((sum, s) => sum + s.count, 0)}
+                  </td>
+                  <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-900 text-right">
+                    {costReport.summaries.reduce((sum, s) => sum + s.total_pax, 0) || '-'}
                   </td>
                   <td className="px-6 py-4 whitespace-nowrap text-sm text-brand-orange text-right">
                     €{costReport.total_cost.toFixed(2)}

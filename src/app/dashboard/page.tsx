@@ -204,23 +204,23 @@ function AppSidebar({ currentView, onNavigate }: {
           icon: DollarSign,
           view: "resource-costs",
         },
+        {
+          title: "Staff Reports",
+          icon: FileSpreadsheet,
+          view: "staff-reports",
+        },
       ],
     },
     {
-      title: "Reports",
+      title: "Marketing",
       icon: FileSpreadsheet,
       isOpen: reportsOpen,
       setOpen: setReportsOpen,
       items: [
         {
-          title: "Marketing Export",
+          title: "Export",
           icon: FileBarChart,
           view: "marketing-export",
-        },
-        {
-          title: "Staff Reports",
-          icon: FileSpreadsheet,
-          view: "staff-reports",
         },
       ],
     },

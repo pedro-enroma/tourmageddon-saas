@@ -125,27 +125,24 @@ export default function ResourceCostsConfigPage() {
     try {
       const [
         escortsRes,
-        headphonesRes,
-        printingRes,
+        resourcesRes,
         activitiesRes,
         resourceRatesRes
       ] = await Promise.all([
         supabase.from('escorts').select('*').eq('active', true).order('first_name'),
-        supabase.from('headphones').select('*').eq('active', true).order('name'),
-        supabase.from('printing').select('*').eq('active', true).order('name'),
+        fetch('/api/resources').then(r => r.json()),
         supabase.from('activities').select('activity_id, title').order('title'),
         resourceRatesApi.list()
       ])
 
       if (escortsRes.error) throw escortsRes.error
-      if (headphonesRes.error) throw headphonesRes.error
-      if (printingRes.error) throw printingRes.error
+      if (resourcesRes.error) throw new Error(resourcesRes.error)
       if (activitiesRes.error) throw activitiesRes.error
       if (resourceRatesRes.error) throw new Error(resourceRatesRes.error)
 
       setEscorts(escortsRes.data || [])
-      setHeadphones(headphonesRes.data || [])
-      setPrinting(printingRes.data || [])
+      setHeadphones(resourcesRes.headphones || [])
+      setPrinting(resourcesRes.printing || [])
       setActivities(activitiesRes.data || [])
       setResourceRates(resourceRatesRes.data || [])
 
@@ -188,15 +185,15 @@ export default function ResourceCostsConfigPage() {
 
   const fetchSpecialDates = useCallback(async () => {
     try {
-      // Fetch all special dates (no year filter - they're shared across years)
-      const response = await fetch('/api/costs/special-dates')
+      // Fetch special dates for the selected year
+      const response = await fetch(`/api/costs/special-dates?year=${selectedYear}`)
       if (!response.ok) throw new Error('Failed to fetch special dates')
       const result = await response.json()
       setSpecialDates(result.data || [])
     } catch (err) {
       console.error('Error fetching special dates:', err)
     }
-  }, [])
+  }, [selectedYear])
 
   const fetchSeasonalCosts = useCallback(async () => {
     try {
@@ -489,11 +486,10 @@ export default function ResourceCostsConfigPage() {
     return matchesSearch && matchesSelection
   })
 
-  const yearSeasons = seasons.filter(s => s.year === selectedYear)
-  const yearSpecialDates = specialDates.filter(sd => {
-    const year = new Date(sd.date).getFullYear()
-    return year === selectedYear
-  })
+  // API already returns seasons that overlap with the selected year
+  const yearSeasons = seasons
+  // API already returns special dates for the selected year
+  const yearSpecialDates = specialDates
 
   const tabs = [
     { id: 'seasons' as TabType, label: 'Seasons', icon: Calendar, description: 'Define seasons' },
@@ -713,8 +709,20 @@ export default function ResourceCostsConfigPage() {
         {activeTab === 'special-dates' && (
           <div className="space-y-6">
             <div className="flex items-center justify-between">
-              <div className="text-sm text-gray-600">
-                Special dates override seasonal pricing. Define holidays like Christmas, Easter, etc.
+              <div className="flex items-center gap-4">
+                <Label>Year</Label>
+                <select
+                  value={selectedYear}
+                  onChange={(e) => setSelectedYear(parseInt(e.target.value))}
+                  className="border rounded-md px-3 py-2"
+                >
+                  {[currentYear - 1, currentYear, currentYear + 1, currentYear + 2].map(year => (
+                    <option key={year} value={year}>{year}</option>
+                  ))}
+                </select>
+                <span className="text-sm text-gray-600">
+                  Special dates override seasonal pricing. Define holidays like Christmas, Easter, etc.
+                </span>
               </div>
               <Button
                 onClick={() => {
