@@ -41,6 +41,30 @@ import FinanceCostReportsPage from '@/components/FinanceCostReportsPage'
 import NewRecapPage from '@/components/NewRecapPage'
 import { LucideIcon } from 'lucide-react'
 
+// Custom SuperSantos Ball Icon
+const BallIcon = ({ className, ...props }: { className?: string; [key: string]: unknown }) => (
+  <svg
+    xmlns="http://www.w3.org/2000/svg"
+    viewBox="0 0 24 24"
+    fill="none"
+    stroke="currentColor"
+    strokeWidth="1.5"
+    strokeLinecap="round"
+    strokeLinejoin="round"
+    className={className}
+    width="24"
+    height="24"
+    {...props}
+  >
+    <circle cx="12" cy="12" r="10"/>
+    <path d="M12 2c0 3 2 5 2 10s-2 7-2 10"/>
+    <path d="M12 2c0 3-2 5-2 10s2 7 2 10"/>
+    <path d="M2 12h20"/>
+    <path d="M4 6h16"/>
+    <path d="M4 18h16"/>
+  </svg>
+)
+
 // Menu item types
 interface MenuSubItem {
   title: string
@@ -80,6 +104,11 @@ function AppSidebar({ currentView, onNavigate }: {
       isOpen: operationsOpen,
       setOpen: setOperationsOpen,
       items: [
+        {
+          title: "SuperSantos",
+          icon: BallIcon as unknown as LucideIcon,
+          view: "new-recap",
+        },
         {
           title: "Recap",
           icon: BarChart3,
@@ -222,11 +251,6 @@ function AppSidebar({ currentView, onNavigate }: {
           title: "Export",
           icon: FileBarChart,
           view: "marketing-export",
-        },
-        {
-          title: "SuperSantos",
-          icon: BarChart3,
-          view: "new-recap",
         },
       ],
     },
@@ -907,8 +931,10 @@ const CHANGELOG = [
     version: '3.5',
     date: '2026-01-07',
     changes: [
+      { type: 'feature', text: 'SuperSantos Page - New comprehensive daily operations view with guide/escort/headphone costs, email status, and multi-slot assignments' },
       { type: 'feature', text: 'Special Guide Costs - Configure guide-specific pricing per activity for seasonal and special dates' },
-      { type: 'feature', text: 'Multi-slot Escort Assignment - Assign escorts to multiple time slots at once from SuperSantos recap page' },
+      { type: 'feature', text: 'Multi-slot Escort Assignment - Assign escorts to multiple time slots at once' },
+      { type: 'improvement', text: 'SuperSantos is now the default page and moved to Operations menu' },
     ]
   },
   {
@@ -950,7 +976,7 @@ const CHANGELOG = [
 ]
 
 export default function DashboardLayout() {
-  const [currentView, setCurrentView] = useState('recap')
+  const [currentView, setCurrentView] = useState('new-recap')
   const [searchOpen, setSearchOpen] = useState(false)
   const [changelogOpen, setChangelogOpen] = useState(false)
 
