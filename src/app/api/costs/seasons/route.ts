@@ -31,7 +31,15 @@ export async function GET(request: NextRequest) {
       .order('start_date', { ascending: true })
 
     if (year) {
-      query = query.eq('year', parseInt(year))
+      // Show seasons that overlap with any part of the selected year
+      // A season overlaps with year Y if:
+      // - start_date <= end of year Y (Dec 31) AND
+      // - end_date >= start of year Y (Jan 1)
+      const yearStart = `${year}-01-01`
+      const yearEnd = `${year}-12-31`
+      query = query
+        .lte('start_date', yearEnd)
+        .gte('end_date', yearStart)
     }
 
     const { data, error } = await query

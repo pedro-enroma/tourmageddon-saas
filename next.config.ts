@@ -47,7 +47,7 @@ const nextConfig: NextConfig = {
               "style-src 'self' 'unsafe-inline'", // Required for Tailwind
               "img-src 'self' data: https: blob:",
               "font-src 'self' data:",
-              "connect-src 'self' https://*.supabase.co https://booking-webhook-system-production.up.railway.app",
+              "connect-src 'self' https://*.supabase.co wss://*.supabase.co https://booking-webhook-system-production.up.railway.app",
               "frame-src 'self' https://coliseo-ticket-tracker.vercel.app", // Allow external iframes
               "frame-ancestors 'none'",
               "base-uri 'self'",

@@ -16,4 +16,9 @@ export const supabase = createClient(supabaseUrl, supabaseAnonKey, {
       'pragma': 'no-cache',
     },
   },
+  realtime: {
+    params: {
+      eventsPerSecond: 10,
+    },
+  },
 })
