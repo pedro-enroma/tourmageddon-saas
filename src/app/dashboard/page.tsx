@@ -38,6 +38,7 @@ import InvoicingPage from '@/components/InvoicingPage'
 import ResourceCostsConfigPage from '@/components/ResourceCostsConfigPage'
 import ServiceGroupsPage from '@/components/ServiceGroupsPage'
 import FinanceCostReportsPage from '@/components/FinanceCostReportsPage'
+import NewRecapPage from '@/components/NewRecapPage'
 import { LucideIcon } from 'lucide-react'
 
 // Menu item types
@@ -221,6 +222,11 @@ function AppSidebar({ currentView, onNavigate }: {
           title: "Export",
           icon: FileBarChart,
           view: "marketing-export",
+        },
+        {
+          title: "SuperSantos",
+          icon: BarChart3,
+          view: "new-recap",
         },
       ],
     },
@@ -985,6 +991,8 @@ export default function DashboardLayout() {
         return <StaffReportsPage />
       case 'marketing-export':
         return <MarketingExportPage />
+      case 'new-recap':
+        return <NewRecapPage />
       case 'finance-overview':
         return <FinanceOverviewPageV2 />
       case 'availability-sync':
