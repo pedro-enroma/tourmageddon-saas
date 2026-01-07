@@ -822,6 +822,11 @@ export default function NewRecapPage() {
       if (error) throw error
 
       if (data) {
+        // Handle activity_availability which can be object, array, or null from Supabase
+        const activityAvail = Array.isArray(data.activity_availability)
+          ? data.activity_availability[0]
+          : data.activity_availability
+
         const voucherDetail: VoucherDetail = {
           id: data.id,
           booking_number: data.booking_number,
@@ -834,7 +839,12 @@ export default function NewRecapPage() {
           entry_time: data.entry_time,
           visit_date: data.visit_date,
           tickets: data.tickets || [],
-          activity_availability: data.activity_availability
+          activity_availability: activityAvail ? {
+            local_time: activityAvail.local_time,
+            activities: Array.isArray(activityAvail.activities)
+              ? activityAvail.activities[0]
+              : activityAvail.activities
+          } : null
         }
         setSelectedVoucherDetail(voucherDetail)
         setVoucherDetailOpen(true)
