@@ -68,7 +68,10 @@ export async function POST(request: NextRequest) {
 
     if (uploadError) {
       console.error('Upload error:', uploadError)
-      return NextResponse.json({ error: 'Failed to upload PDF' }, { status: 500 })
+      return NextResponse.json({
+        error: `Failed to upload PDF: ${uploadError.message}`,
+        details: uploadError
+      }, { status: 500 })
     }
 
     // 2. Create voucher record
@@ -92,7 +95,19 @@ export async function POST(request: NextRequest) {
       // Clean up uploaded file if voucher creation fails
       await supabase.storage.from('ticket-vouchers').remove([fileName])
       console.error('Voucher creation error:', voucherError)
-      return NextResponse.json({ error: 'Failed to create voucher record' }, { status: 500 })
+
+      // Check for duplicate booking number
+      if (voucherError.code === '23505' && voucherError.message.includes('booking_number')) {
+        return NextResponse.json({
+          error: `A voucher with booking number "${booking_number}" already exists`,
+          code: 'DUPLICATE_BOOKING'
+        }, { status: 409 })
+      }
+
+      return NextResponse.json({
+        error: `Failed to create voucher record: ${voucherError.message}`,
+        details: voucherError
+      }, { status: 500 })
     }
 
     await auditCreate(user.id, user.email, 'voucher', voucher.id, voucher, ip, userAgent)

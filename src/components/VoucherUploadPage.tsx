@@ -114,6 +114,7 @@ export default function VoucherUploadPage() {
       .toLowerCase()
       .normalize('NFD')
       .replace(/[\u0300-\u036f]/g, '') // Remove diacritics
+      .replace(/\s+/g, ' ') // Collapse multiple spaces into one
       .trim()
   }
 
@@ -411,9 +412,11 @@ export default function VoucherUploadPage() {
 
       if (isGuideTicket && categoryGuideRequiresTicket) {
         // For guide tickets, match against assigned guides
+        // Try both "First Last" and "Last First" orders since PDFs may vary
         matchedGuide = assignedGuides.find(g => {
           const guideFullName = normalizeText(`${g.first_name} ${g.last_name}`)
-          return guideFullName === ticketNameNormalized
+          const guideReversed = normalizeText(`${g.last_name} ${g.first_name}`)
+          return guideFullName === ticketNameNormalized || guideReversed === ticketNameNormalized
         }) || null
 
         nameMatch = !!matchedGuide
