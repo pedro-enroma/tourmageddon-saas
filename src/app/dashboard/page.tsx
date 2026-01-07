@@ -105,14 +105,14 @@ function AppSidebar({ currentView, onNavigate }: {
       setOpen: setOperationsOpen,
       items: [
         {
-          title: "SuperSantos",
-          icon: BallIcon as unknown as LucideIcon,
-          view: "new-recap",
-        },
-        {
           title: "Recap",
           icon: BarChart3,
           view: "recap",
+        },
+        {
+          title: "SuperSantos",
+          icon: BallIcon as unknown as LucideIcon,
+          view: "new-recap",
         },
         {
           title: "Consumed",
@@ -934,7 +934,7 @@ const CHANGELOG = [
       { type: 'feature', text: 'SuperSantos Page - New comprehensive daily operations view with guide/escort/headphone costs, email status, and multi-slot assignments' },
       { type: 'feature', text: 'Special Guide Costs - Configure guide-specific pricing per activity for seasonal and special dates' },
       { type: 'feature', text: 'Multi-slot Escort Assignment - Assign escorts to multiple time slots at once' },
-      { type: 'improvement', text: 'SuperSantos is now the default page and moved to Operations menu' },
+      { type: 'improvement', text: 'SuperSantos moved to Operations menu with custom ball icon' },
     ]
   },
   {
@@ -976,7 +976,7 @@ const CHANGELOG = [
 ]
 
 export default function DashboardLayout() {
-  const [currentView, setCurrentView] = useState('new-recap')
+  const [currentView, setCurrentView] = useState('recap')
   const [searchOpen, setSearchOpen] = useState(false)
   const [changelogOpen, setChangelogOpen] = useState(false)
 
