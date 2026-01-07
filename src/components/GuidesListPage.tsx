@@ -19,6 +19,7 @@ interface Guide {
   license_number: string | null
   languages: string[]
   active: boolean
+  paid_in_cash: boolean
   created_at: string
   updated_at: string
 }
@@ -40,7 +41,8 @@ export default function GuidesListPage() {
     phone_number: '',
     license_number: '',
     languages: [] as string[],
-    active: true
+    active: true,
+    paid_in_cash: false
   })
 
   useEffect(() => {
@@ -76,7 +78,8 @@ export default function GuidesListPage() {
         phone_number: guide.phone_number || '',
         license_number: guide.license_number || '',
         languages: guide.languages,
-        active: guide.active
+        active: guide.active,
+        paid_in_cash: guide.paid_in_cash || false
       })
     } else {
       setEditingGuide(null)
@@ -87,7 +90,8 @@ export default function GuidesListPage() {
         phone_number: '',
         license_number: '',
         languages: [],
-        active: true
+        active: true,
+        paid_in_cash: false
       })
     }
     setShowModal(true)
@@ -115,7 +119,8 @@ export default function GuidesListPage() {
           phone_number: formData.phone_number || undefined,
           license_number: formData.license_number || undefined,
           languages: formData.languages,
-          active: formData.active
+          active: formData.active,
+          paid_in_cash: formData.paid_in_cash
         })
 
         if (result.error) throw new Error(result.error)
@@ -128,7 +133,8 @@ export default function GuidesListPage() {
           phone_number: formData.phone_number || undefined,
           license_number: formData.license_number || undefined,
           languages: formData.languages,
-          active: formData.active
+          active: formData.active,
+          paid_in_cash: formData.paid_in_cash
         })
 
         if (result.error) throw new Error(result.error)
@@ -258,11 +264,18 @@ export default function GuidesListPage() {
                       </div>
                     </td>
                     <td className="px-6 py-4 whitespace-nowrap">
-                      <span className={`px-2 py-1 text-xs rounded-full ${
-                        guide.active ? 'bg-green-100 text-green-800' : 'bg-gray-100 text-gray-800'
-                      }`}>
-                        {guide.active ? 'Active' : 'Inactive'}
-                      </span>
+                      <div className="flex gap-1">
+                        <span className={`px-2 py-1 text-xs rounded-full ${
+                          guide.active ? 'bg-green-100 text-green-800' : 'bg-gray-100 text-gray-800'
+                        }`}>
+                          {guide.active ? 'Active' : 'Inactive'}
+                        </span>
+                        {guide.paid_in_cash && (
+                          <span className="px-2 py-1 text-xs rounded-full bg-yellow-100 text-yellow-800">
+                            Cash
+                          </span>
+                        )}
+                      </div>
                     </td>
                     <td className="px-6 py-4 whitespace-nowrap text-sm">
                       <div className="flex gap-2">
@@ -383,13 +396,21 @@ export default function GuidesListPage() {
                 )}
               </div>
 
-              <div className="mt-4">
+              <div className="mt-4 flex gap-6">
                 <label className="flex items-center gap-2 cursor-pointer">
                   <Checkbox
                     checked={formData.active}
                     onCheckedChange={(checked) => setFormData({...formData, active: checked as boolean})}
                   />
                   <span className="text-sm">Active</span>
+                </label>
+                <label className="flex items-center gap-2 cursor-pointer">
+                  <Checkbox
+                    checked={formData.paid_in_cash}
+                    onCheckedChange={(checked) => setFormData({...formData, paid_in_cash: checked as boolean})}
+                  />
+                  <span className="text-sm">Paid in Cash</span>
+                  <span className="text-xs text-gray-500">(excluded from cost reports)</span>
                 </label>
               </div>
 

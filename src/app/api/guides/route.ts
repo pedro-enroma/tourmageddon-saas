@@ -37,7 +37,7 @@ export async function POST(request: NextRequest) {
 
   try {
     const body = await request.json()
-    const { first_name, last_name, email, phone_number, license_number, languages, active } = body
+    const { first_name, last_name, email, phone_number, license_number, languages, active, paid_in_cash } = body
 
     // Validation
     if (!first_name || !last_name || !email) {
@@ -64,7 +64,8 @@ export async function POST(request: NextRequest) {
         phone_number: phone_number || null,
         license_number: license_number || null,
         languages,
-        active: active ?? true
+        active: active ?? true,
+        paid_in_cash: paid_in_cash ?? false
       }])
       .select()
       .single()
@@ -96,7 +97,7 @@ export async function PUT(request: NextRequest) {
 
   try {
     const body = await request.json()
-    const { guide_id, first_name, last_name, email, phone_number, license_number, languages, active } = body
+    const { guide_id, first_name, last_name, email, phone_number, license_number, languages, active, paid_in_cash } = body
 
     if (!guide_id) {
       return NextResponse.json({ error: 'guide_id is required' }, { status: 400 })
@@ -129,7 +130,8 @@ export async function PUT(request: NextRequest) {
         phone_number: phone_number || null,
         license_number: license_number || null,
         languages,
-        active
+        active,
+        paid_in_cash: paid_in_cash ?? false
       })
       .eq('guide_id', guide_id)
       .select()

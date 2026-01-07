@@ -26,6 +26,20 @@ interface SpecialDate {
   date: string
 }
 
+interface GuideSpecificSeasonalCost {
+  guide_id: string
+  activity_id: string
+  season_id: string
+  cost_amount: number
+}
+
+interface GuideSpecificSpecialDateCost {
+  guide_id: string
+  activity_id: string
+  special_date_id: string
+  cost_amount: number
+}
+
 interface ProfitabilityItem {
   key: string
   label: string
@@ -64,6 +78,7 @@ export async function GET(request: NextRequest) {
     const [
       bookingsResult,
       guideAssignmentsResult,
+      guidesResult,
       escortAssignmentsResult,
       headphoneAssignmentsResult,
       printingAssignmentsResult,
@@ -76,7 +91,10 @@ export async function GET(request: NextRequest) {
       seasonsResult,
       seasonalCostsResult,
       specialDatesResult,
-      specialDateCostsResult
+      specialDateCostsResult,
+      guideSpecificSeasonalCostsResult,
+      guideSpecificSpecialDateCostsResult,
+      specialGuideRulesResult
     ] = await Promise.all([
       // Get bookings with revenue data
       supabase
@@ -84,6 +102,7 @@ export async function GET(request: NextRequest) {
         .select('id, activity_availability_id, total_price, num_pax, status')
         .in('status', ['CONFIRMED', 'COMPLETED']),
       supabase.from('guide_assignments').select('assignment_id, guide_id, activity_availability_id'),
+      supabase.from('guides').select('guide_id, paid_in_cash'),
       supabase.from('escort_assignments').select('assignment_id, escort_id, activity_availability_id'),
       supabase.from('headphone_assignments').select('assignment_id, headphone_id, activity_availability_id'),
       supabase.from('printing_assignments').select('assignment_id, printing_id, activity_availability_id'),
@@ -101,13 +120,22 @@ export async function GET(request: NextRequest) {
       supabase.from('cost_seasons').select('id, year, name, start_date, end_date'),
       supabase.from('guide_seasonal_costs').select('activity_id, season_id, cost_amount'),
       supabase.from('special_cost_dates').select('id, date'),
-      supabase.from('guide_special_date_costs').select('activity_id, special_date_id, cost_amount')
+      supabase.from('guide_special_date_costs').select('activity_id, special_date_id, cost_amount'),
+      // Guide-specific cost tables (special guide rules)
+      supabase.from('guide_specific_seasonal_costs').select('guide_id, activity_id, season_id, cost_amount'),
+      supabase.from('guide_specific_special_date_costs').select('guide_id, activity_id, special_date_id, cost_amount'),
+      supabase.from('special_guide_rules').select('guide_id, activity_id')
     ])
 
     // Build lookup maps
     const activitiesMap = new Map(activitiesResult.data?.map(a => [a.activity_id, a.title]) || [])
     const availabilityMap = new Map(availabilityResult.data?.map(a => [a.id, a]) || [])
     const availabilityIds = new Set(availabilityResult.data?.map(a => a.id) || [])
+
+    // Build set of cash-paid guide IDs (excluded from cost reports)
+    const cashPaidGuideIds = new Set(
+      guidesResult.data?.filter(g => g.paid_in_cash).map(g => g.guide_id) || []
+    )
 
     // Build activity costs map - prefer global costs (null guide_id), fall back to guide-specific
     const activityCostsMap = new Map<string, number>()
@@ -142,9 +170,53 @@ export async function GET(request: NextRequest) {
       seasonalCosts.map(sc => [`${sc.activity_id}:${sc.season_id}`, sc.cost_amount])
     )
 
+    // Build guide-specific cost maps (for special guide rules)
+    const guideSpecificSeasonalCosts = (guideSpecificSeasonalCostsResult.data || []) as GuideSpecificSeasonalCost[]
+    const guideSpecificSpecialDateCosts = (guideSpecificSpecialDateCostsResult.data || []) as GuideSpecificSpecialDateCost[]
+
+    // Map: guide_id:activity_id:special_date_id -> cost
+    const guideSpecificSpecialDateCostMap = new Map(
+      guideSpecificSpecialDateCosts.map(c => [`${c.guide_id}:${c.activity_id}:${c.special_date_id}`, c.cost_amount])
+    )
+
+    // Map: guide_id:activity_id:season_id -> cost
+    const guideSpecificSeasonalCostMap = new Map(
+      guideSpecificSeasonalCosts.map(c => [`${c.guide_id}:${c.activity_id}:${c.season_id}`, c.cost_amount])
+    )
+
+    // Set of guide:activity pairs that have special rules
+    const specialGuideActivityPairs = new Set(
+      specialGuideRulesResult.data?.map(r => `${r.guide_id}:${r.activity_id}`) || []
+    )
+
     // Helper to get guide cost for a specific activity and date
     const getGuideCostForDate = (activityId: string, date: string, guideId?: string): number => {
-      // 1. Check special date cost first
+      // Check if this guide has a special rule for this activity
+      if (guideId && specialGuideActivityPairs.has(`${guideId}:${activityId}`)) {
+        // 1. Check guide-specific special date cost (highest priority)
+        const specialDateId = specialDateMap.get(date)
+        if (specialDateId) {
+          const guideSpecificSpecialCost = guideSpecificSpecialDateCostMap.get(`${guideId}:${activityId}:${specialDateId}`)
+          if (guideSpecificSpecialCost !== undefined) {
+            return guideSpecificSpecialCost
+          }
+        }
+
+        // 2. Check guide-specific seasonal cost
+        const dateObj = new Date(date)
+        for (const season of seasons) {
+          const seasonStart = new Date(season.start_date)
+          const seasonEnd = new Date(season.end_date)
+          if (dateObj >= seasonStart && dateObj <= seasonEnd) {
+            const guideSpecificSeasonalCost = guideSpecificSeasonalCostMap.get(`${guideId}:${activityId}:${season.id}`)
+            if (guideSpecificSeasonalCost !== undefined) {
+              return guideSpecificSeasonalCost
+            }
+          }
+        }
+      }
+
+      // 3. Check default special date cost
       const specialDateId = specialDateMap.get(date)
       if (specialDateId) {
         const specialCost = specialDateCostMap.get(`${activityId}:${specialDateId}`)
@@ -153,7 +225,7 @@ export async function GET(request: NextRequest) {
         }
       }
 
-      // 2. Check seasonal cost
+      // 4. Check default seasonal cost
       const dateObj = new Date(date)
       for (const season of seasons) {
         const seasonStart = new Date(season.start_date)
@@ -166,13 +238,13 @@ export async function GET(request: NextRequest) {
         }
       }
 
-      // 3. Fall back to legacy costs
+      // 5. Fall back to legacy costs
       const globalCost = activityCostsMap.get(activityId)
       if (globalCost !== undefined) {
         return globalCost
       }
 
-      // 4. Guide-specific cost (backward compatibility)
+      // 6. Guide-specific cost (backward compatibility)
       if (guideId) {
         const guideSpecificCost = guideSpecificCostsMap.get(`${guideId}:${activityId}`)
         if (guideSpecificCost !== undefined) {
@@ -263,6 +335,9 @@ export async function GET(request: NextRequest) {
     // Process guide costs
     guideAssignmentsResult.data?.forEach(assignment => {
       if (!availabilityIds.has(assignment.activity_availability_id)) return
+
+      // Skip guides that are paid in cash (excluded from cost reports)
+      if (cashPaidGuideIds.has(assignment.guide_id)) return
 
       const availability = availabilityMap.get(assignment.activity_availability_id)
       if (!availability) return

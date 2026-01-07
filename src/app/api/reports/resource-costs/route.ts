@@ -26,6 +26,20 @@ interface SpecialDate {
   date: string
 }
 
+interface GuideSpecificSeasonalCost {
+  guide_id: string
+  activity_id: string
+  season_id: string
+  cost_amount: number
+}
+
+interface GuideSpecificSpecialDateCost {
+  guide_id: string
+  activity_id: string
+  special_date_id: string
+  cost_amount: number
+}
+
 interface CostItem {
   resource_type: 'guide' | 'escort' | 'headphone' | 'printing'
   resource_id: string
@@ -80,9 +94,12 @@ export async function GET(request: NextRequest) {
       seasonsResult,
       seasonalCostsResult,
       specialDatesResult,
-      specialDateCostsResult
+      specialDateCostsResult,
+      guideSpecificSeasonalCostsResult,
+      guideSpecificSpecialDateCostsResult,
+      specialGuideRulesResult
     ] = await Promise.all([
-      supabase.from('guides').select('guide_id, first_name, last_name'),
+      supabase.from('guides').select('guide_id, first_name, last_name, paid_in_cash'),
       supabase.from('escorts').select('escort_id, first_name, last_name'),
       supabase.from('headphones').select('headphone_id, name'),
       supabase.from('printing').select('printing_id, name'),
@@ -124,7 +141,11 @@ export async function GET(request: NextRequest) {
       supabase.from('cost_seasons').select('id, year, name, start_date, end_date'),
       supabase.from('guide_seasonal_costs').select('activity_id, season_id, cost_amount'),
       supabase.from('special_cost_dates').select('id, date'),
-      supabase.from('guide_special_date_costs').select('activity_id, special_date_id, cost_amount')
+      supabase.from('guide_special_date_costs').select('activity_id, special_date_id, cost_amount'),
+      // Guide-specific cost tables (special guide rules)
+      supabase.from('guide_specific_seasonal_costs').select('guide_id, activity_id, season_id, cost_amount'),
+      supabase.from('guide_specific_special_date_costs').select('guide_id, activity_id, special_date_id, cost_amount'),
+      supabase.from('special_guide_rules').select('guide_id, activity_id')
     ])
 
     // Phase 2: Collect all unique activity_availability_ids from assignments and service groups
@@ -185,6 +206,11 @@ export async function GET(request: NextRequest) {
     const printingMap = new Map(printingResult.data?.map(p => [p.printing_id, p.name]) || [])
     const activitiesMap = new Map(activitiesResult.data?.map(a => [String(a.activity_id), a.title]) || [])
 
+    // Build set of cash-paid guide IDs to exclude from cost reports
+    const cashPaidGuideIds = new Set(
+      guidesResult.data?.filter(g => g.paid_in_cash).map(g => g.guide_id) || []
+    )
+
     const availabilityMap = new Map(allAvailabilityData.map(a => [a.id, a]))
 
     // Build activity costs map - prefer global costs (null guide_id), fall back to guide-specific
@@ -222,6 +248,25 @@ export async function GET(request: NextRequest) {
       seasonalCosts.map(sc => [`${String(sc.activity_id)}:${String(sc.season_id)}`, sc.cost_amount])
     )
 
+    // Build guide-specific cost maps (for special guide rules)
+    const guideSpecificSeasonalCosts = (guideSpecificSeasonalCostsResult.data || []) as GuideSpecificSeasonalCost[]
+    const guideSpecificSpecialDateCosts = (guideSpecificSpecialDateCostsResult.data || []) as GuideSpecificSpecialDateCost[]
+
+    // Map: guide_id:activity_id:special_date_id -> cost (guide-specific special date cost)
+    const guideSpecificSpecialDateCostMap = new Map(
+      guideSpecificSpecialDateCosts.map(c => [`${c.guide_id}:${String(c.activity_id)}:${String(c.special_date_id)}`, c.cost_amount])
+    )
+
+    // Map: guide_id:activity_id:season_id -> cost (guide-specific seasonal cost)
+    const guideSpecificSeasonalCostMap = new Map(
+      guideSpecificSeasonalCosts.map(c => [`${c.guide_id}:${String(c.activity_id)}:${String(c.season_id)}`, c.cost_amount])
+    )
+
+    // Set of guide+activity combinations with special rules
+    const specialGuideActivityPairs = new Set(
+      specialGuideRulesResult.data?.map(r => `${r.guide_id}:${String(r.activity_id)}`) || []
+    )
+
     // Debug: log the seasonal cost map keys
     console.log('Seasonal cost map keys:', Array.from(seasonalCostMap.keys()).slice(0, 10))
     console.log('Seasonal cost map sample values:', Array.from(seasonalCostMap.entries()).slice(0, 5))
@@ -232,11 +277,42 @@ export async function GET(request: NextRequest) {
     const costLookupStats = { found: 0, notFound: 0, noCostActivities: new Set<string>() }
 
     const getGuideCostForDate = (activityId: string | number, date: string, guideId?: string): number => {
-      const applicableCosts: number[] = []
       // Normalize activity_id to string for consistent lookups
       const activityIdStr = String(activityId)
 
-      // 1. Check special date cost
+      // Check if this guide has a special rule for this activity
+      // If so, use guide-specific costs with highest priority
+      if (guideId && specialGuideActivityPairs.has(`${guideId}:${activityIdStr}`)) {
+        // 1. Check guide-specific special date cost (highest priority)
+        const specialDateId = specialDateMap.get(date)
+        if (specialDateId) {
+          const guideSpecificSpecialCost = guideSpecificSpecialDateCostMap.get(`${guideId}:${activityIdStr}:${specialDateId}`)
+          if (guideSpecificSpecialCost !== undefined) {
+            costLookupStats.found++
+            return guideSpecificSpecialCost
+          }
+        }
+
+        // 2. Check guide-specific seasonal cost
+        const dateObj = new Date(date)
+        for (const season of seasons) {
+          const seasonStart = new Date(season.start_date)
+          const seasonEnd = new Date(season.end_date)
+          if (dateObj >= seasonStart && dateObj <= seasonEnd) {
+            const guideSpecificSeasonalCost = guideSpecificSeasonalCostMap.get(`${guideId}:${activityIdStr}:${String(season.id)}`)
+            if (guideSpecificSeasonalCost !== undefined) {
+              costLookupStats.found++
+              return guideSpecificSeasonalCost
+            }
+          }
+        }
+        // If guide has special rule but no specific cost set, fall through to default costs
+      }
+
+      // Default cost lookup (for guides without special rules, or fallback)
+      const applicableCosts: number[] = []
+
+      // 3. Check default special date cost
       const specialDateId = specialDateMap.get(date)
       if (specialDateId) {
         const specialCost = specialDateCostMap.get(`${activityIdStr}:${specialDateId}`)
@@ -245,7 +321,7 @@ export async function GET(request: NextRequest) {
         }
       }
 
-      // 2. Check seasonal cost
+      // 4. Check default seasonal cost
       const dateObj = new Date(date)
       for (const season of seasons) {
         const seasonStart = new Date(season.start_date)
@@ -259,17 +335,17 @@ export async function GET(request: NextRequest) {
         }
       }
 
-      // 3. Check legacy global cost
+      // 5. Check legacy global cost
       const globalCost = activityCostsMap.get(activityIdStr)
       if (globalCost !== undefined) {
         applicableCosts.push(globalCost)
       }
 
-      // 4. Guide-specific cost (backward compatibility)
+      // 6. Guide-specific cost from old guide_activity_costs table (backward compatibility)
       if (guideId) {
-        const guideSpecificCost = guideSpecificCostsMap.get(`${guideId}:${activityIdStr}`)
-        if (guideSpecificCost !== undefined) {
-          applicableCosts.push(guideSpecificCost)
+        const legacyGuideSpecificCost = guideSpecificCostsMap.get(`${guideId}:${activityIdStr}`)
+        if (legacyGuideSpecificCost !== undefined) {
+          applicableCosts.push(legacyGuideSpecificCost)
         }
       }
 
@@ -329,6 +405,9 @@ export async function GET(request: NextRequest) {
     // Process guide assignments
     if (resource_types.includes('guide')) {
       guideAssignmentsResult.data?.forEach(assignment => {
+        // Skip guides that are paid in cash (excluded from cost reports)
+        if (cashPaidGuideIds.has(assignment.guide_id)) return
+
         const availability = availabilityMap.get(assignment.activity_availability_id)
         if (!availability) return
 

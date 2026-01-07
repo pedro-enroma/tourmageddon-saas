@@ -9,7 +9,7 @@ import {
   Headphone,
   Printing
 } from '@/lib/api-client'
-import { Save, Loader2, Users, Headphones, Printer, UserCheck, Calendar, Star, Plus, Trash2, Edit2, X, Settings } from 'lucide-react'
+import { Save, Loader2, Users, Headphones, Printer, UserCheck, Calendar, Star, Plus, Trash2, Edit2, X, Settings, UserPlus, Search } from 'lucide-react'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
 import { Label } from '@/components/ui/label'
@@ -51,7 +51,37 @@ interface SpecialDateCost {
   special_cost_dates?: SpecialCostDate
 }
 
-type TabType = 'seasons' | 'special-dates' | 'guides' | 'escorts' | 'headphones' | 'printing'
+interface Guide {
+  guide_id: string
+  first_name: string
+  last_name: string
+}
+
+interface SpecialGuideRule {
+  id: string
+  guide_id: string
+  activity_id: string
+  notes?: string
+  guides?: Guide
+}
+
+interface GuideSpecificSeasonalCost {
+  id: string
+  guide_id: string
+  activity_id: string
+  season_id: string
+  cost_amount: number
+}
+
+interface GuideSpecificSpecialDateCost {
+  id: string
+  guide_id: string
+  activity_id: string
+  special_date_id: string
+  cost_amount: number
+}
+
+type TabType = 'seasons' | 'special-dates' | 'special-guides' | 'guides' | 'escorts' | 'headphones' | 'printing'
 
 export default function ResourceCostsConfigPage() {
   const [activeTab, setActiveTab] = useState<TabType>('seasons')
@@ -69,6 +99,14 @@ export default function ResourceCostsConfigPage() {
   const [headphones, setHeadphones] = useState<Headphone[]>([])
   const [printing, setPrinting] = useState<Printing[]>([])
   const [activities, setActivities] = useState<Activity[]>([])
+  const [guides, setGuides] = useState<Guide[]>([])
+
+  // Special guide rules and costs
+  const [specialGuideRules, setSpecialGuideRules] = useState<SpecialGuideRule[]>([])
+  // eslint-disable-next-line @typescript-eslint/no-unused-vars
+  const [guideSpecificSeasonalCosts, setGuideSpecificSeasonalCosts] = useState<GuideSpecificSeasonalCost[]>([])
+  // eslint-disable-next-line @typescript-eslint/no-unused-vars
+  const [guideSpecificSpecialDateCosts, setGuideSpecificSpecialDateCosts] = useState<GuideSpecificSpecialDateCost[]>([])
 
   // Seasons and special dates
   const [seasons, setSeasons] = useState<CostSeason[]>([])
@@ -119,6 +157,19 @@ export default function ResourceCostsConfigPage() {
   const [seasonalCostForm, setSeasonalCostForm] = useState<Record<string, Record<string, string>>>({})
   const [specialDateCostForm, setSpecialDateCostForm] = useState<Record<string, Record<string, string>>>({})
 
+  // Special guide form state
+  const [showSpecialGuideForm, setShowSpecialGuideForm] = useState(false)
+  const [specialGuideForm, setSpecialGuideForm] = useState<{
+    guide_id: string
+    activity_ids: string[]
+    notes: string
+  }>({ guide_id: '', activity_ids: [], notes: '' })
+  const [specialGuideSearchTerm, setSpecialGuideSearchTerm] = useState('')
+  // Guide-specific seasonal cost form: [guideId][activityId][seasonId] = cost
+  const [guideSpecificSeasonalCostForm, setGuideSpecificSeasonalCostForm] = useState<Record<string, Record<string, Record<string, string>>>>({})
+  // Guide-specific special date cost form: [guideId][activityId][specialDateId] = cost
+  const [guideSpecificSpecialDateCostForm, setGuideSpecificSpecialDateCostForm] = useState<Record<string, Record<string, Record<string, string>>>>({})
+
   const fetchData = useCallback(async () => {
     setLoading(true)
     setError(null)
@@ -127,24 +178,28 @@ export default function ResourceCostsConfigPage() {
         escortsRes,
         resourcesRes,
         activitiesRes,
-        resourceRatesRes
+        resourceRatesRes,
+        guidesRes
       ] = await Promise.all([
         supabase.from('escorts').select('*').eq('active', true).order('first_name'),
         fetch('/api/resources').then(r => r.json()),
         supabase.from('activities').select('activity_id, title').order('title'),
-        resourceRatesApi.list()
+        resourceRatesApi.list(),
+        supabase.from('guides').select('guide_id, first_name, last_name').eq('active', true).order('first_name')
       ])
 
       if (escortsRes.error) throw escortsRes.error
       if (resourcesRes.error) throw new Error(resourcesRes.error)
       if (activitiesRes.error) throw activitiesRes.error
       if (resourceRatesRes.error) throw new Error(resourceRatesRes.error)
+      if (guidesRes.error) throw guidesRes.error
 
       setEscorts(escortsRes.data || [])
       setHeadphones(resourcesRes.headphones || [])
       setPrinting(resourcesRes.printing || [])
       setActivities(activitiesRes.data || [])
       setResourceRates(resourceRatesRes.data || [])
+      setGuides(guidesRes.data || [])
 
       // Initialize rate forms
       const escortRates: Record<string, string> = {}
@@ -222,6 +277,39 @@ export default function ResourceCostsConfigPage() {
     }
   }, [])
 
+  const fetchSpecialGuideCosts = useCallback(async () => {
+    try {
+      const response = await fetch('/api/costs/special-guide-costs')
+      if (!response.ok) throw new Error('Failed to fetch special guide costs')
+      const result = await response.json()
+
+      setSpecialGuideRules(result.data?.rules || [])
+      setGuideSpecificSeasonalCosts(result.data?.seasonal_costs || [])
+      setGuideSpecificSpecialDateCosts(result.data?.special_date_costs || [])
+
+      // Initialize guide-specific cost forms
+      const guideSeasonalMap: Record<string, Record<string, Record<string, string>>> = {}
+      const guideSpecialDateMap: Record<string, Record<string, Record<string, string>>> = {}
+
+      result.data?.seasonal_costs?.forEach((cost: GuideSpecificSeasonalCost) => {
+        if (!guideSeasonalMap[cost.guide_id]) guideSeasonalMap[cost.guide_id] = {}
+        if (!guideSeasonalMap[cost.guide_id][cost.activity_id]) guideSeasonalMap[cost.guide_id][cost.activity_id] = {}
+        guideSeasonalMap[cost.guide_id][cost.activity_id][cost.season_id] = String(cost.cost_amount)
+      })
+
+      result.data?.special_date_costs?.forEach((cost: GuideSpecificSpecialDateCost) => {
+        if (!guideSpecialDateMap[cost.guide_id]) guideSpecialDateMap[cost.guide_id] = {}
+        if (!guideSpecialDateMap[cost.guide_id][cost.activity_id]) guideSpecialDateMap[cost.guide_id][cost.activity_id] = {}
+        guideSpecialDateMap[cost.guide_id][cost.activity_id][cost.special_date_id] = String(cost.cost_amount)
+      })
+
+      setGuideSpecificSeasonalCostForm(guideSeasonalMap)
+      setGuideSpecificSpecialDateCostForm(guideSpecialDateMap)
+    } catch (err) {
+      console.error('Error fetching special guide costs:', err)
+    }
+  }, [])
+
   useEffect(() => {
     fetchData()
   }, [fetchData])
@@ -237,6 +325,10 @@ export default function ResourceCostsConfigPage() {
   useEffect(() => {
     fetchSeasonalCosts()
   }, [fetchSeasonalCosts])
+
+  useEffect(() => {
+    fetchSpecialGuideCosts()
+  }, [fetchSpecialGuideCosts])
 
   // Season CRUD
   const handleSaveSeason = async () => {
@@ -327,6 +419,104 @@ export default function ResourceCostsConfigPage() {
       fetchSeasonalCosts()
     } catch (err) {
       setError(err instanceof Error ? err.message : 'Failed to delete special date')
+    }
+  }
+
+  // Special Guide Rule CRUD
+  const handleSaveSpecialGuideRule = async () => {
+    setSaving(true)
+    setError(null)
+    try {
+      if (!specialGuideForm.guide_id || specialGuideForm.activity_ids.length === 0) {
+        throw new Error('Please select a guide and at least one activity')
+      }
+
+      const response = await fetch('/api/costs/special-guide-costs', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          guide_id: specialGuideForm.guide_id,
+          activity_ids: specialGuideForm.activity_ids,
+          notes: specialGuideForm.notes || null
+        })
+      })
+
+      if (!response.ok) {
+        const result = await response.json()
+        throw new Error(result.error || 'Failed to save special guide rule')
+      }
+
+      setSuccess('Special guide rule created')
+      setShowSpecialGuideForm(false)
+      setSpecialGuideForm({ guide_id: '', activity_ids: [], notes: '' })
+      setSpecialGuideSearchTerm('')
+      fetchSpecialGuideCosts()
+    } catch (err) {
+      setError(err instanceof Error ? err.message : 'Failed to save special guide rule')
+    } finally {
+      setSaving(false)
+    }
+  }
+
+  const handleDeleteSpecialGuideRule = async (ruleId: string) => {
+    if (!confirm('Delete this special guide rule? All associated costs will be deleted.')) return
+    try {
+      const response = await fetch(`/api/costs/special-guide-costs?id=${ruleId}`, { method: 'DELETE' })
+      if (!response.ok) throw new Error('Failed to delete special guide rule')
+      setSuccess('Special guide rule deleted')
+      fetchSpecialGuideCosts()
+    } catch (err) {
+      setError(err instanceof Error ? err.message : 'Failed to delete special guide rule')
+    }
+  }
+
+  const handleSaveGuideSpecificCosts = async (guideId: string, activityId: string) => {
+    setSaving(true)
+    setError(null)
+    try {
+      const guideCosts = guideSpecificSeasonalCostForm[guideId]?.[activityId] || {}
+      const guideSpecialCosts = guideSpecificSpecialDateCostForm[guideId]?.[activityId] || {}
+
+      // Save seasonal costs for this guide+activity
+      for (const [seasonId, costStr] of Object.entries(guideCosts)) {
+        const costAmount = parseFloat(costStr)
+        if (isNaN(costAmount) || costAmount < 0) continue
+
+        await fetch('/api/costs/special-guide-costs', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            guide_id: guideId,
+            activity_id: activityId,
+            season_id: seasonId,
+            cost_amount: costAmount
+          })
+        })
+      }
+
+      // Save special date costs for this guide+activity
+      for (const [specialDateId, costStr] of Object.entries(guideSpecialCosts)) {
+        const costAmount = parseFloat(costStr)
+        if (isNaN(costAmount) || costAmount < 0) continue
+
+        await fetch('/api/costs/special-guide-costs', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            guide_id: guideId,
+            activity_id: activityId,
+            special_date_id: specialDateId,
+            cost_amount: costAmount
+          })
+        })
+      }
+
+      setSuccess('Guide-specific costs saved')
+      fetchSpecialGuideCosts()
+    } catch (err) {
+      setError(err instanceof Error ? err.message : 'Failed to save guide-specific costs')
+    } finally {
+      setSaving(false)
     }
   }
 
@@ -494,6 +684,7 @@ export default function ResourceCostsConfigPage() {
   const tabs = [
     { id: 'seasons' as TabType, label: 'Seasons', icon: Calendar, description: 'Define seasons' },
     { id: 'special-dates' as TabType, label: 'Special Dates', icon: Star, description: 'Holidays' },
+    { id: 'special-guides' as TabType, label: 'Special Guide', icon: UserPlus, description: 'Guide rules' },
     { id: 'guides' as TabType, label: 'Activity Costs', icon: Users, description: 'Per season' },
     { id: 'escorts' as TabType, label: 'Escorts', icon: UserCheck, description: 'Daily rate' },
     { id: 'headphones' as TabType, label: 'Headphones', icon: Headphones, description: 'Per pax' },
@@ -824,6 +1015,306 @@ export default function ResourceCostsConfigPage() {
                 </tbody>
               </table>
             </div>
+          </div>
+        )}
+
+        {/* Special Guide Tab */}
+        {activeTab === 'special-guides' && (
+          <div className="space-y-6">
+            <div className="flex items-center justify-between">
+              <div className="text-sm text-gray-600">
+                Create special pricing rules for specific guides. Guides with special rules will have different costs than the default.
+              </div>
+              <div className="flex items-center gap-4">
+                <Label>Year</Label>
+                <select
+                  value={selectedYear}
+                  onChange={(e) => setSelectedYear(parseInt(e.target.value))}
+                  className="border rounded-md px-3 py-2"
+                >
+                  {[currentYear - 1, currentYear, currentYear + 1, currentYear + 2].map(year => (
+                    <option key={year} value={year}>{year}</option>
+                  ))}
+                </select>
+                <Button
+                  onClick={() => {
+                    setSpecialGuideForm({ guide_id: '', activity_ids: [], notes: '' })
+                    setSpecialGuideSearchTerm('')
+                    setShowSpecialGuideForm(true)
+                  }}
+                  className="bg-brand-orange hover:bg-orange-600 text-white"
+                >
+                  <Plus className="h-4 w-4 mr-2" />
+                  Add Rule
+                </Button>
+              </div>
+            </div>
+
+            {/* Add Rule Form Modal */}
+            {showSpecialGuideForm && (
+              <div className="fixed inset-0 bg-black/50 z-50 flex items-center justify-center p-4">
+                <div className="bg-white rounded-lg shadow-xl max-w-2xl w-full max-h-[90vh] overflow-y-auto">
+                  <div className="p-4 border-b flex items-center justify-between">
+                    <h3 className="text-lg font-semibold">Add Special Guide Rule</h3>
+                    <button onClick={() => setShowSpecialGuideForm(false)} className="p-1 hover:bg-gray-200 rounded">
+                      <X className="h-5 w-5" />
+                    </button>
+                  </div>
+                  <div className="p-4 space-y-4">
+                    <div>
+                      <Label className="mb-2 block">Select Guide *</Label>
+                      <select
+                        value={specialGuideForm.guide_id}
+                        onChange={(e) => setSpecialGuideForm(prev => ({ ...prev, guide_id: e.target.value }))}
+                        className="w-full border rounded-md px-3 py-2"
+                      >
+                        <option value="">-- Select a guide --</option>
+                        {guides.map(guide => (
+                          <option key={guide.guide_id} value={guide.guide_id}>
+                            {guide.first_name} {guide.last_name}
+                          </option>
+                        ))}
+                      </select>
+                    </div>
+                    <div>
+                      <Label className="mb-2 block">Select Activities *</Label>
+                      <div className="border rounded-md">
+                        <div className="p-2 border-b">
+                          <div className="relative">
+                            <Search className="absolute left-3 top-1/2 transform -translate-y-1/2 h-4 w-4 text-gray-400" />
+                            <Input
+                              type="text"
+                              placeholder="Search activities..."
+                              value={specialGuideSearchTerm}
+                              onChange={(e) => setSpecialGuideSearchTerm(e.target.value)}
+                              className="pl-10"
+                            />
+                          </div>
+                        </div>
+                        <div className="max-h-60 overflow-y-auto">
+                          {activities
+                            .filter(a => a.title.toLowerCase().includes(specialGuideSearchTerm.toLowerCase()))
+                            .map(activity => (
+                              <label
+                                key={activity.activity_id}
+                                className={`flex items-start px-3 py-2 hover:bg-gray-50 cursor-pointer border-b ${
+                                  specialGuideForm.activity_ids.includes(activity.activity_id) ? 'bg-orange-50' : ''
+                                }`}
+                              >
+                                <input
+                                  type="checkbox"
+                                  checked={specialGuideForm.activity_ids.includes(activity.activity_id)}
+                                  onChange={(e) => {
+                                    if (e.target.checked) {
+                                      setSpecialGuideForm(prev => ({
+                                        ...prev,
+                                        activity_ids: [...prev.activity_ids, activity.activity_id]
+                                      }))
+                                    } else {
+                                      setSpecialGuideForm(prev => ({
+                                        ...prev,
+                                        activity_ids: prev.activity_ids.filter(id => id !== activity.activity_id)
+                                      }))
+                                    }
+                                  }}
+                                  className="mt-1 mr-3 h-4 w-4 rounded border-gray-300 text-orange-600 focus:ring-orange-500"
+                                />
+                                <span className="text-sm">{activity.title}</span>
+                              </label>
+                            ))}
+                        </div>
+                      </div>
+                      <p className="text-xs text-gray-500 mt-1">
+                        {specialGuideForm.activity_ids.length} activities selected
+                      </p>
+                    </div>
+                    <div>
+                      <Label className="mb-2 block">Notes (optional)</Label>
+                      <Input
+                        type="text"
+                        value={specialGuideForm.notes}
+                        onChange={(e) => setSpecialGuideForm(prev => ({ ...prev, notes: e.target.value }))}
+                        placeholder="e.g., Freelance guide, special rate"
+                      />
+                    </div>
+                  </div>
+                  <div className="p-4 border-t flex justify-end gap-2">
+                    <Button variant="outline" onClick={() => setShowSpecialGuideForm(false)}>
+                      Cancel
+                    </Button>
+                    <Button
+                      onClick={handleSaveSpecialGuideRule}
+                      disabled={saving || !specialGuideForm.guide_id || specialGuideForm.activity_ids.length === 0}
+                      className="bg-brand-orange hover:bg-orange-600 text-white"
+                    >
+                      {saving ? <Loader2 className="h-4 w-4 animate-spin mr-2" /> : null}
+                      Create Rule
+                    </Button>
+                  </div>
+                </div>
+              </div>
+            )}
+
+            {/* Rules List */}
+            {(() => {
+              // Group rules by guide
+              const rulesByGuide = specialGuideRules.reduce((acc, rule) => {
+                if (!acc[rule.guide_id]) acc[rule.guide_id] = []
+                acc[rule.guide_id].push(rule)
+                return acc
+              }, {} as Record<string, SpecialGuideRule[]>)
+
+              const guideIds = Object.keys(rulesByGuide)
+
+              if (guideIds.length === 0) {
+                return (
+                  <div className="text-center py-8 text-gray-500 border rounded-lg">
+                    No special guide rules defined yet. Click &quot;Add Rule&quot; to create one.
+                  </div>
+                )
+              }
+
+              return (
+                <div className="space-y-6">
+                  {guideIds.map(guideId => {
+                    const guideRules = rulesByGuide[guideId]
+                    const guide = guideRules[0]?.guides || guides.find(g => g.guide_id === guideId)
+                    const guideName = guide ? `${guide.first_name} ${guide.last_name}` : 'Unknown Guide'
+
+                    return (
+                      <div key={guideId} className="border rounded-lg overflow-hidden">
+                        <div className="bg-blue-50 px-4 py-3 flex items-center justify-between">
+                          <div className="flex items-center gap-2">
+                            <UserPlus className="h-5 w-5 text-blue-600" />
+                            <span className="font-medium text-blue-900">{guideName}</span>
+                            <span className="text-sm text-blue-600">({guideRules.length} activities)</span>
+                          </div>
+                        </div>
+
+                        {yearSeasons.length === 0 && yearSpecialDates.length === 0 ? (
+                          <div className="p-4 text-center text-gray-500">
+                            No seasons defined for {selectedYear}. Add seasons first to set costs.
+                          </div>
+                        ) : (
+                          <div className="overflow-x-auto">
+                            <table className="min-w-full divide-y divide-gray-200">
+                              <thead className="bg-gray-50">
+                                <tr>
+                                  <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase sticky left-0 bg-gray-50">
+                                    Activity
+                                  </th>
+                                  {yearSeasons.map(season => (
+                                    <th key={season.id} className="px-4 py-3 text-center text-xs font-medium text-gray-500 uppercase min-w-[120px]">
+                                      <div className="flex items-center justify-center gap-2">
+                                        <div className="w-3 h-3 rounded" style={{ backgroundColor: season.color }} />
+                                        {season.name}
+                                      </div>
+                                    </th>
+                                  ))}
+                                  {yearSpecialDates.length > 0 && (
+                                    <th className="px-4 py-3 text-center text-xs font-medium text-gray-500 uppercase border-l-2 min-w-[120px]">
+                                      Special Dates
+                                    </th>
+                                  )}
+                                  <th className="px-4 py-3 text-center text-xs font-medium text-gray-500 uppercase w-24">
+                                    Actions
+                                  </th>
+                                </tr>
+                              </thead>
+                              <tbody className="bg-white divide-y divide-gray-200">
+                                {guideRules.map(rule => {
+                                  const activity = activities.find(a => a.activity_id === rule.activity_id)
+                                  return (
+                                    <tr key={rule.id} className="hover:bg-gray-50">
+                                      <td className="px-4 py-3 text-sm text-gray-900 sticky left-0 bg-white">
+                                        {activity?.title || rule.activity_id}
+                                      </td>
+                                      {yearSeasons.map(season => (
+                                        <td key={season.id} className="px-4 py-3 text-center">
+                                          <Input
+                                            type="number"
+                                            min="0"
+                                            step="0.01"
+                                            placeholder="0.00"
+                                            value={guideSpecificSeasonalCostForm[guideId]?.[rule.activity_id]?.[season.id] || ''}
+                                            onChange={(e) => setGuideSpecificSeasonalCostForm(prev => ({
+                                              ...prev,
+                                              [guideId]: {
+                                                ...prev[guideId],
+                                                [rule.activity_id]: {
+                                                  ...prev[guideId]?.[rule.activity_id],
+                                                  [season.id]: e.target.value
+                                                }
+                                              }
+                                            }))}
+                                            className="w-24 mx-auto"
+                                          />
+                                        </td>
+                                      ))}
+                                      {yearSpecialDates.length > 0 && (
+                                        <td className="px-4 py-3 border-l-2 text-center">
+                                          <div className="flex flex-col gap-1 items-center">
+                                            {yearSpecialDates.map(sd => (
+                                              <div key={sd.id} className="flex items-center gap-2">
+                                                <span className="text-xs text-gray-500 w-16 truncate text-right" title={sd.name}>
+                                                  {sd.name}:
+                                                </span>
+                                                <Input
+                                                  type="number"
+                                                  min="0"
+                                                  step="0.01"
+                                                  placeholder="0.00"
+                                                  value={guideSpecificSpecialDateCostForm[guideId]?.[rule.activity_id]?.[sd.id] || ''}
+                                                  onChange={(e) => setGuideSpecificSpecialDateCostForm(prev => ({
+                                                    ...prev,
+                                                    [guideId]: {
+                                                      ...prev[guideId],
+                                                      [rule.activity_id]: {
+                                                        ...prev[guideId]?.[rule.activity_id],
+                                                        [sd.id]: e.target.value
+                                                      }
+                                                    }
+                                                  }))}
+                                                  className="w-20"
+                                                />
+                                              </div>
+                                            ))}
+                                          </div>
+                                        </td>
+                                      )}
+                                      <td className="px-4 py-3 text-center">
+                                        <div className="flex items-center justify-center gap-1">
+                                          <Button
+                                            size="sm"
+                                            onClick={() => handleSaveGuideSpecificCosts(guideId, rule.activity_id)}
+                                            disabled={saving}
+                                            className="bg-green-600 hover:bg-green-700 text-white"
+                                          >
+                                            <Save className="h-3 w-3" />
+                                          </Button>
+                                          <Button
+                                            size="sm"
+                                            variant="outline"
+                                            onClick={() => handleDeleteSpecialGuideRule(rule.id)}
+                                            className="text-red-600 hover:text-red-800 hover:bg-red-50"
+                                          >
+                                            <Trash2 className="h-3 w-3" />
+                                          </Button>
+                                        </div>
+                                      </td>
+                                    </tr>
+                                  )
+                                })}
+                              </tbody>
+                            </table>
+                          </div>
+                        )}
+                      </div>
+                    )
+                  })}
+                </div>
+              )
+            })()}
           </div>
         )}
 

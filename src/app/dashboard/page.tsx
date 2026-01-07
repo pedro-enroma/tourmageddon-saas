@@ -901,8 +901,16 @@ function SearchDialog({ isOpen, onClose }: { isOpen: boolean; onClose: () => voi
 }
 
 // App version and changelog
-const APP_VERSION = '3.0'
+const APP_VERSION = '3.5'
 const CHANGELOG = [
+  {
+    version: '3.5',
+    date: '2026-01-07',
+    changes: [
+      { type: 'feature', text: 'Special Guide Costs - Configure guide-specific pricing per activity for seasonal and special dates' },
+      { type: 'feature', text: 'Multi-slot Escort Assignment - Assign escorts to multiple time slots at once from SuperSantos recap page' },
+    ]
+  },
   {
     version: '3.0',
     date: '2025-12-19',

@@ -55,6 +55,7 @@ export interface Guide {
   license_number?: string
   languages: string[]
   active: boolean
+  paid_in_cash?: boolean
   created_at?: string
 }
 
