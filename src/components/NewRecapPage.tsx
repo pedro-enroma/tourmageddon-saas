@@ -2287,26 +2287,23 @@ export default function NewRecapPage() {
                         )}
                       </td>
                       <td className="px-4 py-2 text-center text-sm">
-                        {slot.guideData && slot.guideData.length > 0 ? (
-                          <div className="flex flex-wrap gap-1 justify-center">
-                            {slot.guideData.map((guide, gIdx) => (
-                              <button
-                                key={gIdx}
-                                onClick={() => openGuideDialog(slot, guide)}
-                                className="px-2 py-0.5 bg-green-100 hover:bg-green-200 text-green-800 rounded text-xs cursor-pointer transition-colors"
-                              >
-                                {guide.name}
-                              </button>
-                            ))}
-                          </div>
-                        ) : (
+                        <div className="flex flex-wrap gap-1 justify-center items-center">
+                          {slot.guideData && slot.guideData.length > 0 && slot.guideData.map((guide, gIdx) => (
+                            <button
+                              key={gIdx}
+                              onClick={() => openGuideDialog(slot, guide)}
+                              className="px-2 py-0.5 bg-green-100 hover:bg-green-200 text-green-800 rounded text-xs cursor-pointer transition-colors"
+                            >
+                              {guide.name}
+                            </button>
+                          ))}
                           <button
                             onClick={() => openGuideDialog(slot, null)}
                             className="px-2 py-0.5 bg-gray-100 hover:bg-gray-200 text-gray-600 rounded text-xs cursor-pointer transition-colors"
                           >
                             +
                           </button>
-                        )}
+                        </div>
                       </td>
                       <td className="px-4 py-2 text-center text-sm">
                         {slot.escortData && slot.escortData.length > 0 ? (

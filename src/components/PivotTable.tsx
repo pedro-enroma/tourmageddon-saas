@@ -254,7 +254,7 @@ export default function PivotTable() {
 
       // Aggiungi la prenotazione allo slot
       slot.bookings.push(booking)
-      slot.total_amount += booking.total_price || 0
+      slot.total_amount += booking.net_price || booking.total_price || 0
 
       // Conta i partecipanti
       let totalParticipants = 0

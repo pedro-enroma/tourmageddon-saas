@@ -36,13 +36,16 @@ import {
   CheckCircle,
   XCircle,
   Clock,
-  Settings,
   Calendar,
   Lock,
   Unlock,
   ChevronDown,
   ChevronRight,
   Plus,
+  List,
+  Pencil,
+  Trash2,
+  AlertCircle,
 } from 'lucide-react'
 import { Textarea } from '@/components/ui/textarea'
 
@@ -84,6 +87,8 @@ interface BookingForInvoicing {
   customer_name: string | null
   activity_seller: string | null
   payment_type: string | null
+  all_activities_cancelled: boolean
+  travel_date: string | null
 }
 
 interface Config {
@@ -93,6 +98,38 @@ interface Config {
   default_regime: string
   default_sales_type: string
   invoice_start_date: string | null
+}
+
+interface InvoiceRule {
+  id: string
+  name: string
+  sellers: string[]
+  auto_invoice_enabled: boolean
+  auto_credit_note_enabled: boolean
+  credit_note_trigger: 'cancellation' | 'refund'
+  default_regime: '74T' | 'ORD'
+  default_sales_type: 'ORG' | 'INT'
+  invoice_date_type: 'creation' | 'travel'
+  travel_date_delay_days: number
+  invoice_start_date: string | null
+  created_at: string
+  updated_at: string
+}
+
+interface ScheduledInvoice {
+  id: string
+  booking_id: number
+  rule_id: string | null
+  scheduled_send_date: string
+  status: 'pending' | 'sent' | 'failed' | 'cancelled'
+  created_at: string
+  sent_at: string | null
+  error_message: string | null
+  // Joined data
+  confirmation_code?: string
+  customer_name?: string
+  seller_name?: string
+  total_amount?: number
 }
 
 interface Stats {
@@ -140,14 +177,56 @@ export default function InvoicingPage() {
   const [showConfigDialog, setShowConfigDialog] = useState(false)
   const [savingConfig, setSavingConfig] = useState(false)
 
+  // Rules management state
+  const [rules, setRules] = useState<InvoiceRule[]>([])
+  const [showRulesDialog, setShowRulesDialog] = useState(false)
+  const [showRuleForm, setShowRuleForm] = useState(false)
+  const [editingRule, setEditingRule] = useState<InvoiceRule | null>(null)
+  const [savingRule, setSavingRule] = useState(false)
+  const [deletingRuleId, setDeletingRuleId] = useState<string | null>(null)
+  const [ruleForm, setRuleForm] = useState<{
+    name: string
+    sellers: string[]
+    auto_invoice_enabled: boolean
+    auto_credit_note_enabled: boolean
+    credit_note_trigger: 'cancellation' | 'refund'
+    default_regime: '74T' | 'ORD'
+    default_sales_type: 'ORG' | 'INT'
+    invoice_date_type: 'creation' | 'travel'
+    travel_date_delay_days: number
+    invoice_start_date: string
+  }>({
+    name: '',
+    sellers: [],
+    auto_invoice_enabled: true,
+    auto_credit_note_enabled: true,
+    credit_note_trigger: 'cancellation',
+    default_regime: '74T',
+    default_sales_type: 'ORG',
+    invoice_date_type: 'creation',
+    travel_date_delay_days: 1,
+    invoice_start_date: '',
+  })
+
   // Filters
   const [dateFrom, setDateFrom] = useState<string>(format(subDays(new Date(), 90), 'yyyy-MM-dd'))
   const [dateTo, setDateTo] = useState<string>(format(new Date(), 'yyyy-MM-dd'))
   const [statusFilter, setStatusFilter] = useState<string>('all')
   const [sellerFilter, setSellerFilter] = useState<string>('all')
-  const [activeTab, setActiveTab] = useState<'monthly' | 'pending' | 'credit-notes'>('monthly')
+  const [activeTab, setActiveTab] = useState<'monthly' | 'all-reservations' | 'pending-invoicing' | 'invoices-created' | 'credit-notes'>('monthly')
   const [creditNotes, setCreditNotes] = useState<Invoice[]>([])
   const [loadingCreditNotes, setLoadingCreditNotes] = useState(false)
+
+  // Scheduled invoices (pending API calls)
+  const [scheduledInvoices, setScheduledInvoices] = useState<ScheduledInvoice[]>([])
+  const [loadingScheduled, setLoadingScheduled] = useState(false)
+
+  // Created invoices (sent via API)
+  const [createdInvoices, setCreatedInvoices] = useState<Invoice[]>([])
+  const [loadingCreated, setLoadingCreated] = useState(false)
+
+  // Process rules
+  const [processingRules, setProcessingRules] = useState(false)
 
   // Stats
   const [stats, setStats] = useState<Stats>({
@@ -274,7 +353,7 @@ export default function InvoicingPage() {
           booking_customers(
             customers(first_name, last_name)
           ),
-          activity_bookings(activity_seller)
+          activity_bookings(activity_seller, status, start_date_time)
         `
         )
         .gte('creation_date', effectiveStartDate)
@@ -296,26 +375,34 @@ export default function InvoicingPage() {
       const uninvoiced = (bookings || [])
         .filter((b) => !invoicedBookingIds.has(b.booking_id))
         .filter((b) => sellerFilter === 'all' || b.activity_bookings?.some((a: { activity_seller: string }) => a.activity_seller === sellerFilter))
-        .map((b) => ({
-          booking_id: b.booking_id,
-          confirmation_code: b.confirmation_code,
-          total_price: b.total_price,
-          currency: b.currency,
-          creation_date: b.creation_date,
-          payment_type: b.payment_type,
-          customer_name: (() => {
-            const cust = b.booking_customers?.[0]?.customers as unknown
-            if (Array.isArray(cust) && cust[0]) {
-              return `${cust[0].first_name || ''} ${cust[0].last_name || ''}`.trim() || null
-            }
-            if (cust && typeof cust === 'object' && 'first_name' in cust) {
-              const c = cust as { first_name: string; last_name: string }
-              return `${c.first_name || ''} ${c.last_name || ''}`.trim() || null
-            }
-            return null
-          })(),
-          activity_seller: b.activity_bookings?.[0]?.activity_seller || null,
-        }))
+        .map((b) => {
+          const activityBookings = b.activity_bookings as { activity_seller: string; status: string; start_date_time: string }[] || []
+          const allCancelled = activityBookings.length > 0 && activityBookings.every(a => a.status === 'CANCELLED')
+          const travelDate = activityBookings[0]?.start_date_time || null
+
+          return {
+            booking_id: b.booking_id,
+            confirmation_code: b.confirmation_code,
+            total_price: b.total_price,
+            currency: b.currency,
+            creation_date: b.creation_date,
+            payment_type: b.payment_type,
+            customer_name: (() => {
+              const cust = b.booking_customers?.[0]?.customers as unknown
+              if (Array.isArray(cust) && cust[0]) {
+                return `${cust[0].first_name || ''} ${cust[0].last_name || ''}`.trim() || null
+              }
+              if (cust && typeof cust === 'object' && 'first_name' in cust) {
+                const c = cust as { first_name: string; last_name: string }
+                return `${c.first_name || ''} ${c.last_name || ''}`.trim() || null
+              }
+              return null
+            })(),
+            activity_seller: activityBookings[0]?.activity_seller || null,
+            all_activities_cancelled: allCancelled,
+            travel_date: travelDate,
+          }
+        })
 
       setUninvoicedBookings(uninvoiced)
     } catch (error) {
@@ -354,6 +441,130 @@ export default function InvoicingPage() {
       console.error('Error fetching credit notes:', error)
     } finally {
       setLoadingCreditNotes(false)
+    }
+  }
+
+  // Fetch scheduled invoices (pending API calls)
+  const fetchScheduledInvoices = async () => {
+    setLoadingScheduled(true)
+    try {
+      const { data, error } = await supabase
+        .from('scheduled_invoices')
+        .select('*')
+        .eq('status', 'pending')
+        .order('scheduled_send_date', { ascending: true })
+
+      if (error) throw error
+
+      // Enrich with booking data
+      if (data && data.length > 0) {
+        const bookingIds = data.map((s) => s.booking_id)
+        const { data: bookings } = await supabase
+          .from('bookings')
+          .select(`
+            booking_id,
+            confirmation_code,
+            total_price,
+            booking_customers(customers(first_name, last_name)),
+            activity_bookings(activity_seller, status)
+          `)
+          .in('booking_id', bookingIds)
+
+        const bookingMap = new Map(bookings?.map((b) => [b.booking_id, b]) || [])
+
+        const enriched = data
+          .map((scheduled) => {
+            const booking = bookingMap.get(scheduled.booking_id)
+            const customer = booking?.booking_customers?.[0]?.customers as { first_name?: string; last_name?: string } | undefined
+            const activityBookings = booking?.activity_bookings as { activity_seller: string; status: string }[] || []
+            const allCancelled = activityBookings.length > 0 && activityBookings.every(a => a.status === 'CANCELLED')
+
+            return {
+              ...scheduled,
+              confirmation_code: booking?.confirmation_code || '',
+              customer_name: customer ? `${customer.first_name || ''} ${customer.last_name || ''}`.trim() : null,
+              seller_name: activityBookings[0]?.activity_seller || null,
+              total_amount: booking?.total_price || 0,
+              all_activities_cancelled: allCancelled,
+            }
+          })
+          // Filter out bookings where all activities are cancelled
+          .filter((s) => !s.all_activities_cancelled)
+
+        setScheduledInvoices(enriched)
+
+        // Also update the scheduled_invoices status to 'cancelled' for those with all activities cancelled
+        const cancelledBookingIds = data
+          .filter((scheduled) => {
+            const booking = bookingMap.get(scheduled.booking_id)
+            const activityBookings = booking?.activity_bookings as { status: string }[] || []
+            return activityBookings.length > 0 && activityBookings.every(a => a.status === 'CANCELLED')
+          })
+          .map((s) => s.id)
+
+        if (cancelledBookingIds.length > 0) {
+          await supabase
+            .from('scheduled_invoices')
+            .update({ status: 'cancelled' })
+            .in('id', cancelledBookingIds)
+        }
+      } else {
+        setScheduledInvoices([])
+      }
+    } catch (error) {
+      console.error('Error fetching scheduled invoices:', error)
+    } finally {
+      setLoadingScheduled(false)
+    }
+  }
+
+  // Fetch created invoices (sent via API)
+  const fetchCreatedInvoices = async () => {
+    setLoadingCreated(true)
+    try {
+      const { data, error } = await supabase
+        .from('invoices')
+        .select('*')
+        .eq('invoice_type', 'INVOICE')
+        .order('created_at', { ascending: false })
+
+      if (error) throw error
+      setCreatedInvoices(data || [])
+    } catch (error) {
+      console.error('Error fetching created invoices:', error)
+    } finally {
+      setLoadingCreated(false)
+    }
+  }
+
+  // Process existing bookings against rules
+  const processRules = async (dryRun = false) => {
+    setProcessingRules(true)
+    try {
+      const response = await fetch('/api/invoices/process-rules', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ dry_run: dryRun }),
+      })
+
+      const result = await response.json()
+
+      if (!response.ok) {
+        throw new Error(result.error || 'Failed to process rules')
+      }
+
+      alert(result.message || `Processed ${result.processed} bookings`)
+
+      // Refresh scheduled invoices
+      if (!dryRun) {
+        fetchScheduledInvoices()
+      }
+    } catch (error: unknown) {
+      const err = error as Error
+      console.error('Error processing rules:', err)
+      alert('Error processing rules: ' + (err.message || 'Unknown error'))
+    } finally {
+      setProcessingRules(false)
     }
   }
 
@@ -423,11 +634,174 @@ export default function InvoicingPage() {
     }
   }
 
+  // Fetch invoice rules
+  const fetchRules = async () => {
+    try {
+      const { data, error } = await supabase
+        .from('invoice_rules')
+        .select('*')
+        .order('name')
+
+      if (error) throw error
+      setRules(data || [])
+    } catch (error) {
+      console.error('Error fetching rules:', error)
+    }
+  }
+
+  // Get sellers already assigned to other rules (for validation)
+  const getAssignedSellers = (excludeRuleId?: string): Set<string> => {
+    const assigned = new Set<string>()
+    rules.forEach((rule) => {
+      if (excludeRuleId && rule.id === excludeRuleId) return
+      rule.sellers.forEach((seller) => assigned.add(seller))
+    })
+    return assigned
+  }
+
+  // Get unassigned sellers
+  const getUnassignedSellers = (): string[] => {
+    const assigned = getAssignedSellers()
+    return availableSellers.filter((seller) => !assigned.has(seller))
+  }
+
+  // Reset rule form to defaults
+  const resetRuleForm = () => {
+    setRuleForm({
+      name: '',
+      sellers: [],
+      auto_invoice_enabled: true,
+      auto_credit_note_enabled: true,
+      credit_note_trigger: 'cancellation',
+      default_regime: '74T',
+      default_sales_type: 'ORG',
+      invoice_date_type: 'creation',
+      travel_date_delay_days: 1,
+      invoice_start_date: '',
+    })
+    setEditingRule(null)
+  }
+
+  // Open rule form for creating new rule
+  const openNewRuleForm = () => {
+    resetRuleForm()
+    setShowRuleForm(true)
+  }
+
+  // Open rule form for editing existing rule
+  const openEditRuleForm = (rule: InvoiceRule) => {
+    setEditingRule(rule)
+    setRuleForm({
+      name: rule.name,
+      sellers: rule.sellers,
+      auto_invoice_enabled: rule.auto_invoice_enabled,
+      auto_credit_note_enabled: rule.auto_credit_note_enabled,
+      credit_note_trigger: rule.credit_note_trigger || 'cancellation',
+      default_regime: rule.default_regime,
+      default_sales_type: rule.default_sales_type,
+      invoice_date_type: rule.invoice_date_type,
+      travel_date_delay_days: rule.travel_date_delay_days,
+      invoice_start_date: rule.invoice_start_date || '',
+    })
+    setShowRuleForm(true)
+  }
+
+  // Save rule (create or update)
+  const saveRule = async () => {
+    if (!ruleForm.name.trim()) {
+      alert('Please enter a rule name')
+      return
+    }
+
+    if (ruleForm.sellers.length === 0) {
+      alert('Please select at least one seller')
+      return
+    }
+
+    setSavingRule(true)
+    try {
+      const ruleData = {
+        name: ruleForm.name.trim(),
+        sellers: ruleForm.sellers,
+        auto_invoice_enabled: ruleForm.auto_invoice_enabled,
+        auto_credit_note_enabled: ruleForm.auto_credit_note_enabled,
+        credit_note_trigger: ruleForm.credit_note_trigger,
+        default_regime: ruleForm.default_regime,
+        default_sales_type: ruleForm.default_sales_type,
+        invoice_date_type: ruleForm.invoice_date_type,
+        travel_date_delay_days: ruleForm.travel_date_delay_days,
+        invoice_start_date: ruleForm.invoice_start_date || null,
+        updated_at: new Date().toISOString(),
+      }
+
+      if (editingRule) {
+        // Update existing rule
+        const { error } = await supabase
+          .from('invoice_rules')
+          .update(ruleData)
+          .eq('id', editingRule.id)
+
+        if (error) throw error
+      } else {
+        // Create new rule
+        const { error } = await supabase.from('invoice_rules').insert(ruleData)
+
+        if (error) throw error
+      }
+
+      // Refresh rules and close form
+      await fetchRules()
+      setShowRuleForm(false)
+      resetRuleForm()
+    } catch (error: unknown) {
+      const err = error as Error
+      console.error('Error saving rule:', err.message || error)
+      alert('Error saving rule: ' + (err.message || 'Unknown error'))
+    } finally {
+      setSavingRule(false)
+    }
+  }
+
+  // Delete rule
+  const deleteRule = async (ruleId: string) => {
+    if (!confirm('Are you sure you want to delete this rule? Sellers will become unassigned.')) {
+      return
+    }
+
+    setDeletingRuleId(ruleId)
+    try {
+      const { error } = await supabase.from('invoice_rules').delete().eq('id', ruleId)
+
+      if (error) throw error
+
+      await fetchRules()
+    } catch (error: unknown) {
+      const err = error as Error
+      console.error('Error deleting rule:', err.message || error)
+      alert('Error deleting rule: ' + (err.message || 'Unknown error'))
+    } finally {
+      setDeletingRuleId(null)
+    }
+  }
+
+  // Toggle seller selection in rule form
+  const toggleSellerInRule = (seller: string) => {
+    setRuleForm((prev) => ({
+      ...prev,
+      sellers: prev.sellers.includes(seller)
+        ? prev.sellers.filter((s) => s !== seller)
+        : [...prev.sellers, seller],
+    }))
+  }
+
   useEffect(() => {
     fetchMonthlyPraticas()
     fetchAvailableSellers()
     fetchConfig()
     fetchCreditNotes()
+    fetchRules()
+    fetchScheduledInvoices()
+    fetchCreatedInvoices()
   }, [fetchMonthlyPraticas])
 
   // Refetch uninvoiced bookings when config loads or changes
@@ -678,9 +1052,21 @@ export default function InvoicingPage() {
             <Plus className="h-4 w-4 mr-2" />
             New Invoice
           </Button>
-          <Button variant="outline" onClick={() => setShowConfigDialog(true)}>
-            <Settings className="h-4 w-4 mr-2" />
-            Settings
+          <Button variant="outline" onClick={() => setShowRulesDialog(true)}>
+            <List className="h-4 w-4 mr-2" />
+            Rules
+          </Button>
+          <Button
+            variant="outline"
+            onClick={() => processRules(false)}
+            disabled={processingRules}
+          >
+            {processingRules ? (
+              <RefreshCw className="h-4 w-4 mr-2 animate-spin" />
+            ) : (
+              <RefreshCw className="h-4 w-4 mr-2" />
+            )}
+            Apply Rules
           </Button>
           {stats.failed > 0 && (
             <Button variant="outline" onClick={retryFailed} disabled={sending}>
@@ -769,9 +1155,9 @@ export default function InvoicingPage() {
       </div>
 
       {/* Tabs */}
-      <div className="flex gap-2 border-b">
+      <div className="flex gap-2 border-b overflow-x-auto">
         <button
-          className={`px-4 py-2 font-medium transition-colors ${
+          className={`px-4 py-2 font-medium transition-colors whitespace-nowrap ${
             activeTab === 'monthly'
               ? 'border-b-2 border-orange-500 text-orange-600'
               : 'text-gray-500 hover:text-gray-700'
@@ -782,17 +1168,39 @@ export default function InvoicingPage() {
           Monthly Invoices ({monthlyPraticas.length})
         </button>
         <button
-          className={`px-4 py-2 font-medium transition-colors ${
-            activeTab === 'pending'
+          className={`px-4 py-2 font-medium transition-colors whitespace-nowrap ${
+            activeTab === 'all-reservations'
               ? 'border-b-2 border-orange-500 text-orange-600'
               : 'text-gray-500 hover:text-gray-700'
           }`}
-          onClick={() => setActiveTab('pending')}
+          onClick={() => setActiveTab('all-reservations')}
         >
-          Pending Invoicing ({uninvoicedBookings.length})
+          All Reservations ({uninvoicedBookings.length})
         </button>
         <button
-          className={`px-4 py-2 font-medium transition-colors ${
+          className={`px-4 py-2 font-medium transition-colors whitespace-nowrap ${
+            activeTab === 'pending-invoicing'
+              ? 'border-b-2 border-orange-500 text-orange-600'
+              : 'text-gray-500 hover:text-gray-700'
+          }`}
+          onClick={() => setActiveTab('pending-invoicing')}
+        >
+          <Clock className="h-4 w-4 inline mr-2" />
+          Pending Invoicing ({scheduledInvoices.length})
+        </button>
+        <button
+          className={`px-4 py-2 font-medium transition-colors whitespace-nowrap ${
+            activeTab === 'invoices-created'
+              ? 'border-b-2 border-orange-500 text-orange-600'
+              : 'text-gray-500 hover:text-gray-700'
+          }`}
+          onClick={() => setActiveTab('invoices-created')}
+        >
+          <CheckCircle className="h-4 w-4 inline mr-2" />
+          Invoices Created ({createdInvoices.length})
+        </button>
+        <button
+          className={`px-4 py-2 font-medium transition-colors whitespace-nowrap ${
             activeTab === 'credit-notes'
               ? 'border-b-2 border-orange-500 text-orange-600'
               : 'text-gray-500 hover:text-gray-700'
@@ -944,8 +1352,8 @@ export default function InvoicingPage() {
         </div>
       )}
 
-      {/* Pending Invoicing Tab */}
-      {activeTab === 'pending' && (
+      {/* All Reservations Tab */}
+      {activeTab === 'all-reservations' && (
         <div className="space-y-4">
           {selectedBookings.length > 0 && (
             <div className="flex justify-between items-center bg-orange-50 p-4 rounded-lg border border-orange-200">
@@ -998,18 +1406,29 @@ export default function InvoicingPage() {
                   </TableRow>
                 ) : (
                   uninvoicedBookings.map((booking) => (
-                    <TableRow key={booking.booking_id} className="hover:bg-gray-50">
+                    <TableRow
+                      key={booking.booking_id}
+                      className={`hover:bg-gray-50 ${booking.all_activities_cancelled ? 'bg-red-50 opacity-70' : ''}`}
+                    >
                       <TableCell>
                         <Checkbox
                           checked={selectedBookings.includes(booking.booking_id)}
                           onCheckedChange={() => toggleBookingSelection(booking.booking_id)}
+                          disabled={booking.all_activities_cancelled}
                         />
                       </TableCell>
                       <TableCell className="font-medium">
-                        {booking.confirmation_code}
+                        <div className="flex items-center gap-2">
+                          {booking.confirmation_code}
+                          {booking.all_activities_cancelled && (
+                            <span className="px-1.5 py-0.5 rounded text-xs font-medium bg-red-100 text-red-700">
+                              CANCELLED
+                            </span>
+                          )}
+                        </div>
                       </TableCell>
                       <TableCell>{booking.customer_name || '-'}</TableCell>
-                      <TableCell className="font-medium">
+                      <TableCell className={`font-medium ${booking.all_activities_cancelled ? 'line-through text-gray-400' : ''}`}>
                         {booking.currency} {booking.total_price.toFixed(2)}
                       </TableCell>
                       <TableCell>
@@ -1038,6 +1457,132 @@ export default function InvoicingPage() {
               </TableBody>
             </Table>
           </div>
+        </div>
+      )}
+
+      {/* Pending Invoicing Tab (Scheduled API calls) */}
+      {activeTab === 'pending-invoicing' && (
+        <div className="bg-white rounded-lg border shadow-sm overflow-hidden">
+          <Table>
+            <TableHeader>
+              <TableRow className="bg-gray-50">
+                <TableHead className="font-semibold">Booking</TableHead>
+                <TableHead className="font-semibold">Customer</TableHead>
+                <TableHead className="font-semibold">Amount</TableHead>
+                <TableHead className="font-semibold">Seller</TableHead>
+                <TableHead className="font-semibold">Scheduled Date</TableHead>
+                <TableHead className="font-semibold">Status</TableHead>
+              </TableRow>
+            </TableHeader>
+            <TableBody>
+              {loadingScheduled ? (
+                <TableRow>
+                  <TableCell colSpan={6} className="text-center py-8">
+                    <RefreshCw className="h-6 w-6 animate-spin mx-auto text-gray-400" />
+                    <p className="mt-2 text-gray-500">Loading...</p>
+                  </TableCell>
+                </TableRow>
+              ) : scheduledInvoices.length === 0 ? (
+                <TableRow>
+                  <TableCell colSpan={6} className="text-center py-8 text-gray-500">
+                    <Clock className="h-12 w-12 mx-auto text-gray-300 mb-2" />
+                    No scheduled invoices pending
+                  </TableCell>
+                </TableRow>
+              ) : (
+                scheduledInvoices.map((scheduled) => (
+                  <TableRow key={scheduled.id} className="hover:bg-gray-50">
+                    <TableCell className="font-medium">
+                      {scheduled.confirmation_code || scheduled.booking_id}
+                    </TableCell>
+                    <TableCell>{scheduled.customer_name || '-'}</TableCell>
+                    <TableCell className="font-medium">
+                      EUR {(scheduled.total_amount || 0).toFixed(2)}
+                    </TableCell>
+                    <TableCell className="text-sm">{scheduled.seller_name || '-'}</TableCell>
+                    <TableCell className="text-sm">
+                      {format(new Date(scheduled.scheduled_send_date), 'dd/MM/yyyy')}
+                    </TableCell>
+                    <TableCell>
+                      <span className="inline-flex items-center gap-1 px-2 py-1 rounded-full text-xs font-medium bg-yellow-100 text-yellow-700">
+                        <Clock className="h-3 w-3" />
+                        Scheduled
+                      </span>
+                    </TableCell>
+                  </TableRow>
+                ))
+              )}
+            </TableBody>
+          </Table>
+        </div>
+      )}
+
+      {/* Invoices Created Tab */}
+      {activeTab === 'invoices-created' && (
+        <div className="bg-white rounded-lg border shadow-sm overflow-hidden">
+          <Table>
+            <TableHeader>
+              <TableRow className="bg-gray-50">
+                <TableHead className="font-semibold">Booking</TableHead>
+                <TableHead className="font-semibold">Customer</TableHead>
+                <TableHead className="font-semibold">Amount</TableHead>
+                <TableHead className="font-semibold">Seller</TableHead>
+                <TableHead className="font-semibold">Status</TableHead>
+                <TableHead className="font-semibold">Created</TableHead>
+              </TableRow>
+            </TableHeader>
+            <TableBody>
+              {loadingCreated ? (
+                <TableRow>
+                  <TableCell colSpan={6} className="text-center py-8">
+                    <RefreshCw className="h-6 w-6 animate-spin mx-auto text-gray-400" />
+                    <p className="mt-2 text-gray-500">Loading...</p>
+                  </TableCell>
+                </TableRow>
+              ) : createdInvoices.length === 0 ? (
+                <TableRow>
+                  <TableCell colSpan={6} className="text-center py-8 text-gray-500">
+                    <CheckCircle className="h-12 w-12 mx-auto text-gray-300 mb-2" />
+                    No invoices created yet
+                  </TableCell>
+                </TableRow>
+              ) : (
+                createdInvoices.map((invoice) => (
+                  <TableRow key={invoice.id} className="hover:bg-gray-50">
+                    <TableCell className="font-medium">
+                      {invoice.confirmation_code}
+                    </TableCell>
+                    <TableCell>{invoice.customer_name || '-'}</TableCell>
+                    <TableCell className="font-medium">
+                      {invoice.currency} {invoice.total_amount.toFixed(2)}
+                    </TableCell>
+                    <TableCell className="text-sm">{invoice.seller_name || '-'}</TableCell>
+                    <TableCell>
+                      {invoice.status === 'sent' ? (
+                        <span className="inline-flex items-center gap-1 px-2 py-1 rounded-full text-xs font-medium bg-green-100 text-green-700">
+                          <CheckCircle className="h-3 w-3" />
+                          Sent
+                        </span>
+                      ) : invoice.status === 'pending' ? (
+                        <span className="inline-flex items-center gap-1 px-2 py-1 rounded-full text-xs font-medium bg-yellow-100 text-yellow-700">
+                          <Clock className="h-3 w-3" />
+                          Pending
+                        </span>
+                      ) : (
+                        <span className="inline-flex items-center gap-1 px-2 py-1 rounded-full text-xs font-medium bg-red-100 text-red-700">
+                          <XCircle className="h-3 w-3" />
+                          Failed
+                        </span>
+                      )}
+                    </TableCell>
+                    <TableCell className="text-sm text-gray-500">
+                      {format(new Date(invoice.created_at), 'dd/MM/yyyy HH:mm')}
+                    </TableCell>
+                  </TableRow>
+                ))
+              )}
+            </TableBody>
+          </Table>
         </div>
       )}
 
@@ -1112,67 +1657,311 @@ export default function InvoicingPage() {
         </div>
       )}
 
-      {/* Config Dialog */}
-      <Dialog open={showConfigDialog} onOpenChange={setShowConfigDialog}>
-        <DialogContent className="sm:max-w-[500px]">
+      {/* Rules List Dialog */}
+      <Dialog open={showRulesDialog} onOpenChange={setShowRulesDialog}>
+        <DialogContent className="sm:max-w-[800px] max-h-[90vh] overflow-y-auto">
           <DialogHeader>
-            <DialogTitle>Invoicing Settings</DialogTitle>
+            <DialogTitle>Invoice Rules</DialogTitle>
             <DialogDescription>
-              Configure automatic invoicing behavior and Partner Solution defaults
+              Manage invoicing rules for different sellers. Each seller can only belong to one rule.
             </DialogDescription>
           </DialogHeader>
 
-          {config && (
-            <div className="space-y-6 py-4">
-              <div className="flex items-center justify-between">
+          <div className="space-y-4 py-4">
+            {/* Unassigned sellers warning */}
+            {getUnassignedSellers().length > 0 && (
+              <div className="flex items-start gap-2 p-3 bg-yellow-50 border border-yellow-200 rounded-md">
+                <AlertCircle className="h-5 w-5 text-yellow-600 flex-shrink-0 mt-0.5" />
                 <div>
-                  <Label className="text-base">Auto-add to monthly invoice</Label>
-                  <p className="text-sm text-gray-500">
-                    Automatically add bookings to monthly invoice on confirmation
+                  <p className="text-sm font-medium text-yellow-800">
+                    {getUnassignedSellers().length} seller(s) without rules
+                  </p>
+                  <p className="text-xs text-yellow-600 mt-1">
+                    Bookings from these sellers will not be auto-invoiced:{' '}
+                    {getUnassignedSellers().slice(0, 3).join(', ')}
+                    {getUnassignedSellers().length > 3 && ` and ${getUnassignedSellers().length - 3} more`}
                   </p>
                 </div>
-                <Switch
-                  checked={config.auto_invoice_enabled}
-                  onCheckedChange={(checked) =>
-                    setConfig({ ...config, auto_invoice_enabled: checked })
-                  }
-                />
               </div>
+            )}
 
-              <div className="flex items-center justify-between">
-                <div>
-                  <Label className="text-base">Auto credit note on cancellation</Label>
-                  <p className="text-sm text-gray-500">
-                    Automatically create credit notes when bookings are cancelled
-                  </p>
-                </div>
-                <Switch
-                  checked={config.auto_credit_note_enabled}
-                  onCheckedChange={(checked) =>
-                    setConfig({ ...config, auto_credit_note_enabled: checked })
-                  }
-                />
+            {/* Rules table */}
+            <div className="border rounded-lg overflow-hidden">
+              <Table>
+                <TableHeader>
+                  <TableRow className="bg-gray-50">
+                    <TableHead className="font-semibold">Rule Name</TableHead>
+                    <TableHead className="font-semibold">Sellers</TableHead>
+                    <TableHead className="font-semibold">Regime</TableHead>
+                    <TableHead className="font-semibold">Sales Type</TableHead>
+                    <TableHead className="font-semibold">Invoice Date</TableHead>
+                    <TableHead className="font-semibold">Auto</TableHead>
+                    <TableHead className="font-semibold w-24">Actions</TableHead>
+                  </TableRow>
+                </TableHeader>
+                <TableBody>
+                  {rules.length === 0 ? (
+                    <TableRow>
+                      <TableCell colSpan={7} className="text-center py-8 text-gray-500">
+                        <List className="h-12 w-12 mx-auto text-gray-300 mb-2" />
+                        No rules configured yet. Create a rule to get started.
+                      </TableCell>
+                    </TableRow>
+                  ) : (
+                    rules.map((rule) => (
+                      <TableRow key={rule.id} className="hover:bg-gray-50">
+                        <TableCell className="font-medium">{rule.name}</TableCell>
+                        <TableCell>
+                          <span className="text-sm">
+                            {rule.sellers.length} seller{rule.sellers.length !== 1 ? 's' : ''}
+                          </span>
+                          {rule.sellers.length > 0 && (
+                            <p className="text-xs text-gray-500 truncate max-w-[150px]">
+                              {rule.sellers.slice(0, 2).join(', ')}
+                              {rule.sellers.length > 2 && ` +${rule.sellers.length - 2}`}
+                            </p>
+                          )}
+                        </TableCell>
+                        <TableCell>
+                          <span className="px-2 py-1 rounded text-xs font-medium bg-gray-100">
+                            {rule.default_regime}
+                          </span>
+                        </TableCell>
+                        <TableCell>
+                          <span className="px-2 py-1 rounded text-xs font-medium bg-gray-100">
+                            {rule.default_sales_type}
+                          </span>
+                        </TableCell>
+                        <TableCell>
+                          <span className="text-sm">
+                            {rule.invoice_date_type === 'creation' ? 'Creation' : 'Travel'}
+                            {rule.invoice_date_type === 'travel' && (
+                              <span className="text-xs text-gray-500 ml-1">
+                                +{rule.travel_date_delay_days}d
+                              </span>
+                            )}
+                          </span>
+                        </TableCell>
+                        <TableCell>
+                          <div className="flex gap-1 flex-wrap">
+                            {rule.auto_invoice_enabled && (
+                              <span className="px-1.5 py-0.5 rounded text-xs bg-green-100 text-green-700">
+                                Inv
+                              </span>
+                            )}
+                            {rule.auto_credit_note_enabled && (
+                              <span className="px-1.5 py-0.5 rounded text-xs bg-red-100 text-red-700" title={`Trigger: ${rule.credit_note_trigger || 'cancellation'}`}>
+                                CN {rule.credit_note_trigger === 'refund' ? '(refund)' : ''}
+                              </span>
+                            )}
+                          </div>
+                        </TableCell>
+                        <TableCell>
+                          <div className="flex gap-1">
+                            <Button
+                              size="sm"
+                              variant="ghost"
+                              onClick={() => openEditRuleForm(rule)}
+                            >
+                              <Pencil className="h-4 w-4" />
+                            </Button>
+                            <Button
+                              size="sm"
+                              variant="ghost"
+                              onClick={() => deleteRule(rule.id)}
+                              disabled={deletingRuleId === rule.id}
+                              className="text-red-600 hover:text-red-700 hover:bg-red-50"
+                            >
+                              {deletingRuleId === rule.id ? (
+                                <RefreshCw className="h-4 w-4 animate-spin" />
+                              ) : (
+                                <Trash2 className="h-4 w-4" />
+                              )}
+                            </Button>
+                          </div>
+                        </TableCell>
+                      </TableRow>
+                    ))
+                  )}
+                </TableBody>
+              </Table>
+            </div>
+
+            <div className="flex justify-between pt-4 border-t">
+              <Button onClick={openNewRuleForm}>
+                <Plus className="h-4 w-4 mr-2" />
+                New Rule
+              </Button>
+              <Button variant="outline" onClick={() => setShowRulesDialog(false)}>
+                Close
+              </Button>
+            </div>
+          </div>
+        </DialogContent>
+      </Dialog>
+
+      {/* Rule Form Dialog (Create/Edit) */}
+      <Dialog open={showRuleForm} onOpenChange={(open) => {
+        if (!open) {
+          setShowRuleForm(false)
+          resetRuleForm()
+        }
+      }}>
+        <DialogContent className="sm:max-w-[600px] max-h-[90vh] overflow-y-auto">
+          <DialogHeader>
+            <DialogTitle>{editingRule ? 'Edit Rule' : 'Create New Rule'}</DialogTitle>
+            <DialogDescription>
+              Configure invoicing settings for selected sellers
+            </DialogDescription>
+          </DialogHeader>
+
+          <div className="space-y-6 py-4">
+            {/* Rule Name */}
+            <div className="space-y-2">
+              <Label>Rule Name *</Label>
+              <Input
+                placeholder="e.g., Tourism Sellers, Internal Sales"
+                value={ruleForm.name}
+                onChange={(e) => setRuleForm({ ...ruleForm, name: e.target.value })}
+              />
+            </div>
+
+            {/* Sellers Selection */}
+            <div className="space-y-2">
+              <Label>Sellers *</Label>
+              <p className="text-xs text-gray-500">
+                Select which sellers this rule applies to. Grayed out sellers are assigned to other rules.
+              </p>
+              <div className="max-h-48 overflow-y-auto border rounded-md p-2 space-y-2">
+                {availableSellers.length === 0 ? (
+                  <p className="text-sm text-gray-400">No sellers available</p>
+                ) : (
+                  availableSellers.map((seller) => {
+                    const assignedElsewhere = getAssignedSellers(editingRule?.id).has(seller)
+                    const isSelected = ruleForm.sellers.includes(seller)
+                    return (
+                      <div
+                        key={seller}
+                        className={`flex items-center space-x-2 ${assignedElsewhere ? 'opacity-50' : ''}`}
+                      >
+                        <Checkbox
+                          id={`rule-seller-${seller}`}
+                          checked={isSelected}
+                          disabled={assignedElsewhere}
+                          onCheckedChange={() => {
+                            if (!assignedElsewhere) {
+                              toggleSellerInRule(seller)
+                            }
+                          }}
+                        />
+                        <label
+                          htmlFor={`rule-seller-${seller}`}
+                          className={`text-sm cursor-pointer ${assignedElsewhere ? 'cursor-not-allowed' : ''}`}
+                        >
+                          {seller}
+                          {assignedElsewhere && (
+                            <span className="text-xs text-gray-400 ml-1">(assigned to another rule)</span>
+                          )}
+                        </label>
+                      </div>
+                    )
+                  })
+                )}
               </div>
-
-              <div className="space-y-2">
-                <Label>Invoice Start Date</Label>
-                <p className="text-xs text-gray-500">
-                  Only bookings from this date onwards will appear in pending invoicing
+              {ruleForm.sellers.length > 0 && (
+                <p className="text-xs text-green-600">
+                  {ruleForm.sellers.length} seller{ruleForm.sellers.length !== 1 ? 's' : ''} selected
                 </p>
-                <Input
-                  type="date"
-                  value={config.invoice_start_date || ''}
-                  onChange={(e) =>
-                    setConfig({ ...config, invoice_start_date: e.target.value || null })
+              )}
+            </div>
+
+            {/* Auto Toggles */}
+            <div className="grid grid-cols-2 gap-4">
+              <div className="flex items-center justify-between p-3 border rounded-md">
+                <div>
+                  <Label className="text-sm">Auto Invoice</Label>
+                  <p className="text-xs text-gray-500">Auto-add on confirmation</p>
+                </div>
+                <Switch
+                  checked={ruleForm.auto_invoice_enabled}
+                  onCheckedChange={(checked) =>
+                    setRuleForm({ ...ruleForm, auto_invoice_enabled: checked })
                   }
                 />
               </div>
+              <div className="flex items-center justify-between p-3 border rounded-md">
+                <div>
+                  <Label className="text-sm">Auto Credit Note</Label>
+                  <p className="text-xs text-gray-500">Auto-create on cancel/refund</p>
+                </div>
+                <Switch
+                  checked={ruleForm.auto_credit_note_enabled}
+                  onCheckedChange={(checked) =>
+                    setRuleForm({ ...ruleForm, auto_credit_note_enabled: checked })
+                  }
+                />
+              </div>
+            </div>
 
+            {/* Credit Note Trigger (only when Auto Credit Note is enabled) */}
+            {ruleForm.auto_credit_note_enabled && (
+              <div className="space-y-3">
+                <Label>Credit Note Trigger</Label>
+                <p className="text-xs text-gray-500">
+                  When should the credit note be created?
+                </p>
+                <div className="space-y-2">
+                  <div
+                    className={`flex items-center p-3 border rounded-md cursor-pointer ${
+                      ruleForm.credit_note_trigger === 'cancellation' ? 'border-orange-500 bg-orange-50' : ''
+                    }`}
+                    onClick={() => setRuleForm({ ...ruleForm, credit_note_trigger: 'cancellation' })}
+                  >
+                    <input
+                      type="radio"
+                      checked={ruleForm.credit_note_trigger === 'cancellation'}
+                      onChange={() => setRuleForm({ ...ruleForm, credit_note_trigger: 'cancellation' })}
+                      className="mr-3"
+                    />
+                    <div>
+                      <p className="font-medium text-sm">On Cancellation</p>
+                      <p className="text-xs text-gray-500">
+                        Create credit note when booking is cancelled
+                      </p>
+                    </div>
+                  </div>
+                  <div
+                    className={`flex items-center p-3 border rounded-md cursor-pointer ${
+                      ruleForm.credit_note_trigger === 'refund' ? 'border-orange-500 bg-orange-50' : ''
+                    }`}
+                    onClick={() => setRuleForm({ ...ruleForm, credit_note_trigger: 'refund' })}
+                  >
+                    <input
+                      type="radio"
+                      checked={ruleForm.credit_note_trigger === 'refund'}
+                      onChange={() => setRuleForm({ ...ruleForm, credit_note_trigger: 'refund' })}
+                      className="mr-3"
+                    />
+                    <div>
+                      <p className="font-medium text-sm">On Refund (Stripe)</p>
+                      <p className="text-xs text-gray-500">
+                        Create credit note when a Stripe refund is processed
+                      </p>
+                    </div>
+                  </div>
+                </div>
+              </div>
+            )}
+
+            {/* Regime and Sales Type */}
+            <div className="grid grid-cols-2 gap-4">
               <div className="space-y-2">
                 <Label>Default Regime</Label>
                 <Select
-                  value={config.default_regime}
-                  onValueChange={(value) => setConfig({ ...config, default_regime: value })}
+                  value={ruleForm.default_regime}
+                  onValueChange={(value: '74T' | 'ORD') =>
+                    setRuleForm({ ...ruleForm, default_regime: value })
+                  }
                 >
                   <SelectTrigger>
                     <SelectValue />
@@ -1183,12 +1972,13 @@ export default function InvoicingPage() {
                   </SelectContent>
                 </Select>
               </div>
-
               <div className="space-y-2">
                 <Label>Default Sales Type</Label>
                 <Select
-                  value={config.default_sales_type}
-                  onValueChange={(value) => setConfig({ ...config, default_sales_type: value })}
+                  value={ruleForm.default_sales_type}
+                  onValueChange={(value: 'ORG' | 'INT') =>
+                    setRuleForm({ ...ruleForm, default_sales_type: value })
+                  }
                 >
                   <SelectTrigger>
                     <SelectValue />
@@ -1199,62 +1989,110 @@ export default function InvoicingPage() {
                   </SelectContent>
                 </Select>
               </div>
+            </div>
 
+            {/* Invoice Date Type */}
+            <div className="space-y-3">
+              <Label>Invoice Date</Label>
               <div className="space-y-2">
-                <Label>Auto-invoice sellers</Label>
-                <p className="text-xs text-gray-500 mb-2">
-                  Only bookings from selected sellers will be auto-added to monthly invoices
-                </p>
-                <div className="max-h-48 overflow-y-auto border rounded-md p-2 space-y-2">
-                  {availableSellers.length === 0 ? (
-                    <p className="text-sm text-gray-400">No sellers available</p>
-                  ) : (
-                    availableSellers.map((seller) => (
-                      <div key={seller} className="flex items-center space-x-2">
-                        <Checkbox
-                          id={`auto-${seller}`}
-                          checked={config.auto_invoice_sellers.includes(seller)}
-                          onCheckedChange={(checked) => {
-                            if (checked) {
-                              setConfig({
-                                ...config,
-                                auto_invoice_sellers: [...config.auto_invoice_sellers, seller],
-                              })
-                            } else {
-                              setConfig({
-                                ...config,
-                                auto_invoice_sellers: config.auto_invoice_sellers.filter(
-                                  (s) => s !== seller
-                                ),
-                              })
-                            }
-                          }}
-                        />
-                        <label
-                          htmlFor={`auto-${seller}`}
-                          className="text-sm cursor-pointer"
-                        >
-                          {seller}
-                        </label>
-                      </div>
-                    ))
+                <div
+                  className={`flex items-center p-3 border rounded-md cursor-pointer ${
+                    ruleForm.invoice_date_type === 'creation' ? 'border-orange-500 bg-orange-50' : ''
+                  }`}
+                  onClick={() => setRuleForm({ ...ruleForm, invoice_date_type: 'creation' })}
+                >
+                  <input
+                    type="radio"
+                    checked={ruleForm.invoice_date_type === 'creation'}
+                    onChange={() => setRuleForm({ ...ruleForm, invoice_date_type: 'creation' })}
+                    className="mr-3"
+                  />
+                  <div>
+                    <p className="font-medium text-sm">Creation Date</p>
+                    <p className="text-xs text-gray-500">
+                      API call sent immediately when booking is confirmed
+                    </p>
+                  </div>
+                </div>
+                <div
+                  className={`p-3 border rounded-md cursor-pointer ${
+                    ruleForm.invoice_date_type === 'travel' ? 'border-orange-500 bg-orange-50' : ''
+                  }`}
+                  onClick={() => setRuleForm({ ...ruleForm, invoice_date_type: 'travel' })}
+                >
+                  <div className="flex items-center">
+                    <input
+                      type="radio"
+                      checked={ruleForm.invoice_date_type === 'travel'}
+                      onChange={() => setRuleForm({ ...ruleForm, invoice_date_type: 'travel' })}
+                      className="mr-3"
+                    />
+                    <div className="flex-1">
+                      <p className="font-medium text-sm">Travel Date</p>
+                      <p className="text-xs text-gray-500">
+                        API call scheduled after the travel date
+                      </p>
+                    </div>
+                  </div>
+                  {ruleForm.invoice_date_type === 'travel' && (
+                    <div className="mt-3 ml-6 flex items-center gap-2">
+                      <Label className="text-sm whitespace-nowrap">Delay (days):</Label>
+                      <Input
+                        type="number"
+                        min="0"
+                        max="30"
+                        value={ruleForm.travel_date_delay_days}
+                        onChange={(e) =>
+                          setRuleForm({
+                            ...ruleForm,
+                            travel_date_delay_days: parseInt(e.target.value) || 0,
+                          })
+                        }
+                        className="w-20"
+                      />
+                      <span className="text-xs text-gray-500">
+                        days after travel date
+                      </span>
+                    </div>
                   )}
                 </div>
               </div>
-
-              <div className="flex justify-end gap-2 pt-4 border-t">
-                <Button variant="outline" onClick={() => setShowConfigDialog(false)}>
-                  Cancel
-                </Button>
-                <Button onClick={saveConfig} disabled={savingConfig}>
-                  {savingConfig ? (
-                    <RefreshCw className="h-4 w-4 mr-2 animate-spin" />
-                  ) : null}
-                  Save Changes
-                </Button>
-              </div>
             </div>
-          )}
+
+            {/* Invoice Start Date */}
+            <div className="space-y-2">
+              <Label>Invoice Start Date (Optional)</Label>
+              <p className="text-xs text-gray-500">
+                Only process bookings from this date onwards
+              </p>
+              <Input
+                type="date"
+                value={ruleForm.invoice_start_date}
+                onChange={(e) =>
+                  setRuleForm({ ...ruleForm, invoice_start_date: e.target.value })
+                }
+              />
+            </div>
+
+            {/* Actions */}
+            <div className="flex justify-end gap-2 pt-4 border-t">
+              <Button
+                variant="outline"
+                onClick={() => {
+                  setShowRuleForm(false)
+                  resetRuleForm()
+                }}
+              >
+                Cancel
+              </Button>
+              <Button onClick={saveRule} disabled={savingRule}>
+                {savingRule ? (
+                  <RefreshCw className="h-4 w-4 mr-2 animate-spin" />
+                ) : null}
+                {editingRule ? 'Update Rule' : 'Create Rule'}
+              </Button>
+            </div>
+          </div>
         </DialogContent>
       </Dialog>
 
