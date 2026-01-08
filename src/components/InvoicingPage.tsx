@@ -174,8 +174,6 @@ export default function InvoicingPage() {
   const [sending, setSending] = useState(false)
   const [finalizing, setFinalizing] = useState<string | null>(null)
   const [config, setConfig] = useState<Config | null>(null)
-  const [showConfigDialog, setShowConfigDialog] = useState(false)
-  const [savingConfig, setSavingConfig] = useState(false)
 
   // Rules management state
   const [rules, setRules] = useState<InvoiceRule[]>([])
@@ -585,52 +583,6 @@ export default function InvoicingPage() {
       }
     } catch (error) {
       console.error('Error fetching config:', error)
-    }
-  }
-
-  // Save config
-  const saveConfig = async () => {
-    if (!config) return
-
-    setSavingConfig(true)
-    try {
-      // First get the config id
-      const { data: currentConfig } = await supabase
-        .from('partner_solution_config')
-        .select('id')
-        .single()
-
-      if (!currentConfig?.id) {
-        throw new Error('Config not found')
-      }
-
-      const { error } = await supabase
-        .from('partner_solution_config')
-        .update({
-          auto_invoice_enabled: config.auto_invoice_enabled,
-          auto_credit_note_enabled: config.auto_credit_note_enabled,
-          auto_invoice_sellers: config.auto_invoice_sellers,
-          default_regime: config.default_regime,
-          default_sales_type: config.default_sales_type,
-          invoice_start_date: config.invoice_start_date,
-          updated_at: new Date().toISOString(),
-        })
-        .eq('id', currentConfig.id)
-
-      if (error) {
-        console.error('Supabase error:', error.message, error.details, error.hint)
-        throw error
-      }
-      setShowConfigDialog(false)
-      // Refetch config and uninvoiced bookings
-      fetchConfig()
-      fetchUninvoicedBookings()
-    } catch (error: unknown) {
-      const err = error as Error
-      console.error('Error saving config:', err.message || error)
-      alert('Error saving: ' + (err.message || 'Unknown error'))
-    } finally {
-      setSavingConfig(false)
     }
   }
 

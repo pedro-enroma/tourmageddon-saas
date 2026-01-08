@@ -563,7 +563,7 @@ export default function RecapPage() {
       const slot = allSlots.get(key)!
       slot.bookings.push(booking)
       slot.bookingCount++
-      slot.totalAmount += booking.net_price || booking.total_price || 0
+      slot.totalAmount += booking.total_price || 0
       
       // Conta i partecipanti per categoria E calcola il totale
       let bookingParticipants = 0

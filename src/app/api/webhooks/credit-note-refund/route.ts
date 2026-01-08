@@ -2,7 +2,7 @@ import { NextRequest, NextResponse } from 'next/server'
 import { createClient } from '@supabase/supabase-js'
 import Stripe from 'stripe'
 
-const stripe = new Stripe(process.env.STRIPE_SECRET_KEY || '')
+const getStripe = () => new Stripe(process.env.STRIPE_SECRET_KEY || '')
 
 const getSupabase = () => createClient(
   process.env.NEXT_PUBLIC_SUPABASE_URL!,
@@ -199,7 +199,7 @@ export async function POST(request: NextRequest) {
     // If we have a Stripe signature and secret, verify it
     if (sig && endpointSecret) {
       try {
-        event = stripe.webhooks.constructEvent(body, sig, endpointSecret)
+        event = getStripe().webhooks.constructEvent(body, sig, endpointSecret)
       } catch (err) {
         const error = err as Error
         console.error('Stripe signature verification failed:', error.message)
