@@ -64,6 +64,7 @@ interface Booking {
   start_date_time: string
   created_at: string
   total_price?: number
+  net_price?: number
   product_title?: string
   status?: string
   activities?: {
@@ -563,7 +564,7 @@ export default function RecapPage() {
       const slot = allSlots.get(key)!
       slot.bookings.push(booking)
       slot.bookingCount++
-      slot.totalAmount += booking.total_price || 0
+      slot.totalAmount += booking.net_price || booking.total_price || 0
       
       // Conta i partecipanti per categoria E calcola il totale
       let bookingParticipants = 0
