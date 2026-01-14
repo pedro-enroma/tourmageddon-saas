@@ -139,11 +139,11 @@ interface SlotData {
   vouchers?: VoucherInfo[]
   lastReservation: {
     date: string
-    name: string
+    bookingId: string
   } | null
   firstReservation: {
     date: string
-    name: string
+    bookingId: string
   } | null
   // Cost fields
   guideCost: number
@@ -1602,15 +1602,13 @@ export default function NewRecapPage() {
       if (!slot.firstReservation || bookingDate < new Date(slot.firstReservation.date)) {
         slot.firstReservation = {
           date: bookingDate.toISOString(),
-          name: (booking.pricing_category_bookings?.[0]?.passenger_first_name || '') + ' ' +
-                (booking.pricing_category_bookings?.[0]?.passenger_last_name || '')
+          bookingId: booking.bookings?.booking_id || booking.activity_booking_id || ''
         }
       }
       if (!slot.lastReservation || bookingDate > new Date(slot.lastReservation.date)) {
         slot.lastReservation = {
           date: bookingDate.toISOString(),
-          name: (booking.pricing_category_bookings?.[0]?.passenger_first_name || '') + ' ' +
-                (booking.pricing_category_bookings?.[0]?.passenger_last_name || '')
+          bookingId: booking.bookings?.booking_id || booking.activity_booking_id || ''
         }
       }
     })
@@ -1771,15 +1769,15 @@ export default function NewRecapPage() {
     return `${days[date.getDay()]} ${date.toLocaleDateString('it-IT')}`
   }
 
-  const getStatusBadge = (status: string) => {
+  const getStatusColor = (status: string) => {
     const colors: Record<string, string> = {
-      'AVAILABLE': 'bg-green-100 text-green-800',
-      'LIMITED': 'bg-orange-100 text-orange-800',
-      'SOLD_OUT': 'bg-red-100 text-red-800',
-      'SOLDOUT': 'bg-red-100 text-red-800',
-      'CLOSED': 'bg-red-500 text-white'
+      'AVAILABLE': 'text-green-600',
+      'LIMITED': 'text-orange-500',
+      'SOLD_OUT': 'text-red-600',
+      'SOLDOUT': 'text-red-600',
+      'CLOSED': 'text-red-700'
     }
-    return colors[status?.toUpperCase()] || 'bg-gray-100 text-gray-800'
+    return colors[status?.toUpperCase()] || 'text-gray-500'
   }
 
   const exportToExcel = () => {
@@ -1807,7 +1805,7 @@ export default function NewRecapPage() {
         ? [...new Set(row.slots?.flatMap(s => s.guideNames || []) || [])].length
         : row.guideNames?.join(', ') || ''
       rowData['Biglietti'] = row.ticketCount || 0
-      rowData['Last Reservation'] = row.lastReservation?.name || ''
+      rowData['Last Reservation'] = row.lastReservation?.bookingId || ''
       rowData['First Reservation Date'] = row.firstReservation ?
         new Date(row.firstReservation.date).toLocaleDateString('it-IT') : ''
 
@@ -2023,7 +2021,9 @@ export default function NewRecapPage() {
                 <th className="px-4 py-3 text-center">Stato</th>
                 <th className="px-4 py-3 text-center">Guide</th>
                 <th className="px-4 py-3 text-center">Escort</th>
-                <th className="px-4 py-3 text-center">Biglietti</th>
+                <th className="px-4 py-3 text-center border-l-2 border-gray-300 bg-blue-50">Biglietti</th>
+                <th className="px-4 py-3 text-center bg-blue-50">Orario</th>
+                <th className="px-4 py-3 text-center bg-blue-50">Diff</th>
               </tr>
             </thead>
             <tbody>
@@ -2124,9 +2124,28 @@ export default function NewRecapPage() {
                     </td>
                     <td className="px-4 py-3 text-center">
                       {!row.isDateGroup && row.status && (
-                        <span className={`inline-block px-2 py-1 rounded text-xs ${getStatusBadge(row.status)}`}>
-                          {row.status}
-                        </span>
+                        (row.status === 'CLOSED' || row.status === 'SOLD_OUT' || row.status === 'SOLDOUT') && row.lastReservation ? (
+                          <HoverCard>
+                            <HoverCardTrigger asChild>
+                              <span className={`text-xs font-semibold cursor-help ${getStatusColor(row.status)}`}>
+                                {row.status}
+                              </span>
+                            </HoverCardTrigger>
+                            <HoverCardContent className="w-48" side="left">
+                              <div className="text-sm">
+                                <div className="font-medium text-gray-700">Ultima prenotazione</div>
+                                <div className="text-gray-600 mt-1">
+                                  {new Date(row.lastReservation.date).toLocaleDateString('it-IT', { day: '2-digit', month: '2-digit', year: 'numeric', hour: '2-digit', minute: '2-digit' })}
+                                </div>
+                                <div className="text-gray-500 text-xs mt-0.5">#{row.lastReservation.bookingId}</div>
+                              </div>
+                            </HoverCardContent>
+                          </HoverCard>
+                        ) : (
+                          <span className={`text-xs font-semibold ${getStatusColor(row.status)}`}>
+                            {row.status}
+                          </span>
+                        )
                       )}
                     </td>
                     <td className="px-4 py-3 text-center">
@@ -2168,7 +2187,7 @@ export default function NewRecapPage() {
                         )
                       })()}
                     </td>
-                    <td className="px-4 py-3 text-center">
+                    <td className="px-4 py-3 text-center border-l-2 border-gray-200">
                       {row.vouchers && row.vouchers.length > 0 ? (
                         row.ticketCount === row.totalParticipants ? (
                           <button
@@ -2217,6 +2236,54 @@ export default function NewRecapPage() {
                           {row.ticketCount || 0}
                         </span>
                       )}
+                    </td>
+                    {/* Orario column */}
+                    <td className="px-4 py-3 text-center">
+                      {(() => {
+                        const uniqueTimes = [...new Set((row.vouchers || []).map(v => v.entry_time).filter(Boolean))]
+                        if (uniqueTimes.length === 0) {
+                          return <span className="text-gray-400">-</span>
+                        } else if (uniqueTimes.length === 1) {
+                          return <span className="text-sm">{uniqueTimes[0]?.substring(0, 5)}</span>
+                        } else {
+                          return (
+                            <HoverCard>
+                              <HoverCardTrigger asChild>
+                                <span className="px-2 py-0.5 rounded text-xs font-medium cursor-help bg-blue-100 text-blue-800">Vari</span>
+                              </HoverCardTrigger>
+                              <HoverCardContent className="w-32" side="left">
+                                <div className="text-sm">
+                                  <div className="font-medium text-blue-700 mb-1">Orari multipli</div>
+                                  {uniqueTimes.map((t, i) => (
+                                    <div key={i} className="text-gray-600">{t?.substring(0, 5)}</div>
+                                  ))}
+                                </div>
+                              </HoverCardContent>
+                            </HoverCard>
+                          )
+                        }
+                      })()}
+                    </td>
+                    {/* Diff column */}
+                    <td className="px-4 py-3 text-center">
+                      {(() => {
+                        const ticketCount = row.ticketCount || 0
+                        const diff = ticketCount - row.totalParticipants
+                        // Only show "-" if both tickets and participants are 0
+                        if (ticketCount === 0 && row.totalParticipants === 0) {
+                          return <span className="text-gray-400">-</span>
+                        }
+                        const colorClass = diff === 0
+                          ? 'bg-green-100 text-green-800'
+                          : diff < 0
+                            ? 'bg-red-100 text-red-800'
+                            : 'bg-orange-100 text-orange-800'
+                        return (
+                          <span className={`px-2 py-0.5 rounded text-sm font-medium ${colorClass}`}>
+                            {diff > 0 ? `+${diff}` : diff}
+                          </span>
+                        )
+                      })()}
                     </td>
                   </tr>
 
@@ -2281,9 +2348,28 @@ export default function NewRecapPage() {
                       <td className="px-4 py-2 text-center text-sm">{slot.availabilityLeft || 0}</td>
                       <td className="px-4 py-2 text-center">
                         {slot.status && (
-                          <span className={`inline-block px-2 py-1 rounded text-xs ${getStatusBadge(slot.status)}`}>
-                            {slot.status}
-                          </span>
+                          (slot.status === 'CLOSED' || slot.status === 'SOLD_OUT' || slot.status === 'SOLDOUT') && slot.lastReservation ? (
+                            <HoverCard>
+                              <HoverCardTrigger asChild>
+                                <span className={`text-xs font-semibold cursor-help ${getStatusColor(slot.status)}`}>
+                                  {slot.status}
+                                </span>
+                              </HoverCardTrigger>
+                              <HoverCardContent className="w-48" side="left">
+                                <div className="text-sm">
+                                  <div className="font-medium text-gray-700">Ultima prenotazione</div>
+                                  <div className="text-gray-600 mt-1">
+                                    {new Date(slot.lastReservation.date).toLocaleDateString('it-IT', { day: '2-digit', month: '2-digit', year: 'numeric', hour: '2-digit', minute: '2-digit' })}
+                                  </div>
+                                  <div className="text-gray-500 text-xs mt-0.5">#{slot.lastReservation.bookingId}</div>
+                                </div>
+                              </HoverCardContent>
+                            </HoverCard>
+                          ) : (
+                            <span className={`text-xs font-semibold ${getStatusColor(slot.status)}`}>
+                              {slot.status}
+                            </span>
+                          )
                         )}
                       </td>
                       <td className="px-4 py-2 text-center text-sm">
@@ -2345,7 +2431,7 @@ export default function NewRecapPage() {
                           </button>
                         )}
                       </td>
-                      <td className="px-4 py-2 text-center text-sm">
+                      <td className="px-4 py-2 text-center text-sm border-l-2 border-gray-200">
                         {slot.vouchers && slot.vouchers.length > 0 ? (
                           slot.ticketCount === slot.totalParticipants ? (
                             <button
@@ -2392,6 +2478,54 @@ export default function NewRecapPage() {
                         ) : (
                           <span className="text-gray-400">0</span>
                         )}
+                      </td>
+                      {/* Orario column for slots */}
+                      <td className="px-4 py-2 text-center text-sm">
+                        {(() => {
+                          const uniqueTimes = [...new Set((slot.vouchers || []).map(v => v.entry_time).filter(Boolean))]
+                          if (uniqueTimes.length === 0) {
+                            return <span className="text-gray-400">-</span>
+                          } else if (uniqueTimes.length === 1) {
+                            return <span>{uniqueTimes[0]?.substring(0, 5)}</span>
+                          } else {
+                            return (
+                              <HoverCard>
+                                <HoverCardTrigger asChild>
+                                  <span className="px-2 py-0.5 rounded text-xs font-medium cursor-help bg-blue-100 text-blue-800">Vari</span>
+                                </HoverCardTrigger>
+                                <HoverCardContent className="w-32" side="left">
+                                  <div className="text-sm">
+                                    <div className="font-medium text-blue-700 mb-1">Orari multipli</div>
+                                    {uniqueTimes.map((t, i) => (
+                                      <div key={i} className="text-gray-600">{t?.substring(0, 5)}</div>
+                                    ))}
+                                  </div>
+                                </HoverCardContent>
+                              </HoverCard>
+                            )
+                          }
+                        })()}
+                      </td>
+                      {/* Diff column for slots */}
+                      <td className="px-4 py-2 text-center text-sm">
+                        {(() => {
+                          const ticketCount = slot.ticketCount || 0
+                          const diff = ticketCount - slot.totalParticipants
+                          // Only show "-" if both tickets and participants are 0
+                          if (ticketCount === 0 && slot.totalParticipants === 0) {
+                            return <span className="text-gray-400">-</span>
+                          }
+                          const colorClass = diff === 0
+                            ? 'bg-green-100 text-green-800'
+                            : diff < 0
+                              ? 'bg-red-100 text-red-800'
+                              : 'bg-orange-100 text-orange-800'
+                          return (
+                            <span className={`px-2 py-0.5 rounded text-xs font-medium ${colorClass}`}>
+                              {diff > 0 ? `+${diff}` : diff}
+                            </span>
+                          )
+                        })()}
                       </td>
                     </tr>
                   ))}

@@ -1276,6 +1276,177 @@ export default function DailyListPage() {
     }
   }
 
+  // Generate Excel for grouped services (multiple tours/timeslots in one file)
+  const generateGroupDailyListExcel = async (
+    groupName: string,
+    services: { tour: TourGroup; timeSlot: TimeSlotGroup }[],
+    guideName?: string
+  ): Promise<{ data: string; fileName: string } | null> => {
+    try {
+      if (services.length === 0) return null
+
+      const wb = XLSX.utils.book_new()
+
+      // Sort services by time
+      const sortedServices = [...services].sort((a, b) =>
+        a.timeSlot.time.localeCompare(b.timeSlot.time)
+      )
+
+      // Create one sheet per service
+      for (const service of sortedServices) {
+        const { tour, timeSlot } = service
+        const firstBooking = timeSlot.bookings[0]
+        if (!firstBooking) continue
+
+        const participantCategories = await getAllParticipantCategoriesForActivity(firstBooking.activity_id)
+        const bookingDate = new Date(firstBooking.booking_date).toLocaleDateString('it-IT')
+
+        const excelData: any[][] = []
+        const titleHeader = `${tour.tourTitle} - ${bookingDate} - ${timeSlot.time}`
+        excelData.push([titleHeader])
+
+        const headers = ['Data', 'Ora', ...participantCategories, 'Nome e Cognome', 'Telefono']
+        excelData.push(headers)
+
+        const totals: { [key: string]: number } = {}
+        participantCategories.forEach(cat => totals[cat] = 0)
+
+        timeSlot.bookings.forEach(booking => {
+          const fullName = `${booking.customer?.first_name || ''} ${booking.customer?.last_name || ''}`.trim()
+          const participantCounts = getParticipantCounts(booking)
+
+          const row: any[] = [
+            new Date(booking.booking_date).toLocaleDateString('it-IT'),
+            booking.start_time
+          ]
+
+          participantCategories.forEach(category => {
+            const count = participantCounts[category] || 0
+            row.push(count)
+            totals[category] += count
+          })
+
+          row.push(fullName)
+          row.push(booking.customer?.phone_number || '')
+          excelData.push(row)
+        })
+
+        const participantsRow: any[] = ['', 'Participants']
+        participantCategories.forEach(category => participantsRow.push(totals[category]))
+        participantsRow.push('', '')
+        excelData.push(participantsRow)
+
+        const totalParticipants = participantCategories.reduce((sum, cat) => sum + totals[cat], 0)
+        const totalPaxRow: any[] = ['', 'TOTAL PAX', totalParticipants]
+        for (let i = 0; i < participantCategories.length - 1; i++) totalPaxRow.push('')
+        totalPaxRow.push('guide')
+        totalPaxRow.push(guideName || '')
+        excelData.push(totalPaxRow)
+
+        const ws = XLSX.utils.aoa_to_sheet(excelData)
+
+        // Merge title cells
+        if (!ws['!merges']) ws['!merges'] = []
+        ws['!merges'].push({
+          s: { r: 0, c: 0 },
+          e: { r: 0, c: participantCategories.length + 3 }
+        })
+
+        const totalCols = participantCategories.length + 4
+
+        // Apply styles (same as single service)
+        for (let col = 0; col < totalCols; col++) {
+          const cellAddress = XLSX.utils.encode_cell({ r: 0, c: col })
+          if (!ws[cellAddress]) ws[cellAddress] = { t: 's', v: '' }
+          ws[cellAddress].s = {
+            font: { bold: true, sz: 18, color: { rgb: "FFFFFF" } },
+            fill: { fgColor: { rgb: "4472C4" } },
+            alignment: { horizontal: "center", vertical: "center" }
+          }
+        }
+
+        for (let col = 0; col < totalCols; col++) {
+          const cellAddress = XLSX.utils.encode_cell({ r: 1, c: col })
+          const cell = ws[cellAddress]
+          if (cell) {
+            cell.s = {
+              font: { bold: true, sz: 13 },
+              fill: { fgColor: { rgb: "D9D9D9" } },
+              alignment: { horizontal: "center", vertical: "center" }
+            }
+          }
+        }
+
+        const participantsRowIndex = 2 + timeSlot.bookings.length
+        const totalPaxRowIndex = participantsRowIndex + 1
+
+        for (let col = 0; col < totalCols; col++) {
+          const cellAddress = XLSX.utils.encode_cell({ r: participantsRowIndex, c: col })
+          const cell = ws[cellAddress]
+          if (cell) {
+            cell.s = {
+              font: { bold: true, sz: 13 },
+              fill: { fgColor: { rgb: "D9D9D9" } },
+              alignment: { horizontal: "center", vertical: "center" }
+            }
+          }
+        }
+
+        for (let col = 0; col < totalCols; col++) {
+          const cellAddress = XLSX.utils.encode_cell({ r: totalPaxRowIndex, c: col })
+          if (!ws[cellAddress]) ws[cellAddress] = { t: 's', v: '' }
+          ws[cellAddress].s = {
+            font: { bold: true, sz: 13, color: { rgb: "FFFFFF" } },
+            fill: { fgColor: { rgb: "4472C4" } },
+            alignment: { horizontal: "center", vertical: "center" }
+          }
+        }
+
+        for (let row = 2; row < 2 + timeSlot.bookings.length; row++) {
+          for (let col = 0; col < totalCols; col++) {
+            const cellAddress = XLSX.utils.encode_cell({ r: row, c: col })
+            const cell = ws[cellAddress]
+            if (cell) {
+              cell.s = {
+                font: { sz: 13 },
+                alignment: { horizontal: "center", vertical: "center" }
+              }
+            }
+          }
+        }
+
+        if (!ws['!rows']) ws['!rows'] = []
+        ws['!rows'][0] = { hpt: 30 }
+        ws['!rows'][1] = { hpt: 20 }
+
+        const colWidths = [
+          { wch: 12 },
+          { wch: 8 },
+          ...participantCategories.map(() => ({ wch: 15 })),
+          { wch: 25 },
+          { wch: 20 },
+        ]
+        ws['!cols'] = colWidths
+
+        // Use tour title + time as sheet name (max 31 chars for Excel)
+        const sheetName = `${timeSlot.time} ${tour.tourTitle}`.substring(0, 31).replace(/[\\/*?[\]:]/g, '')
+        XLSX.utils.book_append_sheet(wb, ws, sheetName)
+      }
+
+      const buffer = XLSX.write(wb, { type: 'base64', bookType: 'xlsx' })
+      const cleanGroupName = groupName.replace(/[/\\?%*:|"<>]/g, '-')
+      const dateStr = format(new Date(selectedDate), 'dd.MM.yyyy')
+
+      return {
+        data: buffer,
+        fileName: `${cleanGroupName} - ${dateStr}.xlsx`
+      }
+    } catch (err) {
+      console.error('Error generating group daily list:', err)
+      return null
+    }
+  }
+
   // Apply template variables
   const applyTemplateVariables = (
     text: string,
@@ -1956,7 +2127,7 @@ export default function DailyListPage() {
   const getEscortsWithServices = () => {
     const escortServices = new Map<string, {
       escort: Person;
-      services: { tour: TourGroup; timeSlot: TimeSlotGroup; availabilityId: number; guideName: string; guidePhone: string }[]
+      services: { tour: TourGroup; timeSlot: TimeSlotGroup; availabilityId: number; guideName: string; guidePhone: string; escortNames: string[]; escortPhone: string }[]
     }>()
 
     // Track which availability IDs have been processed
@@ -1990,6 +2161,8 @@ export default function DailyListPage() {
 
         const guideName = assignedGuides.map(g => `${g.first_name} ${g.last_name}`).join(', ')
         const guidePhone = assignedGuides.map(g => g.phone_number).filter(Boolean).join(', ')
+        const escortNames = assignedEscorts.map(e => `${e.first_name} ${e.last_name}`)
+        const escortPhone = assignedEscorts.map(e => e.phone_number).filter(Boolean).join(', ')
 
         for (const escort of assignedEscorts) {
           if (!escort.email) continue
@@ -2003,7 +2176,9 @@ export default function DailyListPage() {
             timeSlot,
             availabilityId,
             guideName,
-            guidePhone
+            guidePhone,
+            escortNames,
+            escortPhone
           })
         }
       }
@@ -2042,6 +2217,8 @@ export default function DailyListPage() {
 
       const guideName = staff.guides.map(g => `${g.first_name} ${g.last_name}`).join(', ')
       const guidePhone = staff.guides.map(g => g.phone_number).filter(Boolean).join(', ')
+      const escortNames = staff.escorts.map(e => `${e.first_name} ${e.last_name}`)
+      const escortPhone = staff.escorts.map(e => e.phone_number).filter(Boolean).join(', ')
 
       for (const escort of staff.escorts) {
         if (!escort.email) continue
@@ -2055,7 +2232,9 @@ export default function DailyListPage() {
           timeSlot: syntheticTimeSlot,
           availabilityId: id,
           guideName,
-          guidePhone
+          guidePhone,
+          escortNames,
+          escortPhone
         })
       }
     }
@@ -2511,6 +2690,13 @@ export default function DailyListPage() {
           // Use the first availability ID for logging purposes
           const primaryAvailabilityId = sortedGroupServices[0]?.availabilityId
 
+          // Generate Excel with all services in the group
+          const groupDailyList = await generateGroupDailyListExcel(
+            groupName,
+            sortedGroupServices,
+            guideName
+          )
+
           const response = await fetch('/api/email/send', {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
@@ -2525,6 +2711,8 @@ export default function DailyListPage() {
               body: emailBody,
               activityAvailabilityId: primaryAvailabilityId,
               attachmentUrls: allAttachmentUrls,
+              dailyListData: groupDailyList?.data,
+              dailyListFileName: groupDailyList?.fileName,
               serviceDate: selectedDate
             })
           })
@@ -2730,8 +2918,8 @@ export default function DailyListPage() {
             .replace(/\{\{service\.ticket_types\}\}/g, ticketTypesText)
             .replace(/\{\{service\.guide_name\}\}/g, service.guideName || 'TBD')
             .replace(/\{\{service\.guide_phone\}\}/g, guidePhone)
-            .replace(/\{\{service\.escort_name\}\}/g, escortName)
-            .replace(/\{\{service\.escort_phone\}\}/g, escort.phone_number || '')
+            .replace(/\{\{service\.escort_name\}\}/g, service.escortNames.join(', ') || 'TBD')
+            .replace(/\{\{service\.escort_phone\}\}/g, service.escortPhone || '')
             .replace(/\{\{service\.headphone_name\}\}/g, headphoneNames)
             .replace(/\{\{service\.headphone_phone\}\}/g, headphonePhone)
 
@@ -2741,8 +2929,23 @@ export default function DailyListPage() {
         // Replace main template variables
         const formattedDate = format(new Date(selectedDate), 'dd/MM/yyyy')
 
-        // Build escort list for this specific escort's services
-        const escortListForServices = `${escortName}${escort.phone_number ? ' ' + escort.phone_number : ''}`
+        // Build escort list from all unique escorts across all services for this recipient
+        const allEscortNamesSet = new Set<string>()
+        const allEscortPhoneMap = new Map<string, string>()
+        for (const s of sortedServices) {
+          for (let i = 0; i < s.escortNames.length; i++) {
+            const name = s.escortNames[i]
+            allEscortNamesSet.add(name)
+            // Get phone from the escortPhone string (comma separated)
+            const phones = s.escortPhone.split(', ')
+            if (phones[i]) {
+              allEscortPhoneMap.set(name, phones[i])
+            }
+          }
+        }
+        const escortListForServices = Array.from(allEscortNamesSet)
+          .map(name => `${name}${allEscortPhoneMap.get(name) ? ' ' + allEscortPhoneMap.get(name) : ''}`)
+          .join('\n')
 
         const emailSubject = escortTemplate.subject
           .replace(/\{\{name\}\}/g, escortName)
