@@ -2,8 +2,8 @@
 
 import { useState, useEffect } from 'react'
 import { supabase } from '@/lib/supabase'
-import { ticketCategoriesApi } from '@/lib/api-client'
-import { Plus, Edit, Trash2, Search, X, Tag, UserCheck, UserX, Hash } from 'lucide-react'
+import { ticketCategoriesApi, partnersApi, Partner } from '@/lib/api-client'
+import { Plus, Edit, Trash2, Search, X, Tag, UserCheck, UserX, Hash, Landmark, Train, Handshake } from 'lucide-react'
 import { Button } from '@/components/ui/button'
 import { Label } from '@/components/ui/label'
 
@@ -14,12 +14,31 @@ interface TicketCategory {
   product_names: string[]
   guide_requires_ticket: boolean
   skip_name_check: boolean
+  extraction_mode: 'per_ticket' | 'booking_level' | 'per_person_type'
+  ticket_class: 'entrance' | 'transport' | 'other'
+  default_source: 'b2c' | 'b2b' | 'auto' | null
+  b2b_indicator_text: string | null
+  b2b_price_adjustment: number | null
+  partner_id: string | null
   created_at: string
   updated_at: string
 }
 
+const getTicketClassIcon = (ticketClass: string) => {
+  switch (ticketClass) {
+    case 'transport':
+      return { Icon: Train, bgColor: 'bg-blue-100', iconColor: 'text-blue-600' }
+    case 'other':
+      return { Icon: Tag, bgColor: 'bg-gray-100', iconColor: 'text-gray-600' }
+    case 'entrance':
+    default:
+      return { Icon: Landmark, bgColor: 'bg-orange-100', iconColor: 'text-orange-600' }
+  }
+}
+
 export default function TicketCategoriesPage() {
   const [categories, setCategories] = useState<TicketCategory[]>([])
+  const [partners, setPartners] = useState<Partner[]>([])
   const [loading, setLoading] = useState(true)
   const [searchTerm, setSearchTerm] = useState('')
   const [showModal, setShowModal] = useState(false)
@@ -32,13 +51,31 @@ export default function TicketCategoriesPage() {
     description: '',
     product_names: [] as string[],
     guide_requires_ticket: true,
-    skip_name_check: false
+    skip_name_check: false,
+    extraction_mode: 'per_ticket' as 'per_ticket' | 'booking_level' | 'per_person_type',
+    ticket_class: 'entrance' as 'entrance' | 'transport' | 'other',
+    default_source: 'auto' as 'b2c' | 'b2b' | 'auto',
+    b2b_indicator_text: '',
+    b2b_price_adjustment: 0,
+    partner_id: ''
   })
   const [newProductName, setNewProductName] = useState('')
 
   useEffect(() => {
     fetchCategories()
+    fetchPartners()
   }, [])
+
+  const fetchPartners = async () => {
+    try {
+      const result = await partnersApi.list()
+      if (result.data) {
+        setPartners(result.data.filter(p => p.active))
+      }
+    } catch (err) {
+      console.error('Error fetching partners:', err)
+    }
+  }
 
   const fetchCategories = async () => {
     setLoading(true)
@@ -67,7 +104,13 @@ export default function TicketCategoriesPage() {
         description: category.description || '',
         product_names: category.product_names || [],
         guide_requires_ticket: category.guide_requires_ticket ?? true,
-        skip_name_check: category.skip_name_check ?? false
+        skip_name_check: category.skip_name_check ?? false,
+        extraction_mode: category.extraction_mode || 'per_ticket',
+        ticket_class: category.ticket_class || 'entrance',
+        default_source: category.default_source || 'auto',
+        b2b_indicator_text: category.b2b_indicator_text || '',
+        b2b_price_adjustment: category.b2b_price_adjustment || 0,
+        partner_id: category.partner_id || ''
       })
     } else {
       setEditingCategory(null)
@@ -76,7 +119,13 @@ export default function TicketCategoriesPage() {
         description: '',
         product_names: [],
         guide_requires_ticket: true,
-        skip_name_check: false
+        skip_name_check: false,
+        extraction_mode: 'per_ticket',
+        ticket_class: 'entrance',
+        default_source: 'auto',
+        b2b_indicator_text: '',
+        b2b_price_adjustment: 0,
+        partner_id: ''
       })
     }
     setNewProductName('')
@@ -120,7 +169,13 @@ export default function TicketCategoriesPage() {
           description: formData.description || undefined,
           product_names: formData.product_names,
           guide_requires_ticket: formData.guide_requires_ticket,
-          skip_name_check: formData.skip_name_check
+          skip_name_check: formData.skip_name_check,
+          extraction_mode: formData.extraction_mode,
+          ticket_class: formData.ticket_class,
+          default_source: formData.default_source,
+          b2b_indicator_text: formData.b2b_indicator_text || undefined,
+          b2b_price_adjustment: formData.b2b_price_adjustment || undefined,
+          partner_id: formData.partner_id || undefined
         })
 
         if (result.error) throw new Error(result.error)
@@ -131,7 +186,13 @@ export default function TicketCategoriesPage() {
           description: formData.description || undefined,
           product_names: formData.product_names,
           guide_requires_ticket: formData.guide_requires_ticket,
-          skip_name_check: formData.skip_name_check
+          skip_name_check: formData.skip_name_check,
+          extraction_mode: formData.extraction_mode,
+          ticket_class: formData.ticket_class,
+          default_source: formData.default_source,
+          b2b_indicator_text: formData.b2b_indicator_text || undefined,
+          b2b_price_adjustment: formData.b2b_price_adjustment || undefined,
+          partner_id: formData.partner_id || undefined
         })
 
         if (result.error) throw new Error(result.error)
@@ -214,15 +275,17 @@ export default function TicketCategoriesPage() {
               No categories found. Create your first category to get started.
             </div>
           ) : (
-            filteredCategories.map((category) => (
+            filteredCategories.map((category) => {
+              const { Icon, bgColor, iconColor } = getTicketClassIcon(category.ticket_class)
+              return (
               <div
                 key={category.id}
                 className="bg-white rounded-lg shadow border border-gray-200 p-4 hover:shadow-md transition-shadow"
               >
                 <div className="flex items-start justify-between mb-3">
                   <div className="flex items-center gap-3">
-                    <div className="w-10 h-10 rounded-lg bg-orange-100 flex items-center justify-center">
-                      <Tag className="w-5 h-5 text-orange-600" />
+                    <div className={`w-10 h-10 rounded-lg ${bgColor} flex items-center justify-center`}>
+                      <Icon className={`w-5 h-5 ${iconColor}`} />
                     </div>
                     <div>
                       <h3 className="font-semibold text-gray-900">{category.name}</h3>
@@ -266,6 +329,12 @@ export default function TicketCategoriesPage() {
                       Quantity only
                     </span>
                   )}
+                  {category.partner_id && (
+                    <span className="inline-flex items-center gap-1 text-xs bg-teal-100 text-teal-700 px-2 py-0.5 rounded-full">
+                      <Handshake className="w-3 h-3" />
+                      {partners.find(p => p.partner_id === category.partner_id)?.name || 'Partner'}
+                    </span>
+                  )}
                 </div>
 
                 {/* Product names */}
@@ -282,7 +351,8 @@ export default function TicketCategoriesPage() {
                   </div>
                 )}
               </div>
-            ))
+              )
+            })
           )}
         </div>
       )}
@@ -330,6 +400,59 @@ export default function TicketCategoriesPage() {
                   rows={2}
                   className="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500"
                 />
+              </div>
+
+              {/* Extraction Mode selector */}
+              <div className="mb-4">
+                <Label className="text-sm font-medium mb-1">Extraction Mode *</Label>
+                <select
+                  value={formData.extraction_mode}
+                  onChange={(e) => setFormData({...formData, extraction_mode: e.target.value as 'per_ticket' | 'booking_level' | 'per_person_type'})}
+                  className="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500"
+                >
+                  <option value="per_ticket">Per Ticket (each ticket in PDF is one record)</option>
+                  <option value="booking_level">Booking Level (booking entries with pax count)</option>
+                  <option value="per_person_type">Per Person Type (separate adults/children records)</option>
+                </select>
+                <p className="text-xs text-gray-500 mt-1">
+                  {formData.extraction_mode === 'per_ticket' && 'Standard extraction - each ticket becomes one record'}
+                  {formData.extraction_mode === 'booking_level' && 'For vouchers with booking entries and pax counts (no individual names)'}
+                  {formData.extraction_mode === 'per_person_type' && 'Parse "X adulti + Y minori" into separate person records with types'}
+                </p>
+              </div>
+
+              {/* Ticket Class selector */}
+              <div className="mb-4">
+                <Label className="text-sm font-medium mb-1">Ticket Class *</Label>
+                <select
+                  value={formData.ticket_class}
+                  onChange={(e) => setFormData({...formData, ticket_class: e.target.value as 'entrance' | 'transport' | 'other'})}
+                  className="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500"
+                >
+                  <option value="entrance">Entrance (Colosseum, Vatican, etc.)</option>
+                  <option value="transport">Transport (Italo, Trenitalia, etc.)</option>
+                  <option value="other">Other</option>
+                </select>
+              </div>
+
+              {/* Partner selector */}
+              <div className="mb-4">
+                <Label className="text-sm font-medium mb-1">Partner (for voucher requests)</Label>
+                <select
+                  value={formData.partner_id}
+                  onChange={(e) => setFormData({...formData, partner_id: e.target.value})}
+                  className="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-teal-500"
+                >
+                  <option value="">No partner linked</option>
+                  {partners.map((partner) => (
+                    <option key={partner.partner_id} value={partner.partner_id}>
+                      {partner.name}
+                    </option>
+                  ))}
+                </select>
+                <p className="text-xs text-gray-500 mt-1">
+                  Link a partner to enable voucher requests from SuperSantos page
+                </p>
               </div>
 
               {/* Guide requires ticket toggle */}
@@ -400,6 +523,75 @@ export default function TicketCategoriesPage() {
                   </div>
                 )}
               </div>
+
+              {/* Source Settings - only for entrance tickets */}
+              {formData.ticket_class === 'entrance' && (
+                <div className="mb-4 p-4 bg-purple-50 rounded-lg border border-purple-200">
+                  <h3 className="text-sm font-semibold text-purple-800 mb-3">Source Settings</h3>
+
+                  <div className="mb-3">
+                    <Label className="text-sm font-medium mb-1 text-purple-700">Default Source</Label>
+                    <select
+                      value={formData.default_source}
+                      onChange={(e) => setFormData({...formData, default_source: e.target.value as 'b2c' | 'b2b' | 'auto'})}
+                      className="w-full px-3 py-2 border border-purple-300 rounded-md focus:outline-none focus:ring-2 focus:ring-purple-500 text-sm"
+                    >
+                      <option value="b2c">Always B2C</option>
+                      <option value="b2b">Always B2B</option>
+                      <option value="auto">Auto-detect from PDF</option>
+                    </select>
+                  </div>
+
+                  {/* B2B Detection Rules - only when auto-detect is selected */}
+                  {formData.default_source === 'auto' && (
+                    <>
+                      <p className="text-xs text-purple-600 mb-3">Configure automatic B2B detection based on PDF content</p>
+
+                      <div className="mb-3">
+                        <Label className="text-sm font-medium mb-1 text-purple-700">B2B Indicator Text</Label>
+                        <input
+                          type="text"
+                          value={formData.b2b_indicator_text}
+                          onChange={(e) => setFormData({...formData, b2b_indicator_text: e.target.value})}
+                          placeholder="e.g., ACCORDI SPECIALI"
+                          className="w-full px-3 py-2 border border-purple-300 rounded-md focus:outline-none focus:ring-2 focus:ring-purple-500 text-sm"
+                        />
+                        <p className="text-xs text-purple-500 mt-1">If this text is found in the PDF, the voucher will be marked as B2B</p>
+                      </div>
+
+                      <div>
+                        <Label className="text-sm font-medium mb-1 text-purple-700">B2B Price Adjustment (€)</Label>
+                        <input
+                          type="number"
+                          step="0.01"
+                          min="0"
+                          value={formData.b2b_price_adjustment}
+                          onChange={(e) => setFormData({...formData, b2b_price_adjustment: parseFloat(e.target.value) || 0})}
+                          placeholder="0.00"
+                          className="w-full px-3 py-2 border border-purple-300 rounded-md focus:outline-none focus:ring-2 focus:ring-purple-500 text-sm"
+                        />
+                        <p className="text-xs text-purple-500 mt-1">Extra cost per ticket when B2B is detected (added to PDF price)</p>
+                      </div>
+                    </>
+                  )}
+
+                  {formData.default_source === 'b2b' && (
+                    <div>
+                      <Label className="text-sm font-medium mb-1 text-purple-700">B2B Price Adjustment (€)</Label>
+                      <input
+                        type="number"
+                        step="0.01"
+                        min="0"
+                        value={formData.b2b_price_adjustment}
+                        onChange={(e) => setFormData({...formData, b2b_price_adjustment: parseFloat(e.target.value) || 0})}
+                        placeholder="0.00"
+                        className="w-full px-3 py-2 border border-purple-300 rounded-md focus:outline-none focus:ring-2 focus:ring-purple-500 text-sm"
+                      />
+                      <p className="text-xs text-purple-500 mt-1">Extra cost per ticket (added to PDF price)</p>
+                    </div>
+                  )}
+                </div>
+              )}
 
               {/* Footer */}
               <div className="flex justify-end gap-3 mt-6 pt-6 border-t">

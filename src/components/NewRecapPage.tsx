@@ -20,6 +20,8 @@ import {
 } from "@/components/ui/hover-card"
 import * as XLSX from 'xlsx'
 import { sanitizeDataForExcel } from '@/lib/security/sanitize'
+import VoucherRequestDialog from '@/components/VoucherRequestDialog'
+import { TicketCategory, Partner } from '@/lib/api-client'
 
 // Excluded pricing categories for specific activities
 const EXCLUDED_PRICING_CATEGORIES: Record<string, string[]> = {
@@ -50,6 +52,32 @@ const shouldExcludePricingCategory = (activityId: string, categoryTitle: string,
 const shortenCategoryName = (category: string): string => {
   if (category === '18 - 24 años - sólo UE') return 'UE'
   return category
+}
+
+// Interface for activity-partner mapping
+interface ActivityPartnerMapping {
+  id: string
+  activity_id: string
+  partner_id: string
+  ticket_category_id: string | null
+  partners?: {
+    partner_id: string
+    name: string
+    email: string
+  }
+  ticket_categories?: {
+    id: string
+    name: string
+  }
+}
+
+// Helper function to check if an activity has a linked partner
+const getActivityPartnerMapping = (
+  activityId: string,
+  activityPartnerMappings: ActivityPartnerMapping[]
+): ActivityPartnerMapping | null => {
+  if (!activityPartnerMappings.length) return null
+  return activityPartnerMappings.find(m => m.activity_id === activityId) || null
 }
 
 // Definizione dei tipi
@@ -293,6 +321,14 @@ export default function NewRecapPage() {
   const [selectedVoucherDetail, setSelectedVoucherDetail] = useState<VoucherDetail | null>(null)
   const [loadingVoucherDetail, setLoadingVoucherDetail] = useState(false)
 
+  // Voucher request dialog state
+  const [voucherRequestDialogOpen, setVoucherRequestDialogOpen] = useState(false)
+  const [selectedSlotForRequest, setSelectedSlotForRequest] = useState<SlotData | null>(null)
+  const [selectedCategoryForRequest, setSelectedCategoryForRequest] = useState<(TicketCategory & { partners?: Partner }) | null>(null)
+  const [ticketCategoriesWithPartners, setTicketCategoriesWithPartners] = useState<(TicketCategory & { partners?: Partner })[]>([])
+  const [activityPartnerMappings, setActivityPartnerMappings] = useState<ActivityPartnerMapping[]>([])
+  const [voucherRequests, setVoucherRequests] = useState<Map<number, { count: number; totalPax: number; status: string }>>(new Map())
+
   // Filtered tours for search
   const filteredTours = tours.filter(tour =>
     tour.title.toLowerCase().includes(tourSearch.toLowerCase())
@@ -428,7 +464,7 @@ export default function NewRecapPage() {
         pdf_path,
         entry_time,
         ticket_categories (id, name),
-        tickets (id, price, ticket_type)
+        tickets (id, price, ticket_type, pax_count)
       `)
       .gte('visit_date', dateRange.start)
       .lte('visit_date', dateRange.end)
@@ -443,10 +479,11 @@ export default function NewRecapPage() {
         const availId = String(voucher.activity_availability_id)
 
         // Count only non-guide tickets (exclude tickets with "guide" in ticket_type)
-        const tickets = voucher.tickets as { id: string; price: number; ticket_type?: string }[] | undefined
+        // For booking-level vouchers (like Catacombe), sum pax_count instead of counting records
+        const tickets = voucher.tickets as { id: string; price: number; ticket_type?: string; pax_count?: number }[] | undefined
         const nonGuideTicketCount = tickets?.filter(t =>
           !t.ticket_type?.toLowerCase().includes('guide')
-        ).length || 0
+        ).reduce((sum, t) => sum + (t.pax_count || 1), 0) || 0
         ticketCountMap.set(availId, (ticketCountMap.get(availId) || 0) + nonGuideTicketCount)
 
         // Calculate voucher cost from tickets (still include all tickets for cost)
@@ -896,6 +933,172 @@ export default function NewRecapPage() {
     }
   }, [selectedFilter, dateRange, tours, loadData])
 
+  // Fetch ticket categories with partners for voucher requests
+  useEffect(() => {
+    const fetchTicketCategoriesWithPartners = async () => {
+      try {
+        const { data, error } = await supabase
+          .from('ticket_categories')
+          .select(`
+            *,
+            partners (
+              partner_id,
+              name,
+              email,
+              phone_number,
+              active,
+              available_times
+            )
+          `)
+          .not('partner_id', 'is', null)
+
+        if (error) throw error
+        setTicketCategoriesWithPartners(data || [])
+      } catch (err) {
+        console.error('Error fetching ticket categories with partners:', err)
+      }
+    }
+    fetchTicketCategoriesWithPartners()
+  }, [])
+
+  // Fetch activity-partner mappings for Richiedi button
+  useEffect(() => {
+    const fetchActivityPartnerMappings = async () => {
+      try {
+        const { data, error } = await supabase
+          .from('activity_partner_mappings')
+          .select(`
+            *,
+            partners (
+              partner_id,
+              name,
+              email
+            ),
+            ticket_categories (
+              id,
+              name
+            )
+          `)
+
+        if (error) throw error
+        setActivityPartnerMappings(data || [])
+      } catch (err) {
+        console.error('Error fetching activity-partner mappings:', err)
+      }
+    }
+    fetchActivityPartnerMappings()
+  }, [])
+
+  // Fetch voucher requests for the date range to track sent requests
+  useEffect(() => {
+    const fetchVoucherRequests = async () => {
+      if (!dateRange.start || !dateRange.end) return
+
+      try {
+        const { data, error } = await supabase
+          .from('voucher_requests')
+          .select('id, activity_availability_id, total_pax, status')
+          .gte('visit_date', dateRange.start)
+          .lte('visit_date', dateRange.end)
+          .in('status', ['sent', 'fulfilled'])
+
+        if (error) throw error
+
+        // Group by activity_availability_id and sum total_pax
+        const requestsMap = new Map<number, { count: number; totalPax: number; status: string }>()
+        data?.forEach(req => {
+          if (req.activity_availability_id) {
+            const existing = requestsMap.get(req.activity_availability_id)
+            if (existing) {
+              requestsMap.set(req.activity_availability_id, {
+                count: existing.count + 1,
+                totalPax: existing.totalPax + (req.total_pax || 0),
+                status: req.status === 'fulfilled' ? 'fulfilled' : existing.status
+              })
+            } else {
+              requestsMap.set(req.activity_availability_id, {
+                count: 1,
+                totalPax: req.total_pax || 0,
+                status: req.status
+              })
+            }
+          }
+        })
+
+        setVoucherRequests(requestsMap)
+      } catch (err) {
+        console.error('Error fetching voucher requests:', err)
+      }
+    }
+
+    fetchVoucherRequests()
+  }, [dateRange])
+
+  // Handler to open voucher request dialog
+  const handleOpenVoucherRequest = (slot: SlotData) => {
+    // Find a matching ticket category with a partner linked
+    // For now, we'll try to find one based on the activity title or just use the first available
+    const matchingCategory = ticketCategoriesWithPartners.find(cat => {
+      // Try to match based on product_names in the category
+      if (cat.product_names && cat.product_names.length > 0) {
+        return cat.product_names.some((name: string) =>
+          slot.tourTitle.toLowerCase().includes(name.toLowerCase()) ||
+          name.toLowerCase().includes(slot.tourTitle.toLowerCase())
+        )
+      }
+      return false
+    }) || ticketCategoriesWithPartners[0]
+
+    if (!matchingCategory) {
+      alert('Nessuna categoria con partner collegato trovata. Configura prima un partner nelle categorie biglietti.')
+      return
+    }
+
+    setSelectedSlotForRequest(slot)
+    setSelectedCategoryForRequest(matchingCategory as (TicketCategory & { partners?: Partner }))
+    setVoucherRequestDialogOpen(true)
+  }
+
+  // Function to refresh voucher requests
+  const refreshVoucherRequests = useCallback(async () => {
+    if (!dateRange.start || !dateRange.end) return
+
+    try {
+      const { data, error } = await supabase
+        .from('voucher_requests')
+        .select('id, activity_availability_id, total_pax, status')
+        .gte('visit_date', dateRange.start)
+        .lte('visit_date', dateRange.end)
+        .in('status', ['sent', 'fulfilled'])
+
+      if (error) throw error
+
+      const requestsMap = new Map<number, { count: number; totalPax: number; status: string }>()
+      data?.forEach(req => {
+        if (req.activity_availability_id) {
+          const existing = requestsMap.get(req.activity_availability_id)
+          if (existing) {
+            requestsMap.set(req.activity_availability_id, {
+              count: existing.count + 1,
+              totalPax: existing.totalPax + (req.total_pax || 0),
+              status: req.status === 'fulfilled' ? 'fulfilled' : existing.status
+            })
+          } else {
+            requestsMap.set(req.activity_availability_id, {
+              count: 1,
+              totalPax: req.total_pax || 0,
+              status: req.status
+            })
+          }
+        }
+      })
+
+      setVoucherRequests(requestsMap)
+    } catch (err) {
+      console.error('Error fetching voucher requests:', err)
+    }
+  }, [dateRange])
+
   // Real-time subscription for instant updates
   const { status: realtimeStatus } = useRealtimeRefresh({
     tables: [
@@ -903,8 +1106,12 @@ export default function NewRecapPage() {
       'activity_bookings',
       'guide_assignments',
       'vouchers',
+      'voucher_requests',
     ],
-    onRefresh: loadData,
+    onRefresh: () => {
+      loadData()
+      refreshVoucherRequests()
+    },
     enabled: !!selectedFilter && tours.length > 0,
     debounceMs: 1000,
   })
@@ -1724,6 +1931,16 @@ export default function NewRecapPage() {
       grouped[key].totalParticipants += row.totalParticipants || 0
       grouped[key].availabilityLeft += row.availabilityLeft
       grouped[key].ticketCount = (grouped[key].ticketCount || 0) + (row.ticketCount || 0)
+      // Set tourTitle, tourId, and availabilityId from the first slot (all slots are same tour)
+      if (!grouped[key].tourTitle && row.tourTitle) {
+        grouped[key].tourTitle = row.tourTitle
+        grouped[key].tourId = row.tourId
+        grouped[key].availabilityId = row.availabilityId || row.id
+      }
+      // Aggregate bookings from all slots
+      if (row.bookings && row.bookings.length > 0) {
+        grouped[key].bookings = [...grouped[key].bookings, ...row.bookings]
+      }
       // Aggregate vouchers for the date group
       if (row.vouchers && row.vouchers.length > 0) {
         grouped[key].vouchers = [...(grouped[key].vouchers || []), ...row.vouchers]
@@ -2278,6 +2495,55 @@ export default function NewRecapPage() {
                           : diff < 0
                             ? 'bg-red-100 text-red-800'
                             : 'bg-orange-100 text-orange-800'
+
+                        // Check for existing voucher requests
+                        const availId = row.availabilityId ? Number(row.availabilityId) : null
+                        const existingRequest = availId ? voucherRequests.get(availId) : null
+                        const requestedPax = existingRequest?.totalPax || 0
+                        const needsMoreRequests = diff < 0 && row.totalParticipants > requestedPax
+
+                        const partnerMapping = getActivityPartnerMapping(row.tourId, activityPartnerMappings)
+
+                        // If activity has partner mapping, wrap diff in HoverCard
+                        if (partnerMapping) {
+                          return (
+                            <HoverCard>
+                              <HoverCardTrigger asChild>
+                                <span className={`px-2 py-0.5 rounded text-sm font-medium cursor-pointer ${colorClass}`}>
+                                  {diff > 0 ? `+${diff}` : diff}
+                                </span>
+                              </HoverCardTrigger>
+                              <HoverCardContent className="w-56" side="left">
+                                <div className="space-y-2">
+                                  <div className="text-xs font-medium text-gray-500">
+                                    Partner: {partnerMapping.partners?.name || 'N/A'}
+                                  </div>
+                                  {existingRequest && (
+                                    <div className="text-sm">
+                                      <span className={existingRequest.status === 'fulfilled' ? 'text-green-700' : 'text-blue-700'}>
+                                        {existingRequest.count} richiesta/e per {requestedPax} pax
+                                        {existingRequest.status === 'fulfilled' ? ' (ricevuti)' : ' (richiesti)'}
+                                      </span>
+                                    </div>
+                                  )}
+                                  {diff < 0 && (
+                                    <button
+                                      onClick={(e) => {
+                                        e.stopPropagation()
+                                        handleOpenVoucherRequest(row)
+                                      }}
+                                      className="text-xs text-red-600 hover:text-red-800 transition-colors"
+                                    >
+                                      + Richiedi voucher
+                                    </button>
+                                  )}
+                                </div>
+                              </HoverCardContent>
+                            </HoverCard>
+                          )
+                        }
+
+                        // No partner mapping, just show the diff
                         return (
                           <span className={`px-2 py-0.5 rounded text-sm font-medium ${colorClass}`}>
                             {diff > 0 ? `+${diff}` : diff}
@@ -2520,6 +2786,55 @@ export default function NewRecapPage() {
                             : diff < 0
                               ? 'bg-red-100 text-red-800'
                               : 'bg-orange-100 text-orange-800'
+
+                          // Check for existing voucher requests
+                          const slotAvailId = slot.availabilityId ? Number(slot.availabilityId) : (slot.id ? Number(slot.id) : null)
+                          const existingRequest = slotAvailId ? voucherRequests.get(slotAvailId) : null
+                          const requestedPax = existingRequest?.totalPax || 0
+                          const needsMoreRequests = diff < 0 && slot.totalParticipants > requestedPax
+
+                          const partnerMapping = getActivityPartnerMapping(slot.tourId, activityPartnerMappings)
+
+                          // If activity has partner mapping, wrap diff in HoverCard
+                          if (partnerMapping) {
+                            return (
+                              <HoverCard>
+                                <HoverCardTrigger asChild>
+                                  <span className={`px-2 py-0.5 rounded text-xs font-medium cursor-pointer ${colorClass}`}>
+                                    {diff > 0 ? `+${diff}` : diff}
+                                  </span>
+                                </HoverCardTrigger>
+                                <HoverCardContent className="w-56" side="left">
+                                  <div className="space-y-2">
+                                    <div className="text-xs font-medium text-gray-500">
+                                      Partner: {partnerMapping.partners?.name || 'N/A'}
+                                    </div>
+                                    {existingRequest && (
+                                      <div className="text-sm">
+                                        <span className={existingRequest.status === 'fulfilled' ? 'text-green-700' : 'text-blue-700'}>
+                                          {existingRequest.count} richiesta/e per {requestedPax} pax
+                                          {existingRequest.status === 'fulfilled' ? ' (ricevuti)' : ' (richiesti)'}
+                                        </span>
+                                      </div>
+                                    )}
+                                    {diff < 0 && (
+                                      <button
+                                        onClick={(e) => {
+                                          e.stopPropagation()
+                                          handleOpenVoucherRequest(slot)
+                                        }}
+                                        className="text-xs text-red-600 hover:text-red-800 transition-colors"
+                                      >
+                                        + Richiedi voucher
+                                      </button>
+                                    )}
+                                  </div>
+                                </HoverCardContent>
+                              </HoverCard>
+                            )
+                          }
+
+                          // No partner mapping, just show the diff
                           return (
                             <span className={`px-2 py-0.5 rounded text-xs font-medium ${colorClass}`}>
                               {diff > 0 ? `+${diff}` : diff}
@@ -3077,6 +3392,36 @@ export default function NewRecapPage() {
             </div>
           </div>
         </div>
+      )}
+
+      {/* Voucher Request Dialog */}
+      {voucherRequestDialogOpen && selectedSlotForRequest && selectedCategoryForRequest && (
+        <VoucherRequestDialog
+          slot={{
+            activityAvailabilityId: parseInt(selectedSlotForRequest.availabilityId || selectedSlotForRequest.id),
+            activityId: selectedSlotForRequest.tourId,
+            activityTitle: selectedSlotForRequest.tourTitle,
+            visitDate: selectedSlotForRequest.date,
+            startTime: selectedSlotForRequest.time,
+            diff: (selectedSlotForRequest.ticketCount || 0) - selectedSlotForRequest.totalParticipants,
+            bookings: selectedSlotForRequest.bookings.map(booking => ({
+              firstName: booking.pricing_category_bookings?.[0]?.passenger_first_name ||
+                         booking.bookings?.confirmation_code || 'N/A',
+              lastName: booking.pricing_category_bookings?.[0]?.passenger_last_name || '',
+              paxCount: booking.pricing_category_bookings?.reduce((sum, p) => sum + (p.quantity || 0), 0) || 1
+            }))
+          }}
+          ticketCategory={selectedCategoryForRequest}
+          onClose={() => {
+            setVoucherRequestDialogOpen(false)
+            setSelectedSlotForRequest(null)
+            setSelectedCategoryForRequest(null)
+          }}
+          onSuccess={() => {
+            loadData()
+            refreshVoucherRequests()
+          }}
+        />
       )}
     </div>
   )

@@ -5,10 +5,11 @@ import { supabase } from '@/lib/supabase'
 import { contentApi, activityTemplatesApi } from '@/lib/api-client'
 import {
   FileText, MapPin, Plus, Pencil, Trash2, X, Save,
-  ChevronRight, ExternalLink, Search, Link2
+  ChevronRight, ExternalLink, Search, Link2, Building2
 } from 'lucide-react'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
+import PartnerTemplatesSection from '@/components/PartnerTemplatesSection'
 
 // Available template variables for single emails
 const TEMPLATE_VARIABLES = [
@@ -125,7 +126,7 @@ interface ActivityMeetingPoint {
   is_default: boolean
 }
 
-type Tab = 'templates' | 'meeting-points' | 'assignments' | 'template-defaults' | 'consolidated-templates'
+type Tab = 'templates' | 'meeting-points' | 'assignments' | 'template-defaults' | 'consolidated-templates' | 'partner-templates'
 
 export default function ContentPage() {
   const [activeTab, setActiveTab] = useState<Tab>('templates')
@@ -713,6 +714,19 @@ export default function ContentPage() {
           </div>
         </button>
         <button
+          onClick={() => setActiveTab('partner-templates')}
+          className={`px-4 py-2 text-sm font-medium border-b-2 transition-colors ${
+            activeTab === 'partner-templates'
+              ? 'border-teal-600 text-teal-600'
+              : 'border-transparent text-gray-500 hover:text-gray-700'
+          }`}
+        >
+          <div className="flex items-center gap-2">
+            <Building2 className="w-4 h-4" />
+            Partner Templates
+          </div>
+        </button>
+        <button
           onClick={() => setActiveTab('meeting-points')}
           className={`px-4 py-2 text-sm font-medium border-b-2 transition-colors ${
             activeTab === 'meeting-points'
@@ -1198,6 +1212,11 @@ export default function ContentPage() {
             </div>
           )}
         </div>
+      )}
+
+      {/* Partner Templates Tab */}
+      {activeTab === 'partner-templates' && (
+        <PartnerTemplatesSection />
       )}
 
       {/* Template Modal */}

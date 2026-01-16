@@ -221,6 +221,12 @@ export interface TicketCategory {
   product_names?: string[]
   guide_requires_ticket: boolean
   skip_name_check?: boolean
+  extraction_mode?: 'per_ticket' | 'booking_level' | 'per_person_type'
+  ticket_class?: 'entrance' | 'transport' | 'other'
+  default_source?: 'b2c' | 'b2b' | 'auto'
+  b2b_indicator_text?: string
+  b2b_price_adjustment?: number
+  partner_id?: string
   created_at?: string
 }
 
@@ -242,6 +248,7 @@ export interface ProductActivityMapping {
   product_name: string
   activity_id: string
   category_id: string
+  ticket_source?: 'b2c' | 'b2b'
 }
 
 export interface TicketTypeMapping {
@@ -250,6 +257,7 @@ export interface TicketTypeMapping {
   category_id: string
   activity_id?: string
   booked_titles?: string[]
+  price?: number
 }
 
 export const mappingsApi = {
@@ -729,4 +737,97 @@ export const costReportsApi = {
     if (params.group_by) searchParams.append('group_by', params.group_by)
     return apiRequest<ProfitabilityReportResponse>(`/api/reports/profitability?${searchParams.toString()}`)
   },
+}
+
+// ============================================
+// PARTNERS API
+// ============================================
+export interface Partner {
+  partner_id: string
+  name: string
+  email: string
+  phone_number?: string
+  active: boolean
+  notes?: string
+  available_times?: string[] // e.g., ['09:00', '10:00', '11:00', '12:00']
+  created_at?: string
+  updated_at?: string
+}
+
+export const partnersApi = {
+  list: () => apiRequest<Partner[]>('/api/partners'),
+  create: (partner: Partial<Partner>) => apiRequest<Partner>('/api/partners', 'POST', partner),
+  update: (partner: Partial<Partner>) => apiRequest<Partner>('/api/partners', 'PUT', partner),
+  delete: (partner_id: string) => apiRequest(`/api/partners?partner_id=${partner_id}`, 'DELETE'),
+}
+
+// ============================================
+// VOUCHER REQUESTS API
+// ============================================
+export type VoucherRequestStatus = 'draft' | 'sent' | 'fulfilled' | 'cancelled'
+
+export interface VoucherRequestCustomer {
+  first_name: string
+  last_name: string
+  pax_count: number
+}
+
+export interface VoucherRequest {
+  id: string
+  activity_availability_id: number
+  ticket_category_id: string
+  partner_id: string
+  requested_quantity: number
+  visit_date: string
+  entry_time?: string
+  activity_name: string
+  customer_names: VoucherRequestCustomer[]
+  total_pax: number
+  status: VoucherRequestStatus
+  sent_at?: string
+  sent_by?: string
+  fulfilled_at?: string
+  fulfilled_voucher_ids?: string[]
+  cancelled_at?: string
+  cancellation_reason?: string
+  request_pdf_path?: string
+  notes?: string
+  created_at?: string
+  created_by?: string
+  // Joined relations
+  partners?: Partner
+  ticket_categories?: TicketCategory
+}
+
+export const voucherRequestsApi = {
+  list: (params?: {
+    status?: VoucherRequestStatus
+    activity_availability_id?: number
+    partner_id?: string
+    date_from?: string
+    date_to?: string
+  }) => {
+    const searchParams = new URLSearchParams()
+    if (params) {
+      if (params.status) searchParams.append('status', params.status)
+      if (params.activity_availability_id) searchParams.append('activity_availability_id', String(params.activity_availability_id))
+      if (params.partner_id) searchParams.append('partner_id', params.partner_id)
+      if (params.date_from) searchParams.append('date_from', params.date_from)
+      if (params.date_to) searchParams.append('date_to', params.date_to)
+    }
+    const query = searchParams.toString()
+    return apiRequest<VoucherRequest[]>(`/api/voucher-requests${query ? `?${query}` : ''}`)
+  },
+  create: (request: Partial<VoucherRequest>) =>
+    apiRequest<VoucherRequest>('/api/voucher-requests', 'POST', request),
+  update: (request: Partial<VoucherRequest>) =>
+    apiRequest<VoucherRequest>('/api/voucher-requests', 'PUT', request),
+  delete: (id: string) =>
+    apiRequest(`/api/voucher-requests?id=${id}`, 'DELETE'),
+  send: (id: string) =>
+    apiRequest<{ success: boolean; message: string; data: VoucherRequest }>(`/api/voucher-requests/${id}/send`, 'POST'),
+  fulfill: (id: string, voucher_ids?: string[]) =>
+    apiRequest<{ success: boolean; message: string; data: VoucherRequest }>(`/api/voucher-requests/${id}/fulfill`, 'POST', { voucher_ids }),
+  cancel: (id: string, reason?: string) =>
+    apiRequest<{ success: boolean; message: string; data: VoucherRequest }>(`/api/voucher-requests/${id}/cancel`, 'POST', { reason }),
 }

@@ -2,7 +2,7 @@
 'use client'
 
 import React, { useState, useEffect, useRef } from 'react'
-import { Menu, ChevronRight, Users, FileBarChart, LayoutDashboard, FileText, FileSpreadsheet, BarChart3, DollarSign, TrendingUp, RefreshCw, Percent, UserCog, Calendar, UserCheck, FolderOpen, MapPin, Ticket, Upload, List, Tags, Link2, Bell, Settings, Shield, ClipboardList, Headphones, Printer, Activity, Landmark, Receipt, Search, X, Loader2 } from 'lucide-react'
+import { Menu, ChevronRight, Users, FileBarChart, LayoutDashboard, FileText, FileSpreadsheet, BarChart3, DollarSign, TrendingUp, RefreshCw, Percent, UserCog, Calendar, UserCheck, FolderOpen, MapPin, Ticket, Upload, List, Tags, Link2, Bell, Settings, Shield, ClipboardList, Headphones, Printer, Activity, Landmark, Receipt, Search, X, Loader2, Building2, Send, Handshake } from 'lucide-react'
 import { SidebarProvider, SidebarTrigger } from "@/components/ui/sidebar"
 import { Sidebar, SidebarContent, SidebarGroup, SidebarHeader, SidebarMenu, SidebarMenuButton, SidebarMenuItem, SidebarMenuSub, SidebarMenuSubButton, SidebarMenuSubItem } from "@/components/ui/sidebar"
 import RecapPage from '@/components/RecapPage'
@@ -39,6 +39,9 @@ import ResourceCostsConfigPage from '@/components/ResourceCostsConfigPage'
 import ServiceGroupsPage from '@/components/ServiceGroupsPage'
 import FinanceCostReportsPage from '@/components/FinanceCostReportsPage'
 import NewRecapPage from '@/components/NewRecapPage'
+import PartnersListPage from '@/components/PartnersListPage'
+import VoucherRequestsListPage from '@/components/VoucherRequestsListPage'
+import ActivityPartnerMappingsPage from '@/components/ActivityPartnerMappingsPage'
 import { LucideIcon } from 'lucide-react'
 
 // Custom SuperSantos Ball Icon
@@ -172,6 +175,16 @@ function AppSidebar({ currentView, onNavigate }: {
           icon: Link2,
           view: "type-mappings",
         },
+        {
+          title: "Voucher Requests",
+          icon: Send,
+          view: "voucher-requests",
+        },
+        {
+          title: "Activity-Partner",
+          icon: Handshake,
+          view: "activity-partner-mappings",
+        },
       ],
     },
     {
@@ -199,6 +212,11 @@ function AppSidebar({ currentView, onNavigate }: {
           title: "Printing",
           icon: Printer,
           view: "printing-list",
+        },
+        {
+          title: "Partners",
+          icon: Building2,
+          view: "partners-list",
         },
         {
           title: "Assignments",
@@ -1049,6 +1067,12 @@ export default function DashboardLayout() {
         return <ProductActivityMappingsPage />
       case 'type-mappings':
         return <TicketTypeMappingsPage />
+      case 'voucher-requests':
+        return <VoucherRequestsListPage />
+      case 'activity-partner-mappings':
+        return <ActivityPartnerMappingsPage />
+      case 'partners-list':
+        return <PartnersListPage />
       case 'notifications':
         return <NotificationsPage />
       case 'user-management':
@@ -1122,6 +1146,12 @@ export default function DashboardLayout() {
         return 'Product-Activity Mappings'
       case 'type-mappings':
         return 'Ticket Type Mappings'
+      case 'voucher-requests':
+        return 'Voucher Requests'
+      case 'activity-partner-mappings':
+        return 'Activity-Partner Mappings'
+      case 'partners-list':
+        return 'Partners'
       case 'notifications':
         return 'Notifications'
       case 'user-management':
@@ -1147,7 +1177,7 @@ export default function DashboardLayout() {
     if (['recap', 'consumed', 'pax-names', 'daily-list', 'service-groups', 'notifications'].includes(currentView)) {
       return 'Operations'
     }
-    if (['voucher-upload', 'vouchers-list', 'ticket-categories', 'product-mappings', 'type-mappings'].includes(currentView)) {
+    if (['voucher-upload', 'vouchers-list', 'ticket-categories', 'product-mappings', 'type-mappings', 'activity-partner-mappings', 'voucher-requests'].includes(currentView)) {
       return 'Tickets'
     }
     if (['guides-list', 'escorts-list', 'headphones-list', 'printing-list', 'guide-assignments', 'escort-assignments', 'headphone-assignments', 'printing-assignments', 'resource-costs'].includes(currentView)) {

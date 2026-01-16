@@ -10,6 +10,9 @@ interface ExtractedTicket {
   holder_name: string
   ticket_type: string
   price: number
+  pricing_category_booking_id?: number | null
+  activity_booking_id?: number | null  // For booking-level vouchers (e.g., Catacombe)
+  pax_count?: number | null  // Number of pax for booking-level vouchers
 }
 
 // POST - Create voucher with tickets and upload PDF
@@ -47,6 +50,7 @@ export async function POST(request: NextRequest) {
       entry_time,
       product_name,
       activity_availability_id,
+      ticket_class,
       tickets
     } = voucherData
 
@@ -86,6 +90,7 @@ export async function POST(request: NextRequest) {
         product_name,
         pdf_path: fileName,
         activity_availability_id,
+        ticket_class,
         total_tickets: tickets?.length || 0
       })
       .select()
@@ -112,14 +117,19 @@ export async function POST(request: NextRequest) {
 
     await auditCreate(user.id, user.email, 'voucher', voucher.id, voucher, ip, userAgent)
 
-    // 3. Create ticket records
+    // 3. Create ticket records with participant links
     if (tickets && tickets.length > 0) {
       const ticketRecords = tickets.map((ticket: ExtractedTicket) => ({
         voucher_id: voucher.id,
         ticket_code: ticket.ticket_code,
         holder_name: ticket.holder_name,
         ticket_type: ticket.ticket_type,
-        price: ticket.price
+        price: ticket.price,
+        pricing_category_booking_id: ticket.pricing_category_booking_id || null,
+        activity_booking_id: ticket.activity_booking_id || null,
+        pax_count: ticket.pax_count || null,
+        linked_at: (ticket.pricing_category_booking_id || ticket.activity_booking_id) ? new Date().toISOString() : null,
+        linked_by: (ticket.pricing_category_booking_id || ticket.activity_booking_id) ? user.id : null
       }))
 
       const { data: createdTickets, error: ticketsError } = await supabase

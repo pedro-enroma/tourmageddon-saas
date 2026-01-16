@@ -1,8 +1,26 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { getServiceRoleClient, verifySession } from '@/lib/supabase-server'
-import { auditCreate, auditUpdate, auditDelete } from '@/lib/audit-logger'
 
-// GET - List all ticket type mappings
+export interface ActivityPartnerMapping {
+  id: string
+  activity_id: string
+  partner_id: string
+  ticket_category_id: string | null
+  notes: string | null
+  created_at: string
+  updated_at: string
+  partners?: {
+    partner_id: string
+    name: string
+    email: string
+  }
+  ticket_categories?: {
+    id: string
+    name: string
+  }
+}
+
+// GET - List all mappings
 export async function GET() {
   const { user, error: authError } = await verifySession()
   if (authError || !user) {
@@ -12,12 +30,23 @@ export async function GET() {
   try {
     const supabase = getServiceRoleClient()
     const { data, error } = await supabase
-      .from('ticket_type_mappings')
-      .select('*, ticket_categories(name)')
-      .order('ticket_type', { ascending: true })
+      .from('activity_partner_mappings')
+      .select(`
+        *,
+        partners (
+          partner_id,
+          name,
+          email
+        ),
+        ticket_categories (
+          id,
+          name
+        )
+      `)
+      .order('activity_id', { ascending: true })
 
     if (error) {
-      console.error('Error fetching ticket type mappings:', error)
+      console.error('Error fetching mappings:', error)
       return NextResponse.json({ error: 'Failed to fetch mappings' }, { status: 500 })
     }
 
@@ -28,7 +57,7 @@ export async function GET() {
   }
 }
 
-// POST - Create new ticket type mapping
+// POST - Create new mapping
 export async function POST(request: NextRequest) {
   const { user, error: authError } = await verifySession()
   if (authError || !user) {
@@ -37,34 +66,46 @@ export async function POST(request: NextRequest) {
 
   try {
     const body = await request.json()
-    const { ticket_type, category_id, activity_id, booked_titles, price } = body
+    const { activity_id, partner_id, ticket_category_id, notes } = body
 
-    if (!ticket_type || !category_id) {
-      return NextResponse.json({ error: 'ticket_type and category_id are required' }, { status: 400 })
+    if (!activity_id) {
+      return NextResponse.json({ error: 'activity_id is required' }, { status: 400 })
+    }
+
+    if (!partner_id) {
+      return NextResponse.json({ error: 'partner_id is required' }, { status: 400 })
     }
 
     const supabase = getServiceRoleClient()
     const { data, error } = await supabase
-      .from('ticket_type_mappings')
+      .from('activity_partner_mappings')
       .insert([{
-        ticket_type,
-        category_id,
-        activity_id: activity_id || null,
-        booked_titles: booked_titles || [],
-        price: price !== undefined && price !== '' ? price : null
+        activity_id,
+        partner_id,
+        ticket_category_id: ticket_category_id || null,
+        notes: notes || null
       }])
-      .select()
+      .select(`
+        *,
+        partners (
+          partner_id,
+          name,
+          email
+        ),
+        ticket_categories (
+          id,
+          name
+        )
+      `)
       .single()
 
     if (error) {
-      console.error('Error creating ticket type mapping:', error)
+      console.error('Error creating mapping:', error)
       if (error.code === '23505') {
-        return NextResponse.json({ error: 'A mapping for this ticket type already exists' }, { status: 409 })
+        return NextResponse.json({ error: 'This activity is already mapped to this partner' }, { status: 409 })
       }
       return NextResponse.json({ error: 'Failed to create mapping' }, { status: 500 })
     }
-
-    await auditCreate(request, user, 'ticket_type_mapping', data.id, data)
 
     return NextResponse.json({ data }, { status: 201 })
   } catch (err) {
@@ -73,7 +114,7 @@ export async function POST(request: NextRequest) {
   }
 }
 
-// PUT - Update ticket type mapping
+// PUT - Update mapping
 export async function PUT(request: NextRequest) {
   const { user, error: authError } = await verifySession()
   if (authError || !user) {
@@ -82,44 +123,43 @@ export async function PUT(request: NextRequest) {
 
   try {
     const body = await request.json()
-    const { id, ticket_type, category_id, activity_id, booked_titles, price } = body
+    const { id, activity_id, partner_id, ticket_category_id, notes } = body
 
     if (!id) {
       return NextResponse.json({ error: 'id is required' }, { status: 400 })
     }
 
-    if (!ticket_type || !category_id) {
-      return NextResponse.json({ error: 'ticket_type and category_id are required' }, { status: 400 })
-    }
-
     const supabase = getServiceRoleClient()
-
-    const { data: oldData } = await supabase
-      .from('ticket_type_mappings')
-      .select('*')
-      .eq('id', id)
-      .single()
-
     const { data, error } = await supabase
-      .from('ticket_type_mappings')
+      .from('activity_partner_mappings')
       .update({
-        ticket_type,
-        category_id,
-        activity_id: activity_id || null,
-        booked_titles: booked_titles || [],
-        price: price !== undefined && price !== '' ? price : null
+        activity_id,
+        partner_id,
+        ticket_category_id: ticket_category_id || null,
+        notes: notes || null
       })
       .eq('id', id)
-      .select()
+      .select(`
+        *,
+        partners (
+          partner_id,
+          name,
+          email
+        ),
+        ticket_categories (
+          id,
+          name
+        )
+      `)
       .single()
 
     if (error) {
-      console.error('Error updating ticket type mapping:', error)
+      console.error('Error updating mapping:', error)
       return NextResponse.json({ error: 'Failed to update mapping' }, { status: 500 })
     }
 
-    if (oldData) {
-      await auditUpdate(request, user, 'ticket_type_mapping', id, oldData, data)
+    if (!data) {
+      return NextResponse.json({ error: 'Mapping not found' }, { status: 404 })
     }
 
     return NextResponse.json({ data })
@@ -129,7 +169,7 @@ export async function PUT(request: NextRequest) {
   }
 }
 
-// DELETE - Delete ticket type mapping
+// DELETE - Delete mapping
 export async function DELETE(request: NextRequest) {
   const { user, error: authError } = await verifySession()
   if (authError || !user) {
@@ -145,25 +185,14 @@ export async function DELETE(request: NextRequest) {
     }
 
     const supabase = getServiceRoleClient()
-
-    const { data: oldData } = await supabase
-      .from('ticket_type_mappings')
-      .select('*')
-      .eq('id', id)
-      .single()
-
     const { error } = await supabase
-      .from('ticket_type_mappings')
+      .from('activity_partner_mappings')
       .delete()
       .eq('id', id)
 
     if (error) {
-      console.error('Error deleting ticket type mapping:', error)
+      console.error('Error deleting mapping:', error)
       return NextResponse.json({ error: 'Failed to delete mapping' }, { status: 500 })
-    }
-
-    if (oldData) {
-      await auditDelete(request, user, 'ticket_type_mapping', id, oldData)
     }
 
     return NextResponse.json({ success: true })

@@ -10,6 +10,7 @@ import { Label } from '@/components/ui/label'
 interface TicketCategory {
   id: string
   name: string
+  extraction_mode?: 'per_ticket' | 'booking_level' | 'per_person_type'
 }
 
 interface Activity {
@@ -23,6 +24,7 @@ interface TicketTypeMapping {
   activity_id: string
   ticket_type: string
   booked_titles: string[]
+  price?: number
   created_at: string
   ticket_categories?: TicketCategory
 }
@@ -48,7 +50,8 @@ export default function TicketTypeMappingsPage() {
     category_id: '',
     activity_id: '',
     ticket_type: '',
-    booked_titles: [] as string[]
+    booked_titles: [] as string[],
+    price: '' as string | number
   })
 
   // Common ticket types from Colosseum PDFs
@@ -106,7 +109,7 @@ export default function TicketTypeMappingsPage() {
           .order('ticket_type', { ascending: true }),
         supabase
           .from('ticket_categories')
-          .select('id, name')
+          .select('id, name, extraction_mode')
           .order('name', { ascending: true }),
         supabase
           .from('activities')
@@ -175,7 +178,8 @@ export default function TicketTypeMappingsPage() {
         category_id: mapping.category_id,
         activity_id: mapping.activity_id,
         ticket_type: mapping.ticket_type,
-        booked_titles: mapping.booked_titles || []
+        booked_titles: mapping.booked_titles || [],
+        price: mapping.price ?? ''
       })
     } else {
       setEditingMapping(null)
@@ -183,7 +187,8 @@ export default function TicketTypeMappingsPage() {
         category_id: categories[0]?.id || '',
         activity_id: '',
         ticket_type: '',
-        booked_titles: []
+        booked_titles: [],
+        price: ''
       })
     }
     setShowModal(true)
@@ -214,7 +219,8 @@ export default function TicketTypeMappingsPage() {
           category_id: formData.category_id,
           activity_id: formData.activity_id,
           ticket_type: formData.ticket_type,
-          booked_titles: formData.booked_titles
+          booked_titles: formData.booked_titles,
+          price: formData.price !== '' ? Number(formData.price) : undefined
         })
 
         if (result.error) throw new Error(result.error)
@@ -224,7 +230,8 @@ export default function TicketTypeMappingsPage() {
           category_id: formData.category_id,
           activity_id: formData.activity_id,
           ticket_type: formData.ticket_type,
-          booked_titles: formData.booked_titles
+          booked_titles: formData.booked_titles,
+          price: formData.price !== '' ? Number(formData.price) : undefined
         })
 
         if (result.error) throw new Error(result.error)
@@ -388,6 +395,11 @@ export default function TicketTypeMappingsPage() {
                         <div className="flex items-center gap-4">
                           <div className="font-medium text-gray-900 min-w-[150px]">
                             {mapping.ticket_type}
+                            {mapping.price !== undefined && mapping.price !== null && (
+                              <span className="ml-2 text-sm text-green-600 font-normal">
+                                €{Number(mapping.price).toFixed(2)}
+                              </span>
+                            )}
                           </div>
                           <ArrowRight className="w-4 h-4 text-gray-400" />
                           <div className="flex flex-wrap gap-1">
@@ -497,7 +509,7 @@ export default function TicketTypeMappingsPage() {
                   required
                   value={formData.ticket_type}
                   onChange={(e) => setFormData({...formData, ticket_type: e.target.value})}
-                  placeholder="e.g., Intero"
+                  placeholder="e.g., Intero, Adulto, Minore"
                   list="ticket-type-suggestions"
                   className="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500"
                 />
@@ -505,11 +517,33 @@ export default function TicketTypeMappingsPage() {
                   {COMMON_TICKET_TYPES.map(type => (
                     <option key={type} value={type} />
                   ))}
+                  <option value="Adulto" />
+                  <option value="Minore" />
                 </datalist>
                 <p className="text-xs text-gray-500 mt-1">
                   This should match exactly what appears in the PDF ticket
                 </p>
               </div>
+
+              {/* Price - shown for categories with per_person_type extraction */}
+              {categories.find(c => c.id === formData.category_id)?.extraction_mode === 'per_person_type' && (
+                <div className="mb-4 p-4 bg-green-50 rounded-lg border border-green-200">
+                  <Label className="text-sm font-medium mb-1 text-green-800">Price per Ticket (€) *</Label>
+                  <input
+                    type="number"
+                    step="0.01"
+                    min="0"
+                    required
+                    value={formData.price}
+                    onChange={(e) => setFormData({...formData, price: e.target.value})}
+                    placeholder="e.g., 10.00"
+                    className="w-full px-3 py-2 border border-green-300 rounded-md focus:outline-none focus:ring-2 focus:ring-green-500"
+                  />
+                  <p className="text-xs text-green-600 mt-1">
+                    Set the cost per ticket for this type (e.g., €10 for Adulto, €5 for Minore)
+                  </p>
+                </div>
+              )}
 
               {/* Booked Titles */}
               <div className="mb-4">

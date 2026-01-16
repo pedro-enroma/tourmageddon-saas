@@ -37,7 +37,7 @@ export async function POST(request: NextRequest) {
 
   try {
     const body = await request.json()
-    const { product_name, activity_id, category_id } = body
+    const { product_name, activity_id, category_id, ticket_source } = body
 
     if (!product_name) {
       return NextResponse.json({ error: 'Product name is required' }, { status: 400 })
@@ -49,7 +49,8 @@ export async function POST(request: NextRequest) {
       .insert([{
         product_name,
         activity_id: activity_id || null,
-        category_id: category_id || null
+        category_id: category_id || null,
+        ticket_source: ticket_source || null
       }])
       .select()
       .single()

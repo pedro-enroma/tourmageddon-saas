@@ -37,7 +37,7 @@ export async function POST(request: NextRequest) {
 
   try {
     const body = await request.json()
-    const { name, description, product_names, guide_requires_ticket, skip_name_check } = body
+    const { name, description, product_names, guide_requires_ticket, skip_name_check, extraction_mode, ticket_class, default_source, b2b_indicator_text, b2b_price_adjustment, partner_id } = body
 
     if (!name) {
       return NextResponse.json({ error: 'Name is required' }, { status: 400 })
@@ -51,7 +51,13 @@ export async function POST(request: NextRequest) {
         description: description || null,
         product_names: product_names || [],
         guide_requires_ticket: guide_requires_ticket ?? false,
-        skip_name_check: skip_name_check ?? false
+        skip_name_check: skip_name_check ?? false,
+        extraction_mode: extraction_mode || 'per_ticket',
+        ticket_class: ticket_class || 'entrance',
+        default_source: default_source || 'auto',
+        b2b_indicator_text: b2b_indicator_text || null,
+        b2b_price_adjustment: b2b_price_adjustment || null,
+        partner_id: partner_id || null
       }])
       .select()
       .single()
@@ -82,7 +88,7 @@ export async function PUT(request: NextRequest) {
 
   try {
     const body = await request.json()
-    const { id, name, description, product_names, guide_requires_ticket, skip_name_check } = body
+    const { id, name, description, product_names, guide_requires_ticket, skip_name_check, extraction_mode, ticket_class, default_source, b2b_indicator_text, b2b_price_adjustment, partner_id } = body
 
     if (!id) {
       return NextResponse.json({ error: 'id is required' }, { status: 400 })
@@ -107,7 +113,13 @@ export async function PUT(request: NextRequest) {
         description: description || null,
         product_names: product_names || [],
         guide_requires_ticket,
-        skip_name_check: skip_name_check ?? false
+        skip_name_check: skip_name_check ?? false,
+        extraction_mode: extraction_mode || 'per_ticket',
+        ticket_class: ticket_class || 'entrance',
+        default_source: default_source || 'auto',
+        b2b_indicator_text: b2b_indicator_text || null,
+        b2b_price_adjustment: b2b_price_adjustment || null,
+        partner_id: partner_id || null
       })
       .eq('id', id)
       .select()

@@ -10,6 +10,7 @@ import { Label } from '@/components/ui/label'
 interface TicketCategory {
   id: string
   name: string
+  ticket_class?: 'entrance' | 'transport' | 'other'
 }
 
 interface Activity {
@@ -22,6 +23,7 @@ interface ProductActivityMapping {
   product_name: string
   category_id: string
   activity_id: string
+  ticket_source?: 'b2c' | 'b2b' | null
   created_at: string
   ticket_categories?: TicketCategory
   activities?: Activity
@@ -40,7 +42,8 @@ export default function ProductActivityMappingsPage() {
   const [formData, setFormData] = useState({
     product_name: '',
     category_id: '',
-    activity_ids: [] as string[]
+    activity_ids: [] as string[],
+    ticket_source: '' as '' | 'b2c' | 'b2b'
   })
   const [activitySearchTerm, setActivitySearchTerm] = useState('')
   const [editingProductName, setEditingProductName] = useState<string | null>(null)
@@ -67,12 +70,12 @@ export default function ProductActivityMappingsPage() {
           .from('product_activity_mappings')
           .select(`
             *,
-            ticket_categories (id, name)
+            ticket_categories (id, name, ticket_class)
           `)
           .order('product_name', { ascending: true }),
         supabase
           .from('ticket_categories')
-          .select('id, name')
+          .select('id, name, ticket_class')
           .order('name', { ascending: true }),
         supabase
           .from('activities')
@@ -100,12 +103,13 @@ export default function ProductActivityMappingsPage() {
     if (!acc[mapping.product_name]) {
       acc[mapping.product_name] = {
         category: mapping.ticket_categories,
+        ticket_source: mapping.ticket_source,
         activities: []
       }
     }
     acc[mapping.product_name].activities.push(mapping)
     return acc
-  }, {} as Record<string, { category?: TicketCategory; activities: ProductActivityMapping[] }>)
+  }, {} as Record<string, { category?: TicketCategory; ticket_source?: 'b2c' | 'b2b' | null; activities: ProductActivityMapping[] }>)
 
   const handleOpenModal = (productName?: string) => {
     if (productName && groupedMappings[productName]) {
@@ -115,7 +119,8 @@ export default function ProductActivityMappingsPage() {
       setFormData({
         product_name: productName,
         category_id: group.category?.id || '',
-        activity_ids: group.activities.map(m => m.activity_id)
+        activity_ids: group.activities.map(m => m.activity_id),
+        ticket_source: group.ticket_source || ''
       })
     } else {
       // Create mode
@@ -123,7 +128,8 @@ export default function ProductActivityMappingsPage() {
       setFormData({
         product_name: '',
         category_id: categories[0]?.id || '',
-        activity_ids: []
+        activity_ids: [],
+        ticket_source: ''
       })
     }
     setActivitySearchTerm('')
@@ -167,11 +173,16 @@ export default function ProductActivityMappingsPage() {
       }
 
       // Create mappings for each selected activity via API
+      // Get selected category to check if it's entrance class
+      const selectedCategory = categories.find(c => c.id === formData.category_id)
+      const shouldIncludeSource = selectedCategory?.ticket_class === 'entrance'
+
       for (const activity_id of formData.activity_ids) {
         const createResult = await mappingsApi.productActivity.create({
           product_name: formData.product_name,
           category_id: formData.category_id,
-          activity_id
+          activity_id,
+          ticket_source: shouldIncludeSource && formData.ticket_source ? formData.ticket_source : undefined
         })
 
         if (createResult.error) {
@@ -280,6 +291,15 @@ export default function ProductActivityMappingsPage() {
                         <span className="px-2 py-0.5 text-xs bg-orange-100 text-orange-700 rounded-full">
                           {group.category?.name || 'No category'}
                         </span>
+                        {group.ticket_source && (
+                          <span className={`px-2 py-0.5 text-xs rounded-full ${
+                            group.ticket_source === 'b2b'
+                              ? 'bg-purple-100 text-purple-700'
+                              : 'bg-green-100 text-green-700'
+                          }`}>
+                            {group.ticket_source.toUpperCase()}
+                          </span>
+                        )}
                         <span className="text-sm text-gray-500">
                           {group.activities.length} activit{group.activities.length === 1 ? 'y' : 'ies'} linked
                         </span>
@@ -377,7 +397,7 @@ export default function ProductActivityMappingsPage() {
                   <select
                     required
                     value={formData.category_id}
-                    onChange={(e) => setFormData({...formData, category_id: e.target.value})}
+                    onChange={(e) => setFormData({...formData, category_id: e.target.value, ticket_source: ''})}
                     className="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500 appearance-none"
                   >
                     <option value="">Select a category</option>
@@ -390,6 +410,28 @@ export default function ProductActivityMappingsPage() {
                   <ChevronDown className="absolute right-3 top-1/2 transform -translate-y-1/2 w-4 h-4 text-gray-400 pointer-events-none" />
                 </div>
               </div>
+
+              {/* Ticket Source - only for entrance class */}
+              {categories.find(c => c.id === formData.category_id)?.ticket_class === 'entrance' && (
+                <div className="mb-4">
+                  <Label className="text-sm font-medium mb-1">Ticket Source</Label>
+                  <div className="relative">
+                    <select
+                      value={formData.ticket_source}
+                      onChange={(e) => setFormData({...formData, ticket_source: e.target.value as '' | 'b2c' | 'b2b'})}
+                      className="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500 appearance-none"
+                    >
+                      <option value="">No source specified</option>
+                      <option value="b2c">B2C (Direct sales)</option>
+                      <option value="b2b">B2B (Resellers/Partners)</option>
+                    </select>
+                    <ChevronDown className="absolute right-3 top-1/2 transform -translate-y-1/2 w-4 h-4 text-gray-400 pointer-events-none" />
+                  </div>
+                  <p className="text-xs text-gray-500 mt-1">
+                    Specify if these tickets come from direct sales (B2C) or partners (B2B)
+                  </p>
+                </div>
+              )}
 
               {/* Activities */}
               <div className="mb-4">

@@ -56,6 +56,8 @@ export type AuditEntityType =
   | 'assignment_cost_override'
   | 'guide_service_group'
   | 'resource_rate'
+  | 'partner'
+  | 'voucher_request'
 
 /**
  * Parameters for logging an audit event

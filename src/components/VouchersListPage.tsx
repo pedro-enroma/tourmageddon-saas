@@ -2,7 +2,7 @@
 
 import { useState, useEffect } from 'react'
 import { supabase } from '@/lib/supabase'
-import { Search, FileText, ExternalLink, Trash2, Eye, Calendar, Clock, Users, X } from 'lucide-react'
+import { Search, FileText, ExternalLink, Trash2, Eye, Calendar, Clock, Users, X, Landmark, Train, Tag } from 'lucide-react'
 import { Button } from '@/components/ui/button'
 
 interface Ticket {
@@ -23,8 +23,9 @@ interface Voucher {
   pdf_path: string | null
   activity_availability_id: number | null
   total_tickets: number
+  ticket_class?: 'entrance' | 'transport' | 'other' | null
   created_at: string
-  ticket_categories?: { id: string; name: string } | null
+  ticket_categories?: { id: string; name: string; ticket_class?: 'entrance' | 'transport' | 'other' } | null
   activity_availability?: {
     id: number
     local_time: string
@@ -33,8 +34,26 @@ interface Voucher {
   tickets?: Ticket[]
 }
 
+interface ProductMapping {
+  product_name: string
+  ticket_source: 'b2c' | 'b2b' | null
+}
+
+const getTicketClassIcon = (ticketClass?: string | null) => {
+  switch (ticketClass) {
+    case 'transport':
+      return { Icon: Train, color: 'text-blue-600' }
+    case 'other':
+      return { Icon: Tag, color: 'text-gray-600' }
+    case 'entrance':
+    default:
+      return { Icon: Landmark, color: 'text-orange-600' }
+  }
+}
+
 export default function VouchersListPage() {
   const [vouchers, setVouchers] = useState<Voucher[]>([])
+  const [productMappings, setProductMappings] = useState<ProductMapping[]>([])
   const [loading, setLoading] = useState(true)
   const [searchTerm, setSearchTerm] = useState('')
   const [dateFilter, setDateFilter] = useState('')
@@ -50,35 +69,74 @@ export default function VouchersListPage() {
     setLoading(true)
     setError(null)
     try {
-      const { data, error } = await supabase
-        .from('vouchers')
-        .select(`
-          *,
-          ticket_categories (id, name),
-          activity_availability (
-            id,
-            local_time,
-            activities (title)
-          ),
-          tickets (
-            id,
-            ticket_code,
-            holder_name,
-            ticket_type,
-            price
-          )
-        `)
-        .order('visit_date', { ascending: false })
-        .order('created_at', { ascending: false })
+      // Fetch vouchers and product mappings in parallel
+      const [vouchersRes, mappingsRes] = await Promise.all([
+        supabase
+          .from('vouchers')
+          .select(`
+            *,
+            ticket_categories (id, name, ticket_class),
+            activity_availability (
+              id,
+              local_time,
+              activities (title)
+            ),
+            tickets (
+              id,
+              ticket_code,
+              holder_name,
+              ticket_type,
+              price
+            )
+          `)
+          .order('visit_date', { ascending: false })
+          .order('created_at', { ascending: false }),
+        supabase
+          .from('product_activity_mappings')
+          .select('product_name, ticket_source')
+      ])
 
-      if (error) throw error
-      setVouchers(data || [])
+      if (vouchersRes.error) throw vouchersRes.error
+      setVouchers(vouchersRes.data || [])
+
+      // Create unique mapping by product_name, preferring ones with ticket_source set
+      if (mappingsRes.data) {
+        const uniqueMappings = mappingsRes.data.reduce((acc, m) => {
+          const existing = acc.find(x => x.product_name === m.product_name)
+          if (!existing) {
+            acc.push({ product_name: m.product_name, ticket_source: m.ticket_source })
+          } else if (!existing.ticket_source && m.ticket_source) {
+            // Prefer mappings with ticket_source set
+            existing.ticket_source = m.ticket_source
+          }
+          return acc
+        }, [] as ProductMapping[])
+        setProductMappings(uniqueMappings)
+      }
     } catch (err) {
       console.error('Error fetching vouchers:', err)
       setError('Failed to load vouchers')
     } finally {
       setLoading(false)
     }
+  }
+
+  // Helper to get ticket source for a product name (flexible matching)
+  const getTicketSource = (productName: string): 'b2c' | 'b2b' | null => {
+    const normalizedProduct = productName.toUpperCase().trim()
+
+    // First try exact match
+    let mapping = productMappings.find(m => m.product_name.toUpperCase() === normalizedProduct)
+
+    // Then try if voucher product is contained in mapping product name
+    if (!mapping) {
+      mapping = productMappings.find(m =>
+        m.product_name.toUpperCase().includes(normalizedProduct) ||
+        normalizedProduct.includes(m.product_name.toUpperCase())
+      )
+    }
+
+    return mapping?.ticket_source || null
   }
 
   const handleDelete = async (voucherId: string) => {
@@ -209,7 +267,12 @@ export default function VouchersListPage() {
                   </span>
                 </h2>
                 <div className="space-y-3">
-                  {dateVouchers.map(voucher => (
+                  {dateVouchers.map(voucher => {
+                    const ticketClass = voucher.ticket_categories?.ticket_class || voucher.ticket_class
+                    const { Icon: ClassIcon, color: classColor } = getTicketClassIcon(ticketClass)
+                    const ticketSource = getTicketSource(voucher.product_name)
+
+                    return (
                     <div
                       key={voucher.id}
                       className="bg-white rounded-lg shadow border border-gray-200 p-4 hover:shadow-md transition-shadow"
@@ -218,9 +281,19 @@ export default function VouchersListPage() {
                         <div className="flex-1">
                           <div className="flex items-center gap-3 mb-2">
                             <h3 className="font-semibold text-gray-900">{voucher.booking_number}</h3>
-                            <span className="px-2 py-0.5 text-xs bg-orange-100 text-orange-700 rounded-full">
+                            <span className="px-2 py-0.5 text-xs bg-orange-100 text-orange-700 rounded-full flex items-center gap-1">
+                              <ClassIcon className={`w-3 h-3 ${classColor}`} />
                               {voucher.ticket_categories?.name || 'No category'}
                             </span>
+                            {ticketClass === 'entrance' && (
+                              <span className={`px-2 py-0.5 text-xs rounded-full ${
+                                ticketSource === 'b2b'
+                                  ? 'bg-purple-100 text-purple-700'
+                                  : 'bg-green-100 text-green-700'
+                              }`}>
+                                {ticketSource === 'b2b' ? 'B2B' : 'B2C'}
+                              </span>
+                            )}
                             {voucher.activity_availability && (
                               <span className="px-2 py-0.5 text-xs bg-green-100 text-green-700 rounded-full">
                                 Assigned
@@ -272,7 +345,8 @@ export default function VouchersListPage() {
                         </div>
                       </div>
                     </div>
-                  ))}
+                    )
+                  })}
                 </div>
               </div>
             ))}

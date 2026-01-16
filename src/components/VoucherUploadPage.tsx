@@ -12,6 +12,7 @@ interface ExtractedTicket {
   holder_name: string
   ticket_type: string
   price: number
+  pax_count?: number // For booking-level vouchers (e.g., Catacombe)
 }
 
 interface ExtractedVoucher {
@@ -51,12 +52,21 @@ interface PricingCategoryBooking {
   passenger_last_name: string
 }
 
+interface ActivityBookingInfo {
+  activity_booking_id: number
+  customer_first_name: string | null
+  customer_last_name: string | null
+  total_participants: number
+}
+
 interface ValidationResult {
   ticket: ExtractedTicket
   matchedParticipant: PricingCategoryBooking | null
   matchedGuide: AssignedGuide | null
+  matchedActivityBooking: ActivityBookingInfo | null  // For booking-level vouchers
   nameMatch: boolean
   typeMatch: boolean
+  paxMatch: boolean  // For booking-level vouchers
   isGuideTicket: boolean
   warnings: string[]
 }
@@ -70,6 +80,9 @@ interface ExtractedPDF {
   file: File
   data: ExtractedVoucher
   warning: string | null
+  pdfType: string
+  isB2B?: boolean
+  b2bPriceAdjustment?: number
 }
 
 export default function VoucherUploadPage() {
@@ -92,6 +105,7 @@ export default function VoucherUploadPage() {
   const [showOnlyWithBookings, setShowOnlyWithBookings] = useState(true)
   const [availabilityBookingCounts, setAvailabilityBookingCounts] = useState<Map<number, number>>(new Map())
   const [assignedGuides, setAssignedGuides] = useState<AssignedGuide[]>([])
+  const [activityBookings, setActivityBookings] = useState<ActivityBookingInfo[]>([])
   const [categoryGuideRequiresTicket, setCategoryGuideRequiresTicket] = useState(false)
   const [categorySkipNameCheck, setCategorySkipNameCheck] = useState(false)
 
@@ -119,15 +133,21 @@ export default function VoucherUploadPage() {
   }
 
   // Helper function to normalize product names for comparison
-  // Treats variations like "FULL EXPERIENCE - ARENA - GRUPPI" and "FULL EXPERIENCE - ARENA" as the same
+  // Treats variations like "FULL EXPERIENCE - ARENA - GRUPPI" and "Intero Full Experience - Arena" as the same
   const normalizeProductName = (productName: string): string => {
     return productName
       .toUpperCase()
       .trim()
+      // Remove common ticket type prefixes (Intero, Ridotto, Biglietto, etc.)
+      .replace(/^(INTERO|RIDOTTO|BIGLIETTO|GRATUITO|OMAGGIO)\s+/i, '')
       // Remove " - GRUPPI" suffix (group booking variant)
       .replace(/\s*-\s*GRUPPI\s*$/i, '')
       // Normalize COLOSSEO 24H variations
       .replace(/COLOSSEO\s*24\s*H/i, 'COLOSSEO 24H')
+      // Normalize spaces and dashes
+      .replace(/\s*-\s*/g, ' - ')
+      .replace(/\s+/g, ' ')
+      .trim()
   }
 
   // Load categories on mount
@@ -257,10 +277,20 @@ export default function VoucherUploadPage() {
     const startTime = `${selectedAvail.local_date}T${hours}:${minutes}:00`
     const endTime = `${selectedAvail.local_date}T${hours}:${minutes}:59.999`
 
-    // Get activity_bookings for this specific time slot
+    // Get activity_bookings for this specific time slot with customer info
     const { data: bookings } = await supabase
       .from('activity_bookings')
-      .select('activity_booking_id')
+      .select(`
+        activity_booking_id,
+        bookings!inner (
+          booking_customers (
+            customers (first_name, last_name)
+          )
+        ),
+        pricing_category_bookings (
+          pricing_category_booking_id
+        )
+      `)
       .eq('activity_id', selectedAvail.activity_id)
       .gte('start_date_time', startTime)
       .lte('start_date_time', endTime)
@@ -268,9 +298,27 @@ export default function VoucherUploadPage() {
 
     if (!bookings || bookings.length === 0) {
       setParticipants([])
+      setActivityBookings([])
       setValidationResults([])
       return
     }
+
+    // Extract activity booking info with customer names and pax count
+    const activityBookingInfos: ActivityBookingInfo[] = bookings.map(b => {
+      // Get customer info from nested relations
+      const bookingData = b.bookings as { booking_customers?: Array<{ customers?: { first_name?: string; last_name?: string } }> } | null
+      const customerData = bookingData?.booking_customers?.[0]?.customers
+      // Count participants from pricing_category_bookings
+      const paxCount = Array.isArray(b.pricing_category_bookings) ? b.pricing_category_bookings.length : 0
+
+      return {
+        activity_booking_id: b.activity_booking_id,
+        customer_first_name: customerData?.first_name || null,
+        customer_last_name: customerData?.last_name || null,
+        total_participants: paxCount
+      }
+    })
+    setActivityBookings(activityBookingInfos)
 
     const bookingIds = bookings.map(b => b.activity_booking_id)
 
@@ -385,8 +433,10 @@ export default function VoucherUploadPage() {
         ticket: { ticket_code: 'QUANTITY_CHECK', holder_name: 'Quantity Validation', ticket_type: 'Summary', price: 0 },
         matchedParticipant: null,
         matchedGuide: null,
+        matchedActivityBooking: null,
         nameMatch: warnings.length === 0,
         typeMatch: warnings.length === 0,
+        paxMatch: true,
         isGuideTicket: false,
         warnings
       }]
@@ -395,7 +445,148 @@ export default function VoucherUploadPage() {
       return
     }
 
-    // Standard name-based validation
+    // Check if this is a booking-level voucher (has pax_count on tickets)
+    const isBookingLevelVoucher = combinedExtractedData.tickets.some(t => t.pax_count !== undefined && t.pax_count !== null)
+
+    // Check if this is a per-person-type voucher (Catacombe style with "Name - Adulto N" pattern)
+    const perPersonTypePattern = /^(.+?)\s*-\s*(Adulto|Minore|Adult|Child)\s*\d*$/i
+    const isPerPersonTypeVoucher = combinedExtractedData.tickets.some(t => perPersonTypePattern.test(t.holder_name))
+
+    if (isPerPersonTypeVoucher) {
+      // Per-person-type validation: group tickets by base booking name and match to activity_bookings
+      // Extract base name by removing " - Adulto N" or " - Minore N" suffix
+      const extractBaseName = (holderName: string): string => {
+        const match = holderName.match(perPersonTypePattern)
+        return match ? match[1].trim() : holderName
+      }
+
+      // Group tickets by base booking name
+      const ticketsByBooking = new Map<string, typeof combinedExtractedData.tickets>()
+      for (const ticket of combinedExtractedData.tickets) {
+        const baseName = extractBaseName(ticket.holder_name)
+        const normalizedBaseName = normalizeText(baseName)
+        if (!ticketsByBooking.has(normalizedBaseName)) {
+          ticketsByBooking.set(normalizedBaseName, [])
+        }
+        ticketsByBooking.get(normalizedBaseName)!.push(ticket)
+      }
+
+      // Create one validation result per booking (not per ticket)
+      const results: ValidationResult[] = []
+
+      for (const [normalizedBaseName, tickets] of ticketsByBooking.entries()) {
+        const baseName = extractBaseName(tickets[0].holder_name)
+        const ticketCount = tickets.length
+        const warnings: string[] = []
+
+        // Match against activity bookings by customer name
+        const matchedActivityBooking = activityBookings.find(ab => {
+          if (!ab.customer_first_name && !ab.customer_last_name) return false
+          const customerFullName = normalizeText(`${ab.customer_first_name || ''} ${ab.customer_last_name || ''}`)
+          const customerReversed = normalizeText(`${ab.customer_last_name || ''} ${ab.customer_first_name || ''}`)
+          return customerFullName === normalizedBaseName || customerReversed === normalizedBaseName
+        }) || null
+
+        const nameMatch = !!matchedActivityBooking
+        let paxMatch = false
+
+        if (!nameMatch) {
+          if (activityBookings.length === 0) {
+            warnings.push(`No bookings found for this tour slot`)
+          } else {
+            const bookingNames = activityBookings
+              .map(ab => `${ab.customer_first_name || ''} ${ab.customer_last_name || ''}`.trim())
+              .filter(n => n)
+              .join(', ')
+            warnings.push(`Name "${baseName}" not found in bookings (${bookingNames || 'no names available'})`)
+          }
+        } else if (matchedActivityBooking) {
+          // Compare ticket count to booking pax count
+          paxMatch = ticketCount === matchedActivityBooking.total_participants
+          if (!paxMatch) {
+            warnings.push(`Pax mismatch: ${ticketCount} tickets vs ${matchedActivityBooking.total_participants} booked participants`)
+          }
+        }
+
+        // Create a summary ticket for this booking
+        const summaryTicket: ExtractedTicket = {
+          ticket_code: tickets.map(t => t.ticket_code).join(', '),
+          holder_name: baseName,
+          ticket_type: `${ticketCount} tickets (${tickets.filter(t => t.ticket_type === 'Adulto').length} Adulto, ${tickets.filter(t => t.ticket_type === 'Minore').length} Minore)`,
+          price: tickets.reduce((sum, t) => sum + (t.price || 0), 0)
+        }
+
+        results.push({
+          ticket: summaryTicket,
+          matchedParticipant: null,
+          matchedGuide: null,
+          matchedActivityBooking,
+          nameMatch,
+          typeMatch: true,
+          paxMatch,
+          isGuideTicket: false,
+          warnings
+        })
+      }
+
+      setValidationResults(results)
+      return
+    }
+
+    if (isBookingLevelVoucher) {
+      // Booking-level validation: match by holder name to activity_bookings
+      const results: ValidationResult[] = combinedExtractedData.tickets.map(ticket => {
+        const warnings: string[] = []
+        const ticketNameNormalized = normalizeText(ticket.holder_name)
+
+        // Match against activity bookings by customer name
+        let matchedActivityBooking: ActivityBookingInfo | null = null
+        matchedActivityBooking = activityBookings.find(ab => {
+          if (!ab.customer_first_name && !ab.customer_last_name) return false
+          const customerFullName = normalizeText(`${ab.customer_first_name || ''} ${ab.customer_last_name || ''}`)
+          const customerReversed = normalizeText(`${ab.customer_last_name || ''} ${ab.customer_first_name || ''}`)
+          return customerFullName === ticketNameNormalized || customerReversed === ticketNameNormalized
+        }) || null
+
+        const nameMatch = !!matchedActivityBooking
+        let paxMatch = false
+
+        if (!nameMatch) {
+          if (activityBookings.length === 0) {
+            warnings.push(`No bookings found for this tour slot`)
+          } else {
+            const bookingNames = activityBookings
+              .map(ab => `${ab.customer_first_name || ''} ${ab.customer_last_name || ''}`.trim())
+              .filter(n => n)
+              .join(', ')
+            warnings.push(`Name "${ticket.holder_name}" not found in bookings (${bookingNames || 'no names available'})`)
+          }
+        } else if (ticket.pax_count !== undefined && matchedActivityBooking) {
+          // Compare pax counts
+          paxMatch = ticket.pax_count === matchedActivityBooking.total_participants
+          if (!paxMatch) {
+            warnings.push(`Pax mismatch: voucher has ${ticket.pax_count} pax, booking has ${matchedActivityBooking.total_participants} pax`)
+          }
+        }
+
+        return {
+          ticket,
+          matchedParticipant: null,
+          matchedGuide: null,
+          matchedActivityBooking,
+          nameMatch,
+          typeMatch: true, // Not applicable for booking-level
+          paxMatch,
+          isGuideTicket: false,
+          warnings
+        }
+      })
+
+      setValidationResults(results)
+      return
+    }
+
+    // Standard name-based validation (for per-ticket vouchers)
     const results: ValidationResult[] = combinedExtractedData.tickets.map(ticket => {
       const warnings: string[] = []
       const ticketNameNormalized = normalizeText(ticket.holder_name)
@@ -461,15 +652,17 @@ export default function VoucherUploadPage() {
         ticket,
         matchedParticipant,
         matchedGuide,
+        matchedActivityBooking: null,
         nameMatch,
         typeMatch,
+        paxMatch: true, // Not applicable for per-ticket vouchers
         isGuideTicket,
         warnings
       }
     })
 
     setValidationResults(results)
-  }, [combinedExtractedData?.tickets, participants, assignedGuides, typeMappings, categoryGuideRequiresTicket, categorySkipNameCheck])
+  }, [combinedExtractedData?.tickets, participants, assignedGuides, activityBookings, typeMappings, categoryGuideRequiresTicket, categorySkipNameCheck])
 
   const handleFileChange = (e: React.ChangeEvent<HTMLInputElement>) => {
     const selectedFiles = Array.from(e.target.files || [])
@@ -537,13 +730,20 @@ export default function VoucherUploadPage() {
         const result = await response.json()
 
         if (!response.ok) {
+          // Check for rate limit error
+          if (response.status === 429 || result.code === 'RATE_LIMIT') {
+            throw new Error(`⏳ Rate limit reached. Please wait 1 minute and try again.`)
+          }
           throw new Error(`Failed to extract from ${file.name}: ${result.error || 'Unknown error'}`)
         }
 
         extractedResults.push({
           file,
           data: result.data,
-          warning: result.warning || null
+          warning: result.warning || null,
+          pdfType: result.pdfType || 'unknown',
+          isB2B: result.isB2B || false,
+          b2bPriceAdjustment: result.b2bPriceAdjustment || 0
         })
       }
 
@@ -626,6 +826,13 @@ export default function VoucherUploadPage() {
     }
   }
 
+  // Helper to map PDF type to ticket class
+  const getTicketClass = (pdfType: string): 'entrance' | 'transport' | 'other' => {
+    if (['italo', 'trenitalia'].includes(pdfType)) return 'transport'
+    if (['vatican', 'colosseum', 'pompei'].includes(pdfType)) return 'entrance'
+    return 'other'
+  }
+
   const handleSave = async () => {
     if (extractedPDFs.length === 0 || !selectedCategoryId) return
 
@@ -635,6 +842,21 @@ export default function VoucherUploadPage() {
     try {
       // Save each PDF as a separate voucher
       for (const extracted of extractedPDFs) {
+        // Map tickets with matched participant IDs or activity_booking IDs from validation results
+        const ticketsWithParticipants = extracted.data.tickets.map(ticket => {
+          // Find the validation result for this ticket
+          const validation = validationResults.find(v =>
+            v.ticket.ticket_code === ticket.ticket_code &&
+            v.ticket.holder_name === ticket.holder_name
+          )
+          return {
+            ...ticket,
+            pricing_category_booking_id: validation?.matchedParticipant?.pricing_category_booking_id || null,
+            activity_booking_id: validation?.matchedActivityBooking?.activity_booking_id || null,
+            pax_count: ticket.pax_count || null
+          }
+        })
+
         const formData = new FormData()
         formData.append('file', extracted.file)
         formData.append('voucherData', JSON.stringify({
@@ -645,7 +867,8 @@ export default function VoucherUploadPage() {
           entry_time: extracted.data.entry_time,
           product_name: extracted.data.product_name,
           activity_availability_id: selectedAvailabilityId,
-          tickets: extracted.data.tickets
+          ticket_class: getTicketClass(extracted.pdfType),
+          tickets: ticketsWithParticipants
         }))
 
         const result = await vouchersApi.create(formData)
@@ -844,8 +1067,24 @@ export default function VoucherUploadPage() {
               </div>
 
               <div className="bg-blue-50 p-3 rounded-lg mb-4">
-                <p className="text-xs text-blue-500">Product Name</p>
-                <p className="font-medium text-blue-800">{combinedExtractedData.product_name}</p>
+                <div className="flex items-center justify-between">
+                  <div>
+                    <p className="text-xs text-blue-500">Product Name</p>
+                    <p className="font-medium text-blue-800">{combinedExtractedData.product_name}</p>
+                  </div>
+                  {extractedPDFs[0]?.isB2B !== undefined && (
+                    <div className={`px-3 py-1 rounded-full text-sm font-medium ${
+                      extractedPDFs[0].isB2B
+                        ? 'bg-purple-100 text-purple-700'
+                        : 'bg-green-100 text-green-700'
+                    }`}>
+                      {extractedPDFs[0].isB2B ? 'B2B' : 'B2C'}
+                      {extractedPDFs[0].isB2B && extractedPDFs[0].b2bPriceAdjustment ? (
+                        <span className="ml-1 text-xs">(+€{extractedPDFs[0].b2bPriceAdjustment}/ticket)</span>
+                      ) : null}
+                    </div>
+                  )}
+                </div>
               </div>
 
               {/* Category Selection */}
