@@ -2500,7 +2500,6 @@ export default function NewRecapPage() {
                         const availId = row.availabilityId ? Number(row.availabilityId) : null
                         const existingRequest = availId ? voucherRequests.get(availId) : null
                         const requestedPax = existingRequest?.totalPax || 0
-                        const needsMoreRequests = diff < 0 && row.totalParticipants > requestedPax
 
                         const partnerMapping = getActivityPartnerMapping(row.tourId, activityPartnerMappings)
 
@@ -2791,7 +2790,6 @@ export default function NewRecapPage() {
                           const slotAvailId = slot.availabilityId ? Number(slot.availabilityId) : (slot.id ? Number(slot.id) : null)
                           const existingRequest = slotAvailId ? voucherRequests.get(slotAvailId) : null
                           const requestedPax = existingRequest?.totalPax || 0
-                          const needsMoreRequests = diff < 0 && slot.totalParticipants > requestedPax
 
                           const partnerMapping = getActivityPartnerMapping(slot.tourId, activityPartnerMappings)
 
