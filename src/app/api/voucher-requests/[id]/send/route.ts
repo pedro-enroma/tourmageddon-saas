@@ -119,15 +119,16 @@ export async function POST(
 
     if (activityBookings && activityBookings.length > 0) {
       // Build customers from actual booking data
-      customers = activityBookings.map(booking => {
-        const customer = Array.isArray(booking.bookings?.customers)
-          ? booking.bookings?.customers[0]
-          : booking.bookings?.customers
-        const pricingCategories = booking.pricing_category_bookings || []
+      customers = activityBookings.map((booking: Record<string, unknown>) => {
+        const bookingData = booking.bookings as { customers?: { first_name?: string; last_name?: string; phone_number?: string } | { first_name?: string; last_name?: string; phone_number?: string }[] } | null
+        const customer = Array.isArray(bookingData?.customers)
+          ? bookingData?.customers[0]
+          : bookingData?.customers
+        const pricingCategories = (booking.pricing_category_bookings || []) as { booked_title?: string; quantity?: number }[]
 
         // Group quantities by mapped ticket_type
         const paxBreakdown: PaxBreakdown = {}
-        pricingCategories.forEach((pc: { booked_title?: string; quantity?: number }) => {
+        pricingCategories.forEach(pc => {
           const bookedTitle = pc.booked_title || ''
           const qty = pc.quantity || 0
 
