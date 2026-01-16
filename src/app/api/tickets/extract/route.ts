@@ -120,12 +120,12 @@ RESPOND WITH ONLY VALID JSON in this exact structure:
   ]
 }`
 
-    console.log('Sending PDF to Claude Haiku 4.5...')
+    console.log('Sending PDF to Claude Sonnet 4 for extraction...')
 
     let content: string
     try {
       const response = await anthropic.messages.create({
-        model: 'claude-haiku-4-5',
+        model: 'claude-sonnet-4-20250514',
         max_tokens: 8192,
         messages: [{
           role: 'user',
@@ -154,7 +154,7 @@ RESPOND WITH ONLY VALID JSON in this exact structure:
       }
       content = textBlock.text
 
-      console.log(`Claude response received, usage: ${response.usage.input_tokens} input, ${response.usage.output_tokens} output tokens`)
+      console.log(`Claude Sonnet 4 response received, usage: ${response.usage.input_tokens} input, ${response.usage.output_tokens} output tokens`)
     } catch (aiError) {
       console.error('Claude API error:', aiError)
 
