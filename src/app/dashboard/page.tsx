@@ -943,8 +943,21 @@ function SearchDialog({ isOpen, onClose }: { isOpen: boolean; onClose: () => voi
 }
 
 // App version and changelog
-const APP_VERSION = '3.5'
+const APP_VERSION = '4.0'
 const CHANGELOG = [
+  {
+    version: '4.0',
+    date: '2026-01-20',
+    changes: [
+      { type: 'feature', text: 'Planned Availabilities - Create blue "fake" slots before Bokun sync, auto-match when real availability arrives' },
+      { type: 'feature', text: 'Operation Notes - Thread-based notes linked to dates, slots, guides, escorts, or vouchers' },
+      { type: 'feature', text: 'Manual Voucher Entry - Create placeholder vouchers with ticket counts before names are known' },
+      { type: 'feature', text: 'Deadline Tracking - Configure name deadline days per category with escalation system' },
+      { type: 'feature', text: 'Notes in Daily List - Access operation notes from Daily List page' },
+      { type: 'improvement', text: 'Guide names show first name only with full name on hover' },
+      { type: 'improvement', text: 'Guide assignments work on planned slots and transfer when matched' },
+    ]
+  },
   {
     version: '3.5',
     date: '2026-01-07',
