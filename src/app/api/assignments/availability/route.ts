@@ -2,7 +2,7 @@ import { NextRequest, NextResponse } from 'next/server'
 import { getServiceRoleClient, verifySession } from '@/lib/supabase-server'
 import { auditCreate, auditDelete, getRequestContext } from '@/lib/audit-logger'
 
-// POST - Create guide/escort/headphone/printing assignments for activity_availability
+// POST - Create guide/escort/headphone/printing assignments for activity_availability or planned_availability
 export async function POST(request: NextRequest) {
   const { user, error: authError } = await verifySession()
   if (authError || !user) {
@@ -11,68 +11,91 @@ export async function POST(request: NextRequest) {
 
   try {
     const body = await request.json()
-    const { activity_availability_id, guide_ids, escort_ids, headphone_ids, printing_ids } = body
+    const { activity_availability_id, planned_availability_id, guide_ids, escort_ids, headphone_ids, printing_ids } = body
 
-    if (!activity_availability_id) {
-      return NextResponse.json({ error: 'activity_availability_id is required' }, { status: 400 })
+    if (!activity_availability_id && !planned_availability_id) {
+      return NextResponse.json({ error: 'activity_availability_id or planned_availability_id is required' }, { status: 400 })
     }
 
     const supabase = getServiceRoleClient()
     const { ip, userAgent } = getRequestContext(request)
     const results: { guides: unknown[]; escorts: unknown[]; headphones: unknown[]; printing: unknown[] } = { guides: [], escorts: [], headphones: [], printing: [] }
 
-    // Insert guide assignments (with service group auto-assignment)
+    // Insert guide assignments (with service group auto-assignment for real availabilities)
     if (guide_ids && guide_ids.length > 0) {
-      // Check if this availability is part of a service group
-      const { data: groupMember } = await supabase
-        .from('guide_service_group_members')
-        .select('group_id')
-        .eq('activity_availability_id', activity_availability_id)
-        .single()
+      // For planned availabilities, just create the assignment directly
+      if (planned_availability_id) {
+        const guideAssignments = guide_ids.map((guide_id: string) => ({
+          guide_id,
+          planned_availability_id
+        }))
 
-      let allAvailabilityIds = [activity_availability_id]
+        const { data: guideData, error: guideError } = await supabase
+          .from('guide_assignments')
+          .insert(guideAssignments)
+          .select()
 
-      if (groupMember) {
-        // Get all availability IDs in this group
-        const { data: groupMembers } = await supabase
-          .from('guide_service_group_members')
-          .select('activity_availability_id')
-          .eq('group_id', groupMember.group_id)
-
-        if (groupMembers) {
-          allAvailabilityIds = groupMembers.map(m => m.activity_availability_id)
+        if (guideError) {
+          console.error('Error creating planned guide assignments:', guideError)
+        } else {
+          results.guides = guideData || []
+          for (const assignment of guideData || []) {
+            await auditCreate(user.id, user.email, 'guide_assignment', assignment.assignment_id, assignment, ip, userAgent)
+          }
         }
-
-        // Update the service group with the guide_id
-        await supabase
-          .from('guide_service_groups')
-          .update({ guide_id: guide_ids[0] })
-          .eq('id', groupMember.group_id)
-      }
-
-      // Create assignments for all availability IDs (original + group members)
-      const guideAssignments: { guide_id: string; activity_availability_id: number }[] = []
-      for (const availId of allAvailabilityIds) {
-        for (const guide_id of guide_ids) {
-          guideAssignments.push({
-            guide_id,
-            activity_availability_id: availId
-          })
-        }
-      }
-
-      const { data: guideData, error: guideError } = await supabase
-        .from('guide_assignments')
-        .upsert(guideAssignments, { onConflict: 'guide_id,activity_availability_id', ignoreDuplicates: true })
-        .select()
-
-      if (guideError) {
-        console.error('Error creating guide assignments:', guideError)
-        // Continue anyway, some might be duplicates
       } else {
-        results.guides = guideData || []
-        for (const assignment of guideData || []) {
-          await auditCreate(user.id, user.email, 'guide_assignment', assignment.assignment_id, assignment, ip, userAgent)
+        // For real availabilities, check service groups
+        // Check if this availability is part of a service group
+        const { data: groupMember } = await supabase
+          .from('guide_service_group_members')
+          .select('group_id')
+          .eq('activity_availability_id', activity_availability_id)
+          .single()
+
+        let allAvailabilityIds = [activity_availability_id]
+
+        if (groupMember) {
+          // Get all availability IDs in this group
+          const { data: groupMembers } = await supabase
+            .from('guide_service_group_members')
+            .select('activity_availability_id')
+            .eq('group_id', groupMember.group_id)
+
+          if (groupMembers) {
+            allAvailabilityIds = groupMembers.map(m => m.activity_availability_id)
+          }
+
+          // Update the service group with the guide_id
+          await supabase
+            .from('guide_service_groups')
+            .update({ guide_id: guide_ids[0] })
+            .eq('id', groupMember.group_id)
+        }
+
+        // Create assignments for all availability IDs (original + group members)
+        const guideAssignments: { guide_id: string; activity_availability_id: number }[] = []
+        for (const availId of allAvailabilityIds) {
+          for (const guide_id of guide_ids) {
+            guideAssignments.push({
+              guide_id,
+              activity_availability_id: availId
+            })
+          }
+        }
+
+        const { data: guideData, error: guideError } = await supabase
+          .from('guide_assignments')
+          .upsert(guideAssignments, { onConflict: 'guide_id,activity_availability_id', ignoreDuplicates: true })
+          .select()
+
+        if (guideError) {
+          console.error('Error creating guide assignments:', guideError)
+          // Continue anyway, some might be duplicates
+        } else {
+          results.guides = guideData || []
+          for (const assignment of guideData || []) {
+            await auditCreate(user.id, user.email, 'guide_assignment', assignment.assignment_id, assignment, ip, userAgent)
+          }
         }
       }
     }
@@ -153,7 +176,7 @@ export async function POST(request: NextRequest) {
   }
 }
 
-// DELETE - Remove guide/escort/headphone/printing assignments for activity_availability
+// DELETE - Remove guide/escort/headphone/printing assignments for activity_availability or planned_availability
 export async function DELETE(request: NextRequest) {
   const { user, error: authError } = await verifySession()
   if (authError || !user) {
@@ -163,72 +186,98 @@ export async function DELETE(request: NextRequest) {
   try {
     const { searchParams } = new URL(request.url)
     const activity_availability_id = searchParams.get('activity_availability_id')
+    const planned_availability_id = searchParams.get('planned_availability_id')
     const guide_ids = searchParams.get('guide_ids')?.split(',').filter(Boolean)
     const escort_ids = searchParams.get('escort_ids')?.split(',').filter(Boolean)
     const headphone_ids = searchParams.get('headphone_ids')?.split(',').filter(Boolean)
     const printing_ids = searchParams.get('printing_ids')?.split(',').filter(Boolean)
 
-    if (!activity_availability_id) {
-      return NextResponse.json({ error: 'activity_availability_id is required' }, { status: 400 })
+    if (!activity_availability_id && !planned_availability_id) {
+      return NextResponse.json({ error: 'activity_availability_id or planned_availability_id is required' }, { status: 400 })
     }
 
     const supabase = getServiceRoleClient()
     const { ip, userAgent } = getRequestContext(request)
 
-    // Delete guide assignments (with service group auto-removal)
+    // Delete guide assignments
     if (guide_ids && guide_ids.length > 0) {
-      // Check if this availability is part of a service group
-      const { data: groupMember } = await supabase
-        .from('guide_service_group_members')
-        .select('group_id')
-        .eq('activity_availability_id', Number(activity_availability_id))
-        .single()
+      // For planned availabilities, just delete directly
+      if (planned_availability_id) {
+        // Get old data for audit
+        const { data: oldGuideData } = await supabase
+          .from('guide_assignments')
+          .select('*')
+          .eq('planned_availability_id', planned_availability_id)
+          .in('guide_id', guide_ids)
 
-      let allAvailabilityIds = [Number(activity_availability_id)]
+        const { error: guideError } = await supabase
+          .from('guide_assignments')
+          .delete()
+          .eq('planned_availability_id', planned_availability_id)
+          .in('guide_id', guide_ids)
 
-      if (groupMember) {
-        // Get all availability IDs in this group
-        const { data: groupMembers } = await supabase
+        if (guideError) {
+          console.error('Error deleting planned guide assignments:', guideError)
+        } else {
+          for (const assignment of oldGuideData || []) {
+            await auditDelete(user.id, user.email, 'guide_assignment', assignment.assignment_id, assignment, ip, userAgent)
+          }
+        }
+      } else {
+        // For real availabilities, check service groups
+        // Check if this availability is part of a service group
+        const { data: groupMember } = await supabase
           .from('guide_service_group_members')
-          .select('activity_availability_id')
-          .eq('group_id', groupMember.group_id)
+          .select('group_id')
+          .eq('activity_availability_id', Number(activity_availability_id))
+          .single()
 
-        if (groupMembers) {
-          allAvailabilityIds = groupMembers.map(m => m.activity_availability_id)
+        let allAvailabilityIds = [Number(activity_availability_id)]
+
+        if (groupMember) {
+          // Get all availability IDs in this group
+          const { data: groupMembers } = await supabase
+            .from('guide_service_group_members')
+            .select('activity_availability_id')
+            .eq('group_id', groupMember.group_id)
+
+          if (groupMembers) {
+            allAvailabilityIds = groupMembers.map(m => m.activity_availability_id)
+          }
+
+          // Clear the guide_id from the service group
+          await supabase
+            .from('guide_service_groups')
+            .update({ guide_id: null })
+            .eq('id', groupMember.group_id)
         }
 
-        // Clear the guide_id from the service group
-        await supabase
-          .from('guide_service_groups')
-          .update({ guide_id: null })
-          .eq('id', groupMember.group_id)
-      }
+        // Get old data for audit (for all affected availability IDs)
+        const { data: oldGuideData } = await supabase
+          .from('guide_assignments')
+          .select('*')
+          .in('activity_availability_id', allAvailabilityIds)
+          .in('guide_id', guide_ids)
 
-      // Get old data for audit (for all affected availability IDs)
-      const { data: oldGuideData } = await supabase
-        .from('guide_assignments')
-        .select('*')
-        .in('activity_availability_id', allAvailabilityIds)
-        .in('guide_id', guide_ids)
+        // Delete from all availability IDs
+        const { error: guideError } = await supabase
+          .from('guide_assignments')
+          .delete()
+          .in('activity_availability_id', allAvailabilityIds)
+          .in('guide_id', guide_ids)
 
-      // Delete from all availability IDs
-      const { error: guideError } = await supabase
-        .from('guide_assignments')
-        .delete()
-        .in('activity_availability_id', allAvailabilityIds)
-        .in('guide_id', guide_ids)
-
-      if (guideError) {
-        console.error('Error deleting guide assignments:', guideError)
-      } else {
-        for (const assignment of oldGuideData || []) {
-          await auditDelete(user.id, user.email, 'guide_assignment', assignment.assignment_id, assignment, ip, userAgent)
+        if (guideError) {
+          console.error('Error deleting guide assignments:', guideError)
+        } else {
+          for (const assignment of oldGuideData || []) {
+            await auditDelete(user.id, user.email, 'guide_assignment', assignment.assignment_id, assignment, ip, userAgent)
+          }
         }
       }
     }
 
-    // Delete escort assignments
-    if (escort_ids && escort_ids.length > 0) {
+    // Delete escort assignments (only for real availabilities)
+    if (escort_ids && escort_ids.length > 0 && activity_availability_id) {
       // Get old data for audit
       const { data: oldEscortData } = await supabase
         .from('escort_assignments')
@@ -251,8 +300,8 @@ export async function DELETE(request: NextRequest) {
       }
     }
 
-    // Delete headphone assignments
-    if (headphone_ids && headphone_ids.length > 0) {
+    // Delete headphone assignments (only for real availabilities)
+    if (headphone_ids && headphone_ids.length > 0 && activity_availability_id) {
       // Get old data for audit
       const { data: oldHeadphoneData } = await supabase
         .from('headphone_assignments')
@@ -275,8 +324,8 @@ export async function DELETE(request: NextRequest) {
       }
     }
 
-    // Delete printing assignments
-    if (printing_ids && printing_ids.length > 0) {
+    // Delete printing assignments (only for real availabilities)
+    if (printing_ids && printing_ids.length > 0 && activity_availability_id) {
       // Get old data for audit
       const { data: oldPrintingData } = await supabase
         .from('printing_assignments')

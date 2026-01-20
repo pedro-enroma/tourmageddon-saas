@@ -133,7 +133,22 @@
       "Bash(__NEW_LINE__ curl -s \"$SUPABASE_URL/rest/v1/activity_bookings?select=activity_booking_id,activity_availability_id&limit=5\" )",
       "Bash(supabase --version:*)",
       "Bash(xargs -I {} sh -c 'echo \"\"\"\"=== {} ===\"\"\"\" && grep -A5 \"\"\"\"ENABLE ROW LEVEL SECURITY\\\\|CREATE POLICY\"\"\"\" {} | head -30')",
-      "Bash(npm show:*)"
+      "Bash(npm show:*)",
+      "WebFetch(domain:www.partnersolution.it)",
+      "WebFetch(domain:support.claude.com)",
+      "WebFetch(domain:github.com)",
+      "WebFetch(domain:ticketing.colosseo.it)",
+      "Bash(npm run test:browser:*)",
+      "Bash(npm run book:arena:*)",
+      "Bash(open:*)",
+      "Bash(code:*)",
+      "WebFetch(domain:www.anthropic.com)",
+      "mcp__plugin_supabase_supabase__execute_sql",
+      "Bash(xargs cat:*)",
+      "mcp__plugin_supabase_supabase__list_projects",
+      "mcp__plugin_supabase_supabase__apply_migration",
+      "mcp__plugin_supabase_supabase__list_tables",
+      "Bash(source:*)"
     ],
     "deny": [],
     "ask": []

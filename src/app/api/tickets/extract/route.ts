@@ -83,6 +83,18 @@ SUPPORTED TICKET TYPES:
 - Catacombe: Look for "Catacombe" or "TU ITALIA SRL" or "enroma.com". This is a PER-PERSON voucher.
   Each booking entry has: Nome (name), Numero di persone (pax count like "2 adulti + 3 minori"), Data (date), Ora (time), Catacombe (location).
   IMPORTANT: Create a SEPARATE ticket for EACH person (adult or child), NOT one ticket per booking.
+- Basílica San Pietro: Look for "Basílica de San Pedro", "BASILICA DI SAN PIETRO", or "basilicasanpietro.va".
+  Booking code is "Código de reserva" starting with "TIE-" (e.g., "TIE-443881").
+  Purchase date is "Fecha de compra" in DD/MM/YYYY format.
+  Visit date is "Fecha:" in DD/MM/YYYY format.
+  Entry time is "hora de entrada".
+  Activity name is "Actividad" (e.g., "Basilica (2-31 pax)").
+  Visitors are listed as "Visitante 1", "Visitante 2", etc. with "Nombre" (name) and type ("adult", "child", etc.).
+  IMPORTANT - Guide detection: Look for "Visitante principal/GUÍA:" which shows the guide's name.
+  If Visitante 1's name matches the guide name, set their ticket_type to "guide" (NOT "adult").
+  Generate ticket_code as "BSP-{BOOKING}-{INDEX}" (e.g., "BSP-TIE-443881-1").
+  Use "Basílica San Pietro" as product_name.
+  Set price to 0 for all tickets (prices will be assigned by ticket_type_mappings).
 
 RULES:
 - For train tickets, passengers appear on BOTH outbound and return pages - extract each person ONLY ONCE
@@ -108,7 +120,7 @@ RESPOND WITH ONLY VALID JSON in this exact structure:
   "visit_date": "YYYY-MM-DD",
   "entry_time": "HH:MM",
   "product_name": "string",
-  "detected_type": "vatican|colosseum|pompei|italo|trenitalia|catacombe|unknown",
+  "detected_type": "vatican|colosseum|pompei|italo|trenitalia|catacombe|basilica|unknown",
   "tickets": [
     {
       "ticket_code": "string",

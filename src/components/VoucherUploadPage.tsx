@@ -3,7 +3,7 @@
 import { useState, useEffect, useCallback, useMemo } from 'react'
 import { supabase } from '@/lib/supabase'
 import { vouchersApi } from '@/lib/api-client'
-import { Upload, FileText, Check, AlertTriangle, X, ChevronDown, Search, Loader2, Plus } from 'lucide-react'
+import { Upload, FileText, Check, AlertTriangle, X, ChevronDown, Search, Loader2, Plus, FileEdit, Clock } from 'lucide-react'
 import { Button } from '@/components/ui/button'
 import { Label } from '@/components/ui/label'
 
@@ -85,7 +85,96 @@ interface ExtractedPDF {
   b2bPriceAdjustment?: number
 }
 
+interface TicketCategoryFull {
+  id: string
+  name: string
+  guide_requires_ticket?: boolean
+  skip_name_check?: boolean
+  name_deadline_days_b2c?: number | null
+  name_deadline_days_b2b?: number | null
+  short_code?: string | null
+  product_names?: string[] | null
+}
+
+interface ActivityInfo {
+  id: string
+  title: string
+}
+
+interface MultiDateAvailabilityStatus {
+  date: string
+  availabilityId: number | null
+  hasSlot: boolean
+}
+
 export default function VoucherUploadPage() {
+  // Upload mode: 'pdf' or 'manual'
+  const [uploadMode, setUploadMode] = useState<'pdf' | 'manual'>('pdf')
+
+  // Manual entry form state
+  const [manualFormData, setManualFormData] = useState({
+    categoryId: '',
+    visitDates: [] as string[],
+    entryTime: '',
+    productName: '',
+    ticketCount: 0,
+    notes: '',
+    voucherSource: 'b2b' as 'b2b' | 'b2c'
+  })
+
+  // Date selection mode
+  const [dateMode, setDateMode] = useState<'single' | 'multiple'>('single')
+  const [singleDate, setSingleDate] = useState('')
+  const [dateRange, setDateRange] = useState({ startDate: '', endDate: '' })
+  const [selectedDays, setSelectedDays] = useState<number[]>([1, 2, 3, 4, 5, 6, 0]) // 0=Sun, 1=Mon, etc.
+
+  // Day names for toggle buttons
+  const dayNames = [
+    { key: 1, label: 'M' },
+    { key: 2, label: 'T' },
+    { key: 3, label: 'W' },
+    { key: 4, label: 'T' },
+    { key: 5, label: 'F' },
+    { key: 6, label: 'S' },
+    { key: 0, label: 'S' }
+  ]
+
+  // Hour and minute options for entry time
+  const hourOptions = Array.from({ length: 11 }, (_, i) => (i + 8).toString().padStart(2, '0')) // 08 to 18
+  const minuteOptions = ['00', '15', '30', '45']
+  const [entryHour, setEntryHour] = useState('')
+  const [entryMinute, setEntryMinute] = useState('')
+
+  // Combine hour and minute into entry time
+  const combinedEntryTime = entryHour && entryMinute ? `${entryHour}:${entryMinute}` : ''
+
+  // Generate dates from range and selected days
+  const generateDatesFromRange = (start: string, end: string, days: number[]): string[] => {
+    if (!start || !end) return []
+    const dates: string[] = []
+    const startDate = new Date(start)
+    const endDate = new Date(end)
+
+    for (let d = new Date(startDate); d <= endDate; d.setDate(d.getDate() + 1)) {
+      if (days.includes(d.getDay())) {
+        dates.push(d.toISOString().split('T')[0])
+      }
+    }
+    return dates
+  }
+
+  // Calculate dates based on mode - memoized to prevent infinite loops
+  const calculatedDates = useMemo(() => {
+    return dateMode === 'single'
+      ? (singleDate ? [singleDate] : [])
+      : generateDatesFromRange(dateRange.startDate, dateRange.endDate, selectedDays)
+  }, [dateMode, singleDate, dateRange.startDate, dateRange.endDate, selectedDays])
+
+  // Stable string version of dates for useCallback dependencies
+  const calculatedDatesKey = useMemo(() => calculatedDates.join(','), [calculatedDates])
+  const [manualFile, setManualFile] = useState<File | null>(null)
+  const [categoriesWithDeadline, setCategoriesWithDeadline] = useState<TicketCategoryFull[]>([])
+
   // State - Multi-file support
   const [files, setFiles] = useState<File[]>([])
   const [extractedPDFs, setExtractedPDFs] = useState<ExtractedPDF[]>([])
@@ -108,6 +197,13 @@ export default function VoucherUploadPage() {
   const [activityBookings, setActivityBookings] = useState<ActivityBookingInfo[]>([])
   const [categoryGuideRequiresTicket, setCategoryGuideRequiresTicket] = useState(false)
   const [categorySkipNameCheck, setCategorySkipNameCheck] = useState(false)
+
+  // Multi-date tour linking state
+  const [multiDateActivities, setMultiDateActivities] = useState<ActivityInfo[]>([])
+  const [selectedMultiDateActivityId, setSelectedMultiDateActivityId] = useState<string>('')
+  const [selectedMultiDateTime, setSelectedMultiDateTime] = useState<string>('')
+  const [multiDateAvailabilityStatus, setMultiDateAvailabilityStatus] = useState<MultiDateAvailabilityStatus[]>([])
+  const [checkingAvailability, setCheckingAvailability] = useState(false)
 
   // Combined extracted data from all PDFs - memoized to prevent infinite loops
   const combinedExtractedData: ExtractedVoucher | null = useMemo(() => {
@@ -158,9 +254,10 @@ export default function VoucherUploadPage() {
   const fetchCategories = async () => {
     const { data } = await supabase
       .from('ticket_categories')
-      .select('id, name, guide_requires_ticket, skip_name_check')
+      .select('id, name, guide_requires_ticket, skip_name_check, name_deadline_days_b2c, name_deadline_days_b2b, short_code, product_names')
       .order('name')
     setCategories(data || [])
+    setCategoriesWithDeadline(data || [])
   }
 
   // Fetch availabilities when category and visit date are set
@@ -891,6 +988,333 @@ export default function VoucherUploadPage() {
     }
   }
 
+  // Calculate deadline date for manual placeholder vouchers
+  const calculateDeadline = (visitDate: string, deadlineDays: number): string => {
+    const date = new Date(visitDate)
+    date.setDate(date.getDate() - deadlineDays)
+    date.setHours(23, 59, 59, 999)
+    return date.toISOString()
+  }
+
+  // Get selected category for manual mode
+  const selectedManualCategory = categoriesWithDeadline.find(c => c.id === manualFormData.categoryId)
+  const manualDeadlineDays = manualFormData.voucherSource === 'b2b'
+    ? selectedManualCategory?.name_deadline_days_b2b
+    : selectedManualCategory?.name_deadline_days_b2c
+  // Show deadline for the earliest date
+  const earliestDate = calculatedDates.length > 0
+    ? [...calculatedDates].sort()[0]
+    : null
+  const manualDeadlineDate = earliestDate && manualDeadlineDays
+    ? calculateDeadline(earliestDate, manualDeadlineDays)
+    : null
+
+  // Get product names for selected category
+  const categoryProductNames = selectedManualCategory?.product_names || []
+
+  // Handle saving manual placeholder voucher(s)
+  const handleSaveManual = async () => {
+    if (!manualFormData.categoryId || calculatedDates.length === 0 || !combinedEntryTime || manualFormData.ticketCount <= 0) {
+      setError('Please fill in all required fields')
+      return
+    }
+
+    if (!manualFormData.productName) {
+      setError('Please select a product name')
+      return
+    }
+
+    setSaving(true)
+    setError(null)
+
+    try {
+      const category = categoriesWithDeadline.find(c => c.id === manualFormData.categoryId)
+      const shortCode = category?.short_code || 'MAN'
+
+      let createdCount = 0
+      const errors: string[] = []
+
+      // Create a voucher for each calculated date
+      for (const visitDate of calculatedDates) {
+        try {
+          const dateStr = visitDate.replace(/-/g, '')
+          const random = Math.random().toString(36).substring(2, 6).toUpperCase()
+          const bookingNumber = `MANUAL-${shortCode}-${dateStr}-${random}`
+
+          // Determine activity_availability_id based on mode
+          let activityAvailabilityId: number | null = null
+          let isTourUnlinked = false
+
+          if (dateMode === 'single') {
+            activityAvailabilityId = selectedAvailabilityId
+          } else if (dateMode === 'multiple' && selectedMultiDateActivityId && selectedMultiDateTime) {
+            // For multiple dates, check if this date has a matching slot
+            const dateStatus = multiDateAvailabilityStatus.find(s => s.date === visitDate)
+            if (dateStatus?.hasSlot && dateStatus.availabilityId) {
+              activityAvailabilityId = dateStatus.availabilityId
+            } else {
+              // No slot for this date - mark as unlinked
+              isTourUnlinked = true
+            }
+          }
+
+          const formData = new FormData()
+          if (manualFile) {
+            formData.append('file', manualFile)
+          }
+          formData.append('voucherData', JSON.stringify({
+            booking_number: bookingNumber,
+            booking_date: new Date().toISOString(),
+            category_id: manualFormData.categoryId,
+            visit_date: visitDate,
+            entry_time: combinedEntryTime,
+            product_name: manualFormData.productName,
+            activity_availability_id: activityAvailabilityId,
+            ticket_class: 'entrance',
+            // Placeholder-specific fields
+            manual_entry: true,
+            is_placeholder: true,
+            placeholder_ticket_count: manualFormData.ticketCount,
+            voucher_source: manualFormData.voucherSource,
+            notes: isTourUnlinked ? `[UNLINKED] Tour slot not found for this date. ${manualFormData.notes || ''}`.trim() : manualFormData.notes,
+            tickets: [] // No individual tickets for placeholder
+          }))
+
+          const result = await vouchersApi.create(formData)
+
+          if (result.error) {
+            errors.push(`${visitDate}: ${result.error}`)
+          } else {
+            createdCount++
+          }
+        } catch (err) {
+          errors.push(`${visitDate}: ${err instanceof Error ? err.message : 'Unknown error'}`)
+        }
+      }
+
+      if (createdCount > 0) {
+        setSuccess(true)
+        // Reset form
+        setManualFormData({
+          categoryId: '',
+          visitDates: [],
+          entryTime: '',
+          productName: '',
+          ticketCount: 0,
+          notes: '',
+          voucherSource: 'b2b'
+        })
+        setDateMode('single')
+        setSingleDate('')
+        setDateRange({ startDate: '', endDate: '' })
+        setSelectedDays([1, 2, 3, 4, 5, 6, 0])
+        setEntryHour('')
+        setEntryMinute('')
+        setManualFile(null)
+        setSelectedAvailabilityId(null)
+        // Reset multi-date tour selection
+        setSelectedMultiDateActivityId('')
+        setSelectedMultiDateTime('')
+        setMultiDateAvailabilityStatus([])
+      }
+
+      if (errors.length > 0) {
+        setError(`Created ${createdCount} vouchers. Errors: ${errors.join('; ')}`)
+      }
+    } catch (err) {
+      console.error('Save error:', err)
+      setError(err instanceof Error ? err.message : 'Failed to save placeholder vouchers')
+    } finally {
+      setSaving(false)
+    }
+  }
+
+  // Fetch availabilities for manual mode - only for single date mode
+  const fetchManualAvailabilities = useCallback(async () => {
+    // Only fetch availabilities for single date mode
+    if (dateMode !== 'single' || !singleDate || !manualFormData.categoryId) {
+      setAvailabilities([])
+      return
+    }
+
+    // Get activities mapped to this category
+    const { data: mappings } = await supabase
+      .from('product_activity_mappings')
+      .select('activity_id')
+      .eq('category_id', manualFormData.categoryId)
+
+    if (!mappings || mappings.length === 0) {
+      setAvailabilities([])
+      return
+    }
+
+    const activityIds = [...new Set(mappings.map(m => m.activity_id))]
+
+    // Get availabilities for those activities on the visit date
+    const { data } = await supabase
+      .from('activity_availability')
+      .select(`
+        id,
+        activity_id,
+        local_date,
+        local_time,
+        activities (title)
+      `)
+      .in('activity_id', activityIds)
+      .eq('local_date', singleDate)
+      .order('local_time')
+
+    // Transform data
+    const transformed: ActivityAvailability[] = (data || []).map(item => ({
+      id: item.id,
+      activity_id: item.activity_id,
+      local_date: item.local_date,
+      local_time: item.local_time,
+      activities: Array.isArray(item.activities) ? item.activities[0] : item.activities
+    }))
+
+    setAvailabilities(transformed)
+  }, [dateMode, singleDate, manualFormData.categoryId])
+
+  useEffect(() => {
+    if (uploadMode === 'manual') {
+      fetchManualAvailabilities()
+    }
+  }, [uploadMode, fetchManualAvailabilities])
+
+  // Fetch activities for multi-date mode
+  const fetchMultiDateActivities = useCallback(async () => {
+    if (dateMode !== 'multiple' || !manualFormData.categoryId) {
+      setMultiDateActivities([])
+      setSelectedMultiDateActivityId('')
+      setSelectedMultiDateTime('')
+      setMultiDateAvailabilityStatus([])
+      return
+    }
+
+    // Get activity IDs mapped to this category
+    const { data: mappings } = await supabase
+      .from('product_activity_mappings')
+      .select('activity_id')
+      .eq('category_id', manualFormData.categoryId)
+
+    if (!mappings || mappings.length === 0) {
+      setMultiDateActivities([])
+      return
+    }
+
+    // Get unique activity IDs
+    const activityIds = [...new Set(mappings.map(m => m.activity_id).filter(Boolean))]
+
+    if (activityIds.length === 0) {
+      setMultiDateActivities([])
+      return
+    }
+
+    // Fetch activity details
+    const { data: activities } = await supabase
+      .from('activities')
+      .select('activity_id, title')
+      .in('activity_id', activityIds)
+
+    if (activities && activities.length > 0) {
+      setMultiDateActivities(activities.map(a => ({ id: a.activity_id, title: a.title })))
+    } else {
+      setMultiDateActivities([])
+    }
+  }, [dateMode, manualFormData.categoryId])
+
+  useEffect(() => {
+    if (uploadMode === 'manual') {
+      fetchMultiDateActivities()
+    }
+  }, [uploadMode, fetchMultiDateActivities])
+
+  // Check availability for all selected dates when activity and time are selected
+  const checkMultiDateAvailability = useCallback(async () => {
+    const dates = calculatedDatesKey ? calculatedDatesKey.split(',').filter(Boolean) : []
+    if (!selectedMultiDateActivityId || !selectedMultiDateTime || dates.length === 0) {
+      setMultiDateAvailabilityStatus([])
+      return
+    }
+
+    setCheckingAvailability(true)
+    try {
+      // Fetch all availabilities for this activity and time across all dates
+      const { data: availabilities } = await supabase
+        .from('activity_availability')
+        .select('id, local_date, local_time')
+        .eq('activity_id', selectedMultiDateActivityId)
+        .eq('local_time', selectedMultiDateTime)
+        .in('local_date', dates)
+
+      // Create a map of date to availability_id
+      const availabilityMap = new Map<string, number>()
+      availabilities?.forEach(a => {
+        availabilityMap.set(a.local_date, a.id)
+      })
+
+      // Build status for each date
+      const status: MultiDateAvailabilityStatus[] = dates.map(date => ({
+        date,
+        availabilityId: availabilityMap.get(date) || null,
+        hasSlot: availabilityMap.has(date)
+      }))
+
+      setMultiDateAvailabilityStatus(status)
+    } finally {
+      setCheckingAvailability(false)
+    }
+  }, [selectedMultiDateActivityId, selectedMultiDateTime, calculatedDatesKey])
+
+  useEffect(() => {
+    if (dateMode === 'multiple' && selectedMultiDateActivityId && selectedMultiDateTime) {
+      checkMultiDateAvailability()
+    }
+  }, [dateMode, selectedMultiDateActivityId, selectedMultiDateTime, checkMultiDateAvailability])
+
+  // Get unique times available for the selected activity (fetched from any date in range)
+  const [availableTimesForActivity, setAvailableTimesForActivity] = useState<string[]>([])
+
+  const fetchAvailableTimesForActivity = useCallback(async () => {
+    const dates = calculatedDatesKey ? calculatedDatesKey.split(',').filter(Boolean) : []
+    if (!selectedMultiDateActivityId || dates.length === 0) {
+      setAvailableTimesForActivity([])
+      return
+    }
+
+    // Get all unique times for this activity across any dates
+    const { data } = await supabase
+      .from('activity_availability')
+      .select('local_time')
+      .eq('activity_id', selectedMultiDateActivityId)
+      .in('local_date', dates)
+
+    if (data) {
+      const uniqueTimes = [...new Set(data.map(d => d.local_time))].sort()
+      setAvailableTimesForActivity(uniqueTimes)
+    }
+  }, [selectedMultiDateActivityId, calculatedDatesKey])
+
+  useEffect(() => {
+    fetchAvailableTimesForActivity()
+  }, [fetchAvailableTimesForActivity])
+
+  // Reset multi-date tour selection when switching modes or changing category
+  useEffect(() => {
+    setSelectedMultiDateActivityId('')
+    setSelectedMultiDateTime('')
+    setMultiDateAvailabilityStatus([])
+  }, [dateMode, manualFormData.categoryId])
+
+  // Calculate multi-date availability stats
+  const multiDateStats = useMemo(() => {
+    const linkedCount = multiDateAvailabilityStatus.filter(s => s.hasSlot).length
+    const missingCount = multiDateAvailabilityStatus.filter(s => !s.hasSlot).length
+    const missingDates = multiDateAvailabilityStatus.filter(s => !s.hasSlot).map(s => s.date)
+    return { linkedCount, missingCount, missingDates, total: multiDateAvailabilityStatus.length }
+  }, [multiDateAvailabilityStatus])
+
   const warningCount = validationResults.filter(r => r.warnings.length > 0).length
   const filteredAvailabilities = availabilities.filter(a =>
     a.activities?.title?.toLowerCase().includes(searchAvailability.toLowerCase()) ||
@@ -909,13 +1333,45 @@ export default function VoucherUploadPage() {
         </p>
       </div>
 
+      {/* Upload Mode Toggle */}
+      <div className="flex gap-2 mb-6">
+        <button
+          onClick={() => setUploadMode('pdf')}
+          className={`flex items-center gap-2 px-4 py-2 rounded-lg border transition-colors ${
+            uploadMode === 'pdf'
+              ? 'bg-orange-100 border-orange-300 text-orange-700'
+              : 'bg-white border-gray-200 text-gray-600 hover:bg-gray-50'
+          }`}
+        >
+          <Upload className="w-4 h-4" />
+          Upload PDF
+        </button>
+        <button
+          onClick={() => setUploadMode('manual')}
+          className={`flex items-center gap-2 px-4 py-2 rounded-lg border transition-colors ${
+            uploadMode === 'manual'
+              ? 'bg-orange-100 border-orange-300 text-orange-700'
+              : 'bg-white border-gray-200 text-gray-600 hover:bg-gray-50'
+          }`}
+        >
+          <FileEdit className="w-4 h-4" />
+          Manual Entry (Placeholder)
+        </button>
+      </div>
+
       {/* Success Message */}
       {success && (
         <div className="bg-green-50 border border-green-200 rounded-lg p-4 mb-6 flex items-center gap-3">
           <Check className="w-5 h-5 text-green-600" />
           <div>
-            <p className="font-medium text-green-800">Voucher{extractedPDFs.length > 1 ? 's' : ''} saved successfully!</p>
-            <p className="text-sm text-green-600">The voucher{extractedPDFs.length > 1 ? 's' : ''} and tickets have been created.</p>
+            <p className="font-medium text-green-800">
+              {uploadMode === 'manual' ? 'Placeholder voucher' : `Voucher${extractedPDFs.length > 1 ? 's' : ''}`} saved successfully!
+            </p>
+            <p className="text-sm text-green-600">
+              {uploadMode === 'manual'
+                ? 'Remember to upload the final voucher with names before the deadline.'
+                : `The voucher${extractedPDFs.length > 1 ? 's' : ''} and tickets have been created.`}
+            </p>
           </div>
           <Button
             variant="outline"
@@ -935,7 +1391,425 @@ export default function VoucherUploadPage() {
         </div>
       )}
 
-      {!success && (
+      {/* MANUAL ENTRY MODE */}
+      {!success && uploadMode === 'manual' && (
+        <div className="space-y-6">
+          <div className="bg-white rounded-lg shadow border border-gray-200 p-6">
+            <h2 className="text-lg font-semibold mb-4 flex items-center gap-2">
+              <FileEdit className="w-5 h-5 text-orange-600" />
+              Create Placeholder Voucher
+            </h2>
+            <p className="text-sm text-gray-500 mb-4">
+              Create a placeholder voucher for tickets without names. You&apos;ll need to upload the final voucher with customer names before the deadline.
+            </p>
+
+            <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+              {/* Category */}
+              <div>
+                <Label className="text-sm font-medium mb-1">Ticket Category *</Label>
+                <select
+                  value={manualFormData.categoryId}
+                  onChange={(e) => {
+                    setManualFormData({...manualFormData, categoryId: e.target.value})
+                    setSelectedAvailabilityId(null)
+                  }}
+                  className="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-orange-500"
+                >
+                  <option value="">Select category...</option>
+                  {categoriesWithDeadline.map(cat => (
+                    <option key={cat.id} value={cat.id}>
+                      {cat.name}
+                    </option>
+                  ))}
+                </select>
+              </div>
+
+              {/* Voucher Source */}
+              <div>
+                <Label className="text-sm font-medium mb-1">Voucher Source *</Label>
+                <div className="flex gap-2">
+                  <button
+                    type="button"
+                    onClick={() => setManualFormData({...manualFormData, voucherSource: 'b2b'})}
+                    className={`flex-1 px-4 py-2 rounded-md border text-sm font-medium transition-colors ${
+                      manualFormData.voucherSource === 'b2b'
+                        ? 'bg-purple-100 border-purple-300 text-purple-700'
+                        : 'bg-white border-gray-300 text-gray-600 hover:bg-gray-50'
+                    }`}
+                  >
+                    B2B
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => setManualFormData({...manualFormData, voucherSource: 'b2c'})}
+                    className={`flex-1 px-4 py-2 rounded-md border text-sm font-medium transition-colors ${
+                      manualFormData.voucherSource === 'b2c'
+                        ? 'bg-green-100 border-green-300 text-green-700'
+                        : 'bg-white border-gray-300 text-gray-600 hover:bg-gray-50'
+                    }`}
+                  >
+                    B2C
+                  </button>
+                </div>
+              </div>
+
+              {/* Entry Time - Hour and Minute */}
+              <div>
+                <Label className="text-sm font-medium mb-1">Entry Time *</Label>
+                <div className="flex gap-2 items-center">
+                  <select
+                    value={entryHour}
+                    onChange={(e) => setEntryHour(e.target.value)}
+                    className="flex-1 px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-orange-500"
+                  >
+                    <option value="">Hour</option>
+                    {hourOptions.map(hour => (
+                      <option key={hour} value={hour}>{hour}</option>
+                    ))}
+                  </select>
+                  <span className="text-gray-500 font-medium">:</span>
+                  <select
+                    value={entryMinute}
+                    onChange={(e) => setEntryMinute(e.target.value)}
+                    className="flex-1 px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-orange-500"
+                  >
+                    <option value="">Min</option>
+                    {minuteOptions.map(min => (
+                      <option key={min} value={min}>{min}</option>
+                    ))}
+                  </select>
+                </div>
+              </div>
+
+              {/* Date Mode Selector */}
+              <div className="md:col-span-2">
+                <Label className="text-sm font-medium mb-1">Date Selection</Label>
+                <div className="flex gap-2 mb-3">
+                  <button
+                    type="button"
+                    onClick={() => setDateMode('single')}
+                    className={`flex-1 px-4 py-2 rounded-md border text-sm font-medium transition-colors ${
+                      dateMode === 'single'
+                        ? 'bg-orange-100 border-orange-300 text-orange-700'
+                        : 'bg-white border-gray-300 text-gray-600 hover:bg-gray-50'
+                    }`}
+                  >
+                    Single Date
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => setDateMode('multiple')}
+                    className={`flex-1 px-4 py-2 rounded-md border text-sm font-medium transition-colors ${
+                      dateMode === 'multiple'
+                        ? 'bg-orange-100 border-orange-300 text-orange-700'
+                        : 'bg-white border-gray-300 text-gray-600 hover:bg-gray-50'
+                    }`}
+                  >
+                    Multiple Dates
+                  </button>
+                </div>
+
+                {/* Single Date */}
+                {dateMode === 'single' && (
+                  <div>
+                    <Label className="text-sm font-medium mb-1">Visit Date *</Label>
+                    <input
+                      type="date"
+                      value={singleDate}
+                      onChange={(e) => setSingleDate(e.target.value)}
+                      className="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-orange-500"
+                    />
+                  </div>
+                )}
+
+                {/* Multiple Dates - Date Range */}
+                {dateMode === 'multiple' && (
+                  <div className="space-y-3">
+                    <div>
+                      <Label className="text-sm font-medium mb-1">Date Range *</Label>
+                      <div className="flex items-center gap-2">
+                        <span className="text-sm text-gray-500">From</span>
+                        <input
+                          type="date"
+                          value={dateRange.startDate}
+                          onChange={(e) => setDateRange({ ...dateRange, startDate: e.target.value })}
+                          className="flex-1 px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-orange-500"
+                        />
+                        <span className="text-sm text-gray-500">to</span>
+                        <input
+                          type="date"
+                          value={dateRange.endDate}
+                          onChange={(e) => setDateRange({ ...dateRange, endDate: e.target.value })}
+                          className="flex-1 px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-orange-500"
+                        />
+                      </div>
+                    </div>
+
+                    <div>
+                      <Label className="text-sm font-medium mb-2 block">Affected Days</Label>
+                      <p className="text-xs text-gray-500 mb-2">Select which days this applies to</p>
+                      <div className="flex gap-1">
+                        {dayNames.map((day, idx) => (
+                          <button
+                            key={idx}
+                            type="button"
+                            onClick={() => {
+                              if (selectedDays.includes(day.key)) {
+                                setSelectedDays(selectedDays.filter(d => d !== day.key))
+                              } else {
+                                setSelectedDays([...selectedDays, day.key])
+                              }
+                            }}
+                            className={`w-9 h-9 rounded-full text-sm font-medium transition-colors ${
+                              selectedDays.includes(day.key)
+                                ? 'bg-blue-600 text-white'
+                                : 'bg-gray-100 text-gray-600 hover:bg-gray-200'
+                            }`}
+                          >
+                            {day.label}
+                          </button>
+                        ))}
+                      </div>
+                    </div>
+
+                    {calculatedDates.length > 0 && (
+                      <div className="p-2 bg-blue-50 rounded-lg">
+                        <p className="text-sm text-blue-700">
+                          <span className="font-semibold">{calculatedDates.length}</span> dates selected
+                          {calculatedDates.length <= 5 && (
+                            <span className="ml-1 text-blue-600">
+                              ({calculatedDates.join(', ')})
+                            </span>
+                          )}
+                        </p>
+                      </div>
+                    )}
+                  </div>
+                )}
+              </div>
+
+              {/* Ticket Count */}
+              <div>
+                <Label className="text-sm font-medium mb-1">Total Tickets *</Label>
+                <input
+                  type="number"
+                  min={1}
+                  value={manualFormData.ticketCount || ''}
+                  onChange={(e) => setManualFormData({...manualFormData, ticketCount: parseInt(e.target.value) || 0})}
+                  placeholder="e.g., 25"
+                  className="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-orange-500"
+                />
+              </div>
+
+              {/* Product Name - Select from category */}
+              <div>
+                <Label className="text-sm font-medium mb-1">Product Name *</Label>
+                {categoryProductNames.length > 0 ? (
+                  <select
+                    value={manualFormData.productName}
+                    onChange={(e) => setManualFormData({...manualFormData, productName: e.target.value})}
+                    className="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-orange-500"
+                  >
+                    <option value="">Select product...</option>
+                    {categoryProductNames.map(product => (
+                      <option key={product} value={product}>{product}</option>
+                    ))}
+                  </select>
+                ) : (
+                  <input
+                    type="text"
+                    value={manualFormData.productName}
+                    onChange={(e) => setManualFormData({...manualFormData, productName: e.target.value})}
+                    placeholder="e.g., COLOSSEO-FORO ROMANO PALATINO 24H - B2B"
+                    className="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-orange-500"
+                  />
+                )}
+                {!manualFormData.categoryId && (
+                  <p className="text-xs text-gray-500 mt-1">Select a category first to see available products</p>
+                )}
+              </div>
+
+            </div>
+
+            {/* Tour Assignment (optional) - only for single date mode */}
+            {dateMode === 'single' && availabilities.length > 0 && singleDate && (
+              <div className="mt-4">
+                <Label className="text-sm font-medium mb-2 block">Link to Tour (optional)</Label>
+                <div className="space-y-2 max-h-80 overflow-y-auto border border-gray-200 rounded-lg p-2">
+                  <label
+                    className={`flex items-center gap-3 p-2 rounded cursor-pointer hover:bg-gray-50 ${
+                      selectedAvailabilityId === null ? 'bg-gray-50 border border-gray-200' : ''
+                    }`}
+                  >
+                    <input
+                      type="radio"
+                      name="availability"
+                      checked={selectedAvailabilityId === null}
+                      onChange={() => setSelectedAvailabilityId(null)}
+                      className="text-orange-600"
+                    />
+                    <div>
+                      <p className="text-sm text-gray-500">No tour assignment</p>
+                    </div>
+                  </label>
+                  {availabilities.map(avail => (
+                    <label
+                      key={avail.id}
+                      className={`flex items-center gap-3 p-2 rounded cursor-pointer hover:bg-gray-50 ${
+                        selectedAvailabilityId === avail.id ? 'bg-orange-50 border border-orange-200' : ''
+                      }`}
+                    >
+                      <input
+                        type="radio"
+                        name="availability"
+                        checked={selectedAvailabilityId === avail.id}
+                        onChange={() => setSelectedAvailabilityId(avail.id)}
+                        className="text-orange-600"
+                      />
+                      <div>
+                        <p className="font-medium text-sm">{avail.activities?.title || avail.activity_id}</p>
+                        <p className="text-xs text-gray-500">{avail.local_time}</p>
+                      </div>
+                    </label>
+                  ))}
+                </div>
+              </div>
+            )}
+
+            {/* Tour Assignment - Multiple dates mode */}
+            {dateMode === 'multiple' && multiDateActivities.length > 0 && calculatedDates.length > 0 && (
+              <div className="mt-4 p-4 border border-gray-200 rounded-lg">
+                <Label className="text-sm font-medium mb-3 block">Link to Tour (optional)</Label>
+
+                <div className="grid grid-cols-1 md:grid-cols-2 gap-4 mb-4">
+                  {/* Activity Select */}
+                  <div>
+                    <Label className="text-xs text-gray-500 mb-1 block">Tour/Activity</Label>
+                    <select
+                      value={selectedMultiDateActivityId}
+                      onChange={(e) => {
+                        setSelectedMultiDateActivityId(e.target.value)
+                        setSelectedMultiDateTime('')
+                        setMultiDateAvailabilityStatus([])
+                      }}
+                      className="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-orange-500"
+                    >
+                      <option value="">No tour assignment</option>
+                      {multiDateActivities.map(activity => (
+                        <option key={activity.id} value={activity.id}>{activity.title}</option>
+                      ))}
+                    </select>
+                  </div>
+
+                  {/* Time Select */}
+                  {selectedMultiDateActivityId && (
+                    <div>
+                      <Label className="text-xs text-gray-500 mb-1 block">Tour Start Time</Label>
+                      <select
+                        value={selectedMultiDateTime}
+                        onChange={(e) => setSelectedMultiDateTime(e.target.value)}
+                        className="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-orange-500"
+                      >
+                        <option value="">Select time...</option>
+                        {availableTimesForActivity.map(time => (
+                          <option key={time} value={time}>{time}</option>
+                        ))}
+                      </select>
+                    </div>
+                  )}
+                </div>
+
+                {/* Status indicator */}
+                {checkingAvailability && (
+                  <div className="flex items-center gap-2 text-gray-500">
+                    <Loader2 className="w-4 h-4 animate-spin" />
+                    <span className="text-sm">Checking availability...</span>
+                  </div>
+                )}
+
+                {!checkingAvailability && selectedMultiDateActivityId && selectedMultiDateTime && multiDateAvailabilityStatus.length > 0 && (
+                  <div className="space-y-2">
+                    {/* All dates have slots */}
+                    {multiDateStats.missingCount === 0 && (
+                      <div className="flex items-center gap-2 p-3 bg-green-50 border border-green-200 rounded-lg">
+                        <Check className="w-5 h-5 text-green-600" />
+                        <span className="text-sm text-green-800 font-medium">
+                          All {multiDateStats.total} dates have matching tour slots
+                        </span>
+                      </div>
+                    )}
+
+                    {/* Some dates missing */}
+                    {multiDateStats.missingCount > 0 && (
+                      <div className="p-3 bg-amber-50 border border-amber-200 rounded-lg">
+                        <div className="flex items-center gap-2">
+                          <AlertTriangle className="w-5 h-5 text-amber-600" />
+                          <span className="text-sm text-amber-800 font-medium">
+                            {multiDateStats.linkedCount} of {multiDateStats.total} dates have matching tour slots
+                          </span>
+                        </div>
+                        <p className="text-xs text-amber-600 mt-2">
+                          Missing slots for: {multiDateStats.missingDates.map(d =>
+                            new Date(d).toLocaleDateString('it-IT', { weekday: 'short', month: 'short', day: 'numeric' })
+                          ).join(', ')}
+                        </p>
+                        <p className="text-xs text-amber-700 mt-1">
+                          Vouchers for missing dates will be created without tour link and marked with an alert.
+                        </p>
+                      </div>
+                    )}
+                  </div>
+                )}
+              </div>
+            )}
+
+            {/* Deadline Warning */}
+            {manualDeadlineDate && calculatedDates.length > 0 && (
+              <div className="mt-4 p-4 bg-amber-50 border border-amber-200 rounded-lg">
+                <div className="flex items-center gap-2 text-amber-800">
+                  <Clock className="w-5 h-5" />
+                  <span className="font-medium">
+                    {calculatedDates.length > 1 ? 'Earliest Deadline:' : 'Deadline:'}
+                  </span>
+                  <span>{new Date(manualDeadlineDate).toLocaleDateString('it-IT', {
+                    weekday: 'long',
+                    year: 'numeric',
+                    month: 'long',
+                    day: 'numeric',
+                    hour: '2-digit',
+                    minute: '2-digit'
+                  })}</span>
+                </div>
+                <p className="text-sm text-amber-600 mt-1">
+                  {calculatedDates.length > 1
+                    ? `Each voucher will have its own deadline based on its visit date. This shows the earliest one (for ${earliestDate}).`
+                    : 'Final voucher with customer names must be uploaded before this date.'}
+                </p>
+              </div>
+            )}
+
+            {/* Save Button */}
+            <div className="mt-6 flex justify-end">
+              <Button
+                onClick={handleSaveManual}
+                disabled={saving || !manualFormData.categoryId || calculatedDates.length === 0 || !combinedEntryTime || manualFormData.ticketCount <= 0 || !manualFormData.productName}
+              >
+                {saving ? (
+                  <>
+                    <Loader2 className="w-4 h-4 mr-2 animate-spin" />
+                    Creating {calculatedDates.length} voucher{calculatedDates.length !== 1 ? 's' : ''}...
+                  </>
+                ) : (
+                  `Create ${calculatedDates.length || ''} Placeholder Voucher${calculatedDates.length !== 1 ? 's' : ''}`
+                )}
+              </Button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* PDF UPLOAD MODE */}
+      {!success && uploadMode === 'pdf' && (
         <div className="space-y-6">
           {/* Step 1: Upload PDFs */}
           <div className="bg-white rounded-lg shadow border border-gray-200 p-6">

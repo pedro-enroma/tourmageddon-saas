@@ -3,7 +3,7 @@
 import { useState, useEffect } from 'react'
 import { supabase } from '@/lib/supabase'
 import { ticketCategoriesApi, partnersApi, Partner } from '@/lib/api-client'
-import { Plus, Edit, Trash2, Search, X, Tag, UserCheck, UserX, Hash, Landmark, Train, Handshake } from 'lucide-react'
+import { Plus, Edit, Trash2, Search, X, Tag, UserCheck, UserX, Hash, Landmark, Train, Handshake, Clock } from 'lucide-react'
 import { Button } from '@/components/ui/button'
 import { Label } from '@/components/ui/label'
 
@@ -20,6 +20,10 @@ interface TicketCategory {
   b2b_indicator_text: string | null
   b2b_price_adjustment: number | null
   partner_id: string | null
+  short_code: string | null
+  display_order: number | null
+  name_deadline_days_b2c: number | null
+  name_deadline_days_b2b: number | null
   created_at: string
   updated_at: string
 }
@@ -57,7 +61,11 @@ export default function TicketCategoriesPage() {
     default_source: 'auto' as 'b2c' | 'b2b' | 'auto',
     b2b_indicator_text: '',
     b2b_price_adjustment: 0,
-    partner_id: ''
+    partner_id: '',
+    short_code: '',
+    display_order: 999,
+    name_deadline_days_b2c: null as number | null,
+    name_deadline_days_b2b: null as number | null
   })
   const [newProductName, setNewProductName] = useState('')
 
@@ -84,6 +92,7 @@ export default function TicketCategoriesPage() {
       const { data, error } = await supabase
         .from('ticket_categories')
         .select('*')
+        .order('display_order', { ascending: true })
         .order('name', { ascending: true })
 
       if (error) throw error
@@ -110,7 +119,11 @@ export default function TicketCategoriesPage() {
         default_source: category.default_source || 'auto',
         b2b_indicator_text: category.b2b_indicator_text || '',
         b2b_price_adjustment: category.b2b_price_adjustment || 0,
-        partner_id: category.partner_id || ''
+        partner_id: category.partner_id || '',
+        short_code: category.short_code || '',
+        display_order: category.display_order ?? 999,
+        name_deadline_days_b2c: category.name_deadline_days_b2c ?? null,
+        name_deadline_days_b2b: category.name_deadline_days_b2b ?? null
       })
     } else {
       setEditingCategory(null)
@@ -125,7 +138,11 @@ export default function TicketCategoriesPage() {
         default_source: 'auto',
         b2b_indicator_text: '',
         b2b_price_adjustment: 0,
-        partner_id: ''
+        partner_id: '',
+        short_code: '',
+        display_order: 999,
+        name_deadline_days_b2c: null,
+        name_deadline_days_b2b: null
       })
     }
     setNewProductName('')
@@ -175,7 +192,11 @@ export default function TicketCategoriesPage() {
           default_source: formData.default_source,
           b2b_indicator_text: formData.b2b_indicator_text || undefined,
           b2b_price_adjustment: formData.b2b_price_adjustment || undefined,
-          partner_id: formData.partner_id || undefined
+          partner_id: formData.partner_id || undefined,
+          short_code: formData.short_code || undefined,
+          display_order: formData.display_order,
+          name_deadline_days_b2c: formData.name_deadline_days_b2c,
+          name_deadline_days_b2b: formData.name_deadline_days_b2b
         })
 
         if (result.error) throw new Error(result.error)
@@ -192,7 +213,11 @@ export default function TicketCategoriesPage() {
           default_source: formData.default_source,
           b2b_indicator_text: formData.b2b_indicator_text || undefined,
           b2b_price_adjustment: formData.b2b_price_adjustment || undefined,
-          partner_id: formData.partner_id || undefined
+          partner_id: formData.partner_id || undefined,
+          short_code: formData.short_code || undefined,
+          display_order: formData.display_order,
+          name_deadline_days_b2c: formData.name_deadline_days_b2c,
+          name_deadline_days_b2b: formData.name_deadline_days_b2b
         })
 
         if (result.error) throw new Error(result.error)
@@ -288,7 +313,17 @@ export default function TicketCategoriesPage() {
                       <Icon className={`w-5 h-5 ${iconColor}`} />
                     </div>
                     <div>
-                      <h3 className="font-semibold text-gray-900">{category.name}</h3>
+                      <div className="flex items-center gap-2">
+                        <h3 className="font-semibold text-gray-900">{category.name}</h3>
+                        {category.short_code && (
+                          <span className="text-xs bg-gray-200 text-gray-700 px-1.5 py-0.5 rounded font-mono">
+                            {category.short_code}
+                          </span>
+                        )}
+                        {category.display_order && category.display_order < 999 && (
+                          <span className="text-xs text-gray-400">#{category.display_order}</span>
+                        )}
+                      </div>
                       <p className="text-sm text-gray-500 mt-1">
                         {category.description || 'No description'}
                       </p>
@@ -333,6 +368,16 @@ export default function TicketCategoriesPage() {
                     <span className="inline-flex items-center gap-1 text-xs bg-teal-100 text-teal-700 px-2 py-0.5 rounded-full">
                       <Handshake className="w-3 h-3" />
                       {partners.find(p => p.partner_id === category.partner_id)?.name || 'Partner'}
+                    </span>
+                  )}
+                  {(category.name_deadline_days_b2c || category.name_deadline_days_b2b) && (
+                    <span className="inline-flex items-center gap-1 text-xs bg-red-100 text-red-700 px-2 py-0.5 rounded-full">
+                      <Clock className="w-3 h-3" />
+                      {category.name_deadline_days_b2c && category.name_deadline_days_b2b
+                        ? `B2C:${category.name_deadline_days_b2c}d / B2B:${category.name_deadline_days_b2b}d`
+                        : category.name_deadline_days_b2c
+                        ? `B2C:${category.name_deadline_days_b2c}d`
+                        : `B2B:${category.name_deadline_days_b2b}d`}
                     </span>
                   )}
                 </div>
@@ -389,6 +434,33 @@ export default function TicketCategoriesPage() {
                   placeholder="e.g., Colosseo 24H"
                   className="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500"
                 />
+              </div>
+
+              <div className="grid grid-cols-2 gap-4 mb-4">
+                <div>
+                  <Label className="text-sm font-medium mb-1">Short Code</Label>
+                  <input
+                    type="text"
+                    maxLength={10}
+                    value={formData.short_code}
+                    onChange={(e) => setFormData({...formData, short_code: e.target.value.toUpperCase()})}
+                    placeholder="e.g., VAT"
+                    className="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500 uppercase"
+                  />
+                  <p className="text-xs text-gray-500 mt-1">Used in column headers (max 10 chars)</p>
+                </div>
+                <div>
+                  <Label className="text-sm font-medium mb-1">Display Order</Label>
+                  <input
+                    type="number"
+                    min={1}
+                    value={formData.display_order}
+                    onChange={(e) => setFormData({...formData, display_order: parseInt(e.target.value) || 999})}
+                    placeholder="999"
+                    className="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500"
+                  />
+                  <p className="text-xs text-gray-500 mt-1">Lower = first in SuperSantos</p>
+                </div>
               </div>
 
               <div className="mb-4">
@@ -453,6 +525,49 @@ export default function TicketCategoriesPage() {
                 <p className="text-xs text-gray-500 mt-1">
                   Link a partner to enable voucher requests from SuperSantos page
                 </p>
+              </div>
+
+              {/* Deadlines for placeholder vouchers */}
+              <div className="mb-4 p-4 bg-red-50 rounded-lg border border-red-200">
+                <h3 className="text-sm font-semibold text-red-800 mb-3 flex items-center gap-2">
+                  <Clock className="w-4 h-4" />
+                  Deadlines (for placeholder vouchers)
+                </h3>
+                <p className="text-xs text-red-600 mb-3">
+                  Days before visit when final names must be submitted. Leave empty if no deadline required.
+                </p>
+                <div className="grid grid-cols-2 gap-4">
+                  <div>
+                    <Label className="text-sm font-medium mb-1 text-red-700">B2C Deadline (days)</Label>
+                    <input
+                      type="number"
+                      min={0}
+                      value={formData.name_deadline_days_b2c ?? ''}
+                      onChange={(e) => setFormData({
+                        ...formData,
+                        name_deadline_days_b2c: e.target.value ? parseInt(e.target.value) : null
+                      })}
+                      placeholder="e.g., 3"
+                      className="w-full px-3 py-2 border border-red-300 rounded-md focus:outline-none focus:ring-2 focus:ring-red-500"
+                    />
+                    <p className="text-xs text-red-500 mt-1">For B2C vouchers</p>
+                  </div>
+                  <div>
+                    <Label className="text-sm font-medium mb-1 text-red-700">B2B Deadline (days)</Label>
+                    <input
+                      type="number"
+                      min={0}
+                      value={formData.name_deadline_days_b2b ?? ''}
+                      onChange={(e) => setFormData({
+                        ...formData,
+                        name_deadline_days_b2b: e.target.value ? parseInt(e.target.value) : null
+                      })}
+                      placeholder="e.g., 5"
+                      className="w-full px-3 py-2 border border-red-300 rounded-md focus:outline-none focus:ring-2 focus:ring-red-500"
+                    />
+                    <p className="text-xs text-red-500 mt-1">For B2B vouchers</p>
+                  </div>
+                </div>
               </div>
 
               {/* Guide requires ticket toggle */}

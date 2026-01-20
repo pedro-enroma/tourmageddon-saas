@@ -1,8 +1,9 @@
 // src/components/NewRecapPage.tsx
 'use client'
 import React, { useState, useEffect, useCallback } from 'react'
-import { ChevronDown, ChevronRight, ChevronLeft, RefreshCw, Download, Search, ExternalLink, X } from 'lucide-react'
+import { ChevronDown, ChevronRight, ChevronLeft, RefreshCw, Download, Search, ExternalLink, X, MessageSquare, Trash2 } from 'lucide-react'
 import { supabase } from '@/lib/supabase'
+import NotesDrawer from '@/components/NotesDrawer'
 import { Switch } from "@/components/ui/switch"
 import { useRealtimeRefresh } from '@/hooks/use-realtime-refresh'
 import {
@@ -72,12 +73,84 @@ interface ActivityPartnerMapping {
 }
 
 // Helper function to check if an activity has a linked partner
-const getActivityPartnerMapping = (
+// eslint-disable-next-line @typescript-eslint/no-unused-vars
+const _getActivityPartnerMapping = (
   activityId: string,
   activityPartnerMappings: ActivityPartnerMapping[]
 ): ActivityPartnerMapping | null => {
   if (!activityPartnerMappings.length) return null
   return activityPartnerMappings.find(m => m.activity_id === activityId) || null
+}
+
+// Helper to group vouchers by category for display
+interface VoucherCategoryGroup {
+  categoryName: string
+  ticketCount: number
+  entryTime: string | null
+  // New: separate B2B and B2C counts
+  b2bCount: number
+  b2cCount: number
+  b2bEntryTime: string | null
+  b2cEntryTime: string | null
+}
+
+const groupVouchersByCategory = (vouchers: VoucherInfo[]): VoucherCategoryGroup[] => {
+  if (!vouchers || vouchers.length === 0) return []
+
+  const categoryMap = new Map<string, {
+    ticketCount: number
+    entryTime: string | null
+    b2bCount: number
+    b2cCount: number
+    b2bEntryTime: string | null
+    b2cEntryTime: string | null
+  }>()
+
+  vouchers.forEach(voucher => {
+    const categoryName = voucher.category_name || 'Sconosciuto'
+    const existing = categoryMap.get(categoryName)
+    // Use non_guide_tickets for counting (excludes guide tickets from diff calculation)
+    const ticketCount = voucher.non_guide_tickets ?? voucher.total_tickets ?? 0
+    const isB2B = voucher.voucher_source === 'b2b'
+
+    if (existing) {
+      existing.ticketCount += ticketCount
+      if (isB2B) {
+        existing.b2bCount += ticketCount
+        if (!existing.b2bEntryTime && voucher.entry_time) {
+          existing.b2bEntryTime = voucher.entry_time
+        }
+      } else {
+        existing.b2cCount += ticketCount
+        if (!existing.b2cEntryTime && voucher.entry_time) {
+          existing.b2cEntryTime = voucher.entry_time
+        }
+      }
+      // Keep the first entry_time found for this category (legacy)
+      if (!existing.entryTime && voucher.entry_time) {
+        existing.entryTime = voucher.entry_time
+      }
+    } else {
+      categoryMap.set(categoryName, {
+        ticketCount,
+        entryTime: voucher.entry_time || null,
+        b2bCount: isB2B ? ticketCount : 0,
+        b2cCount: isB2B ? 0 : ticketCount,
+        b2bEntryTime: isB2B ? (voucher.entry_time || null) : null,
+        b2cEntryTime: isB2B ? null : (voucher.entry_time || null)
+      })
+    }
+  })
+
+  return Array.from(categoryMap.entries()).map(([categoryName, data]) => ({
+    categoryName,
+    ticketCount: data.ticketCount,
+    entryTime: data.entryTime,
+    b2bCount: data.b2bCount,
+    b2cCount: data.b2cCount,
+    b2bEntryTime: data.b2bEntryTime,
+    b2cEntryTime: data.b2cEntryTime
+  }))
 }
 
 // Definizione dei tipi
@@ -184,6 +257,21 @@ interface SlotData {
   // Per raggruppamenti
   isDateGroup?: boolean
   slots?: SlotData[]
+  // Planned availability flag
+  isPlanned?: boolean
+  plannedId?: string
+}
+
+interface PlannedAvailability {
+  id: string
+  activity_id: string
+  local_date: string
+  local_time: string
+  status: 'pending' | 'matched'
+  matched_availability_id: number | null
+  notes: string | null
+  created_by: string | null
+  created_at: string
 }
 
 interface AvailableGuide {
@@ -211,11 +299,15 @@ interface VoucherInfo {
   id: string
   booking_number: string
   total_tickets: number
+  non_guide_tickets: number  // Tickets excluding guide tickets (for diff calculation)
   product_name: string | null
   category_name: string | null
   pdf_path: string | null
   entry_time?: string | null
   visit_date?: string | null
+  is_placeholder?: boolean
+  placeholder_ticket_count?: number | null
+  voucher_source?: 'b2b' | 'b2c' | null
 }
 
 interface VoucherDetail extends VoucherInfo {
@@ -288,6 +380,7 @@ export default function NewRecapPage() {
   const [loading, setLoading] = useState(false)
   const [expandedRows, setExpandedRows] = useState(new Set<string>())
   const [participantCategories, setParticipantCategories] = useState<string[]>([])
+  const [ticketCategories, setTicketCategories] = useState<{ name: string; short_code: string; display_order: number; guide_requires_ticket: boolean }[]>([])
   const [showOnlyWithBookings, setShowOnlyWithBookings] = useState(false)
 
   // Guide change dialog state
@@ -326,8 +419,61 @@ export default function NewRecapPage() {
   const [selectedSlotForRequest, setSelectedSlotForRequest] = useState<SlotData | null>(null)
   const [selectedCategoryForRequest, setSelectedCategoryForRequest] = useState<(TicketCategory & { partners?: Partner }) | null>(null)
   const [ticketCategoriesWithPartners, setTicketCategoriesWithPartners] = useState<(TicketCategory & { partners?: Partner })[]>([])
+  // eslint-disable-next-line @typescript-eslint/no-unused-vars
   const [activityPartnerMappings, setActivityPartnerMappings] = useState<ActivityPartnerMapping[]>([])
+  // eslint-disable-next-line @typescript-eslint/no-unused-vars
   const [voucherRequests, setVoucherRequests] = useState<Map<number, { count: number; totalPax: number; status: string }>>(new Map())
+
+  // Notes drawer state
+  interface OperationNote {
+    id: string
+    local_date: string | null
+    activity_availability_id: number | null
+    guide_id: string | null
+    escort_id: string | null
+    voucher_id: string | null
+    content: string
+    note_type: 'general' | 'urgent' | 'warning' | 'info'
+    created_by: string
+    created_by_email: string | null
+    created_at: string
+    replies: {
+      id: string
+      content: string
+      created_by: string
+      created_by_email: string | null
+      created_at: string
+    }[]
+  }
+
+  interface NoteContext {
+    type: 'date' | 'slot' | 'guide' | 'escort' | 'voucher'
+    id?: string | number
+    label: string
+    local_date?: string
+    activity_availability_id?: number
+    guide_id?: string
+    escort_id?: string
+    voucher_id?: string
+    slotData?: SlotData  // For passing slot-specific entities
+  }
+
+  const [notesDrawerOpen, setNotesDrawerOpen] = useState(false)
+  const [notesContext, setNotesContext] = useState<NoteContext | null>(null)
+  const [notes, setNotes] = useState<OperationNote[]>([])
+  const [loadingNotes, setLoadingNotes] = useState(false)
+  const [notesCountByDate, setNotesCountByDate] = useState<Map<string, number>>(new Map())
+  const [notesCountByGuide, setNotesCountByGuide] = useState<Map<string, number>>(new Map())
+  const [notesCountByEscort, setNotesCountByEscort] = useState<Map<string, number>>(new Map())
+  const [notesCountBySlot, setNotesCountBySlot] = useState<Map<number, number>>(new Map())
+  const [notesCountByVoucher, setNotesCountByVoucher] = useState<Map<string, number>>(new Map())
+
+  // Planned availability state
+  const [, setPlannedAvailabilities] = useState<PlannedAvailability[]>([])
+  const [showAddPlannedDialog, setShowAddPlannedDialog] = useState(false)
+  const [addPlannedDate, setAddPlannedDate] = useState('')
+  const [addPlannedTime, setAddPlannedTime] = useState('')
+  const [creatingPlanned, setCreatingPlanned] = useState(false)
 
   // Filtered tours for search
   const filteredTours = tours.filter(tour =>
@@ -416,12 +562,13 @@ export default function NewRecapPage() {
       activities: Array.isArray(avail.activities) ? avail.activities[0] : avail.activities
     })) as Availability[]
 
-    // Query per le assegnazioni delle guide con nomi
+    // Query per le assegnazioni delle guide con nomi (includes planned_availability_id)
     const { data: guideAssignments } = await supabase
       .from('guide_assignments')
       .select(`
         assignment_id,
         activity_availability_id,
+        planned_availability_id,
         guide_id,
         guide:guides (
           guide_id,
@@ -431,24 +578,48 @@ export default function NewRecapPage() {
       `)
 
     // Crea mappe per contare e memorizzare i nomi delle guide per activity_availability_id
+    // Also create separate maps for planned_availability_id
     const guideCountMap = new Map<string, number>()
     const guideNamesMap = new Map<string, string[]>()
     const guideDataMap = new Map<string, GuideInfo[]>()
+    // Maps for planned availabilities (using "planned_" prefix)
+    const plannedGuideCountMap = new Map<string, number>()
+    const plannedGuideNamesMap = new Map<string, string[]>()
+    const plannedGuideDataMap = new Map<string, GuideInfo[]>()
 
     guideAssignments?.forEach((assignment) => {
-      const availId = String(assignment.activity_availability_id)
-      guideCountMap.set(availId, (guideCountMap.get(availId) || 0) + 1)
-
       // Supabase returns guide as an array
       const guide = Array.isArray(assignment.guide) ? assignment.guide[0] : assignment.guide
-      if (guide) {
-        const guideName = `${guide.first_name} ${guide.last_name}`
-        const existingNames = guideNamesMap.get(availId) || []
-        guideNamesMap.set(availId, [...existingNames, guideName])
+      const guideName = guide ? `${guide.first_name} ${guide.last_name}` : null
 
-        // Store guide data with ID
-        const existingData = guideDataMap.get(availId) || []
-        guideDataMap.set(availId, [...existingData, { id: assignment.guide_id, name: guideName }])
+      // Handle real availability assignments
+      if (assignment.activity_availability_id) {
+        const availId = String(assignment.activity_availability_id)
+        guideCountMap.set(availId, (guideCountMap.get(availId) || 0) + 1)
+
+        if (guide && guideName) {
+          const existingNames = guideNamesMap.get(availId) || []
+          guideNamesMap.set(availId, [...existingNames, guideName])
+
+          // Store guide data with ID
+          const existingData = guideDataMap.get(availId) || []
+          guideDataMap.set(availId, [...existingData, { id: assignment.guide_id, name: guideName }])
+        }
+      }
+
+      // Handle planned availability assignments
+      if (assignment.planned_availability_id) {
+        const plannedId = String(assignment.planned_availability_id)
+        plannedGuideCountMap.set(plannedId, (plannedGuideCountMap.get(plannedId) || 0) + 1)
+
+        if (guide && guideName) {
+          const existingNames = plannedGuideNamesMap.get(plannedId) || []
+          plannedGuideNamesMap.set(plannedId, [...existingNames, guideName])
+
+          // Store guide data with ID
+          const existingData = plannedGuideDataMap.get(plannedId) || []
+          plannedGuideDataMap.set(plannedId, [...existingData, { id: assignment.guide_id, name: guideName }])
+        }
       }
     })
 
@@ -463,12 +634,34 @@ export default function NewRecapPage() {
         product_name,
         pdf_path,
         entry_time,
+        is_placeholder,
+        placeholder_ticket_count,
+        voucher_source,
         ticket_categories (id, name),
         tickets (id, price, ticket_type, pax_count)
       `)
       .gte('visit_date', dateRange.start)
       .lte('visit_date', dateRange.end)
       .not('activity_availability_id', 'is', null)
+
+    // Fetch product_activity_mappings to get ticket_source for products
+    // This determines B2B vs B2C for non-placeholder (PDF-uploaded) vouchers
+    const productNames = [...new Set(vouchers?.map(v => v.product_name).filter(Boolean) || [])]
+    const { data: productMappings } = productNames.length > 0
+      ? await supabase
+          .from('product_activity_mappings')
+          .select('product_name, ticket_source')
+          .in('product_name', productNames)
+          .not('ticket_source', 'is', null)
+      : { data: [] }
+
+    // Create map of product_name to ticket_source
+    const productSourceMap = new Map<string, 'b2b' | 'b2c'>()
+    productMappings?.forEach(mapping => {
+      if (mapping.ticket_source) {
+        productSourceMap.set(mapping.product_name, mapping.ticket_source as 'b2b' | 'b2c')
+      }
+    })
 
     // Crea mappa per i voucher per activity_availability_id
     const ticketCountMap = new Map<string, number>()
@@ -478,29 +671,53 @@ export default function NewRecapPage() {
       if (voucher.activity_availability_id) {
         const availId = String(voucher.activity_availability_id)
 
-        // Count only non-guide tickets (exclude tickets with "guide" in ticket_type)
-        // For booking-level vouchers (like Catacombe), sum pax_count instead of counting records
-        const tickets = voucher.tickets as { id: string; price: number; ticket_type?: string; pax_count?: number }[] | undefined
-        const nonGuideTicketCount = tickets?.filter(t =>
-          !t.ticket_type?.toLowerCase().includes('guide')
-        ).reduce((sum, t) => sum + (t.pax_count || 1), 0) || 0
-        ticketCountMap.set(availId, (ticketCountMap.get(availId) || 0) + nonGuideTicketCount)
+        // For placeholder vouchers, use placeholder_ticket_count directly
+        // For regular vouchers, count non-guide tickets from tickets table
+        let nonGuideTicketCount = 0
+        let voucherTicketCost = 0
 
-        // Calculate voucher cost from tickets (still include all tickets for cost)
-        const voucherTicketCost = tickets?.reduce((sum, t) => sum + (t.price || 0), 0) || 0
+        if (voucher.is_placeholder && voucher.placeholder_ticket_count) {
+          // Placeholder vouchers: use the placeholder_ticket_count
+          nonGuideTicketCount = voucher.placeholder_ticket_count
+          voucherTicketCost = 0 // No cost info for placeholders
+        } else {
+          // Regular vouchers: count from tickets table
+          const tickets = voucher.tickets as { id: string; price: number; ticket_type?: string; pax_count?: number }[] | undefined
+          nonGuideTicketCount = tickets?.filter(t =>
+            !t.ticket_type?.toLowerCase().includes('guide')
+          ).reduce((sum, t) => sum + (t.pax_count || 1), 0) || 0
+          voucherTicketCost = tickets?.reduce((sum, t) => sum + (t.price || 0), 0) || 0
+        }
+
+        ticketCountMap.set(availId, (ticketCountMap.get(availId) || 0) + nonGuideTicketCount)
         voucherCostMap.set(availId, (voucherCostMap.get(availId) || 0) + voucherTicketCost)
+
+        // Determine voucher source:
+        // - For placeholder vouchers (manual entry): use explicitly set voucher_source
+        // - For non-placeholder vouchers (PDF uploads): use ticket_source from product_activity_mappings
+        let effectiveSource: 'b2b' | 'b2c' | null = voucher.voucher_source as 'b2b' | 'b2c' | null
+        if (!voucher.is_placeholder && voucher.product_name) {
+          const mappedSource = productSourceMap.get(voucher.product_name)
+          if (mappedSource) {
+            effectiveSource = mappedSource
+          }
+        }
 
         // Build voucher info
         const voucherInfo: VoucherInfo = {
           id: voucher.id,
           booking_number: voucher.booking_number,
           total_tickets: voucher.total_tickets,
+          non_guide_tickets: nonGuideTicketCount,  // Exclude guide tickets for diff
           product_name: voucher.product_name,
           category_name: Array.isArray(voucher.ticket_categories)
             ? (voucher.ticket_categories[0] as { id: string; name: string } | undefined)?.name || null
             : (voucher.ticket_categories as { id: string; name: string } | null)?.name || null,
           pdf_path: voucher.pdf_path,
-          entry_time: voucher.entry_time
+          entry_time: voucher.entry_time,
+          is_placeholder: voucher.is_placeholder || false,
+          placeholder_ticket_count: voucher.placeholder_ticket_count,
+          voucher_source: effectiveSource
         }
 
         const existingVouchers = voucherMap.get(availId) || []
@@ -882,7 +1099,156 @@ export default function NewRecapPage() {
     // Always group by date
     const finalData = groupDataByDate(filteredData)
 
+    // Fetch and merge planned availabilities
+    try {
+      const plannedRes = await fetch(
+        `/api/planned-availabilities?activityId=${selectedFilter}&startDate=${dateRange.start}&endDate=${dateRange.end}&status=pending`
+      )
+      if (plannedRes.ok) {
+        const { data: plannedData } = await plannedRes.json()
+        setPlannedAvailabilities(plannedData || [])
+
+        // Add planned slots to the data
+        if (plannedData && plannedData.length > 0) {
+          const tourTitle = tours.find(t => t.activity_id === selectedFilter)?.title || 'Unknown'
+
+          plannedData.forEach((planned: PlannedAvailability) => {
+            const normalizedTime = planned.local_time.substring(0, 5)
+
+            // Check if this slot already exists (shouldn't happen but safeguard)
+            const existingDateGroup = finalData.find(row => row.date === planned.local_date)
+
+            // Get guide data for this planned availability
+            const plannedIdStr = String(planned.id)
+            const plannedGuidesAssigned = plannedGuideCountMap.get(plannedIdStr) || 0
+            const plannedGuideNames = plannedGuideNamesMap.get(plannedIdStr) || []
+            const plannedGuideData = plannedGuideDataMap.get(plannedIdStr) || []
+
+            const plannedSlot: SlotData = {
+              id: `planned-${planned.id}`,
+              tourId: planned.activity_id,
+              tourTitle,
+              date: planned.local_date,
+              time: normalizedTime,
+              totalAmount: 0,
+              bookingCount: 0,
+              participants: {},
+              totalParticipants: 0,
+              availabilityLeft: 0,
+              status: 'PLANNED',
+              bookings: [],
+              guidesAssigned: plannedGuidesAssigned,
+              guideNames: plannedGuideNames,
+              guideData: plannedGuideData,
+              escortData: [],
+              ticketCount: 0,
+              vouchers: [],
+              lastReservation: null,
+              firstReservation: null,
+              guideCost: 0,
+              escortCost: 0,
+              headphoneCost: 0,
+              printingCost: 0,
+              voucherCost: 0,
+              totalCost: 0,
+              netProfit: 0,
+              isPlanned: true,
+              plannedId: planned.id
+            }
+
+            if (existingDateGroup) {
+              // Check if there's already a slot with this time
+              const existingSlot = existingDateGroup.slots?.find(
+                s => s.time === normalizedTime && !s.isPlanned
+              )
+              if (!existingSlot) {
+                // Add to existing date group's slots
+                existingDateGroup.slots = existingDateGroup.slots || []
+                existingDateGroup.slots.push(plannedSlot)
+                // Sort slots by time
+                existingDateGroup.slots.sort((a, b) => a.time.localeCompare(b.time))
+              }
+            } else {
+              // Create new date group for this planned slot
+              const newDateGroup: SlotData = {
+                id: planned.local_date,
+                tourId: planned.activity_id,
+                tourTitle,
+                date: planned.local_date,
+                time: '',
+                totalAmount: 0,
+                bookingCount: 0,
+                participants: {},
+                totalParticipants: 0,
+                availabilityLeft: 0,
+                status: '',
+                bookings: [],
+                lastReservation: null,
+                firstReservation: null,
+                guideCost: 0,
+                escortCost: 0,
+                headphoneCost: 0,
+                printingCost: 0,
+                voucherCost: 0,
+                totalCost: 0,
+                netProfit: 0,
+                isDateGroup: true,
+                slots: [plannedSlot]
+              }
+              finalData.push(newDateGroup)
+              // Sort by date
+              finalData.sort((a, b) => a.date.localeCompare(b.date))
+            }
+          })
+        }
+      }
+    } catch (err) {
+      console.error('Error fetching planned availabilities:', err)
+    }
+
     setData(finalData)
+
+    // Extract unique ticket categories from all vouchers
+    const allCategoryNames = new Set<string>()
+    finalData.forEach(row => {
+      row.vouchers?.forEach(v => {
+        if (v.category_name) allCategoryNames.add(v.category_name)
+      })
+      row.slots?.forEach(slot => {
+        slot.vouchers?.forEach(v => {
+          if (v.category_name) allCategoryNames.add(v.category_name)
+        })
+      })
+    })
+
+    // Fetch category details (short_code, display_order, guide_requires_ticket) from database
+    if (allCategoryNames.size > 0) {
+      const { data: categoryDetails } = await supabase
+        .from('ticket_categories')
+        .select('name, short_code, display_order, guide_requires_ticket')
+        .in('name', Array.from(allCategoryNames))
+
+      const categoryMap = new Map(
+        categoryDetails?.map(c => [c.name, {
+          short_code: c.short_code,
+          display_order: c.display_order,
+          guide_requires_ticket: c.guide_requires_ticket
+        }]) || []
+      )
+
+      // Build array with details, sorted by display_order
+      const categoriesWithDetails = Array.from(allCategoryNames).map(name => ({
+        name,
+        short_code: categoryMap.get(name)?.short_code || name.substring(0, 3).toUpperCase(),
+        display_order: categoryMap.get(name)?.display_order ?? 999,
+        guide_requires_ticket: categoryMap.get(name)?.guide_requires_ticket ?? false
+      })).sort((a, b) => a.display_order - b.display_order)
+
+      setTicketCategories(categoriesWithDetails)
+    } else {
+      setTicketCategories([])
+    }
+
     // Auto-expand all date groups
     const allIds = new Set(finalData.filter(row => row.isDateGroup).map(row => row.id))
     setExpandedRows(allIds)
@@ -1035,6 +1401,7 @@ export default function NewRecapPage() {
   }, [dateRange])
 
   // Handler to open voucher request dialog
+  // eslint-disable-next-line @typescript-eslint/no-unused-vars
   const handleOpenVoucherRequest = (slot: SlotData) => {
     // Find a matching ticket category with a partner linked
     // For now, we'll try to find one based on the activity title or just use the first available
@@ -1115,6 +1482,284 @@ export default function NewRecapPage() {
     enabled: !!selectedFilter && tours.length > 0,
     debounceMs: 1000,
   })
+
+  // Fetch notes count for date range - organized by context type
+  const fetchNotesCount = useCallback(async () => {
+    if (!dateRange.start || !dateRange.end) return
+
+    try {
+      const res = await fetch(`/api/operation-notes?startDate=${dateRange.start}&endDate=${dateRange.end}`)
+      if (res.ok) {
+        const { data } = await res.json()
+
+        // Count notes by different contexts
+        const dateMap = new Map<string, number>()
+        const guideMap = new Map<string, number>()
+        const escortMap = new Map<string, number>()
+        const slotMap = new Map<number, number>()
+        const voucherMap = new Map<string, number>()
+
+        data?.forEach((note: OperationNote) => {
+          // Count ALL notes for a date (regardless of what entity they're linked to)
+          if (note.local_date) {
+            dateMap.set(note.local_date, (dateMap.get(note.local_date) || 0) + 1)
+          }
+          // Guide-specific notes
+          if (note.guide_id) {
+            guideMap.set(note.guide_id, (guideMap.get(note.guide_id) || 0) + 1)
+          }
+          // Escort-specific notes
+          if (note.escort_id) {
+            escortMap.set(note.escort_id, (escortMap.get(note.escort_id) || 0) + 1)
+          }
+          // Slot-specific notes
+          if (note.activity_availability_id) {
+            slotMap.set(note.activity_availability_id, (slotMap.get(note.activity_availability_id) || 0) + 1)
+          }
+          // Voucher-specific notes
+          if (note.voucher_id) {
+            voucherMap.set(note.voucher_id, (voucherMap.get(note.voucher_id) || 0) + 1)
+          }
+        })
+
+        setNotesCountByDate(dateMap)
+        setNotesCountByGuide(guideMap)
+        setNotesCountByEscort(escortMap)
+        setNotesCountBySlot(slotMap)
+        setNotesCountByVoucher(voucherMap)
+      }
+    } catch (err) {
+      console.error('Error fetching notes count:', err)
+    }
+  }, [dateRange.start, dateRange.end])
+
+  // Fetch notes for specific context
+  const fetchNotesForContext = useCallback(async (context: NoteContext) => {
+    setLoadingNotes(true)
+    try {
+      const params = new URLSearchParams()
+
+      // For slot context with slotData, fetch all notes for the date and filter locally
+      if (context.type === 'slot' && context.slotData && context.local_date) {
+        params.set('localDate', context.local_date)
+
+        const res = await fetch(`/api/operation-notes?${params.toString()}`)
+        if (res.ok) {
+          const { data } = await res.json()
+
+          // Filter to only notes related to this slot's entities
+          const slot = context.slotData
+          const slotGuideIds = new Set(slot.guideData?.map(g => g.id) || [])
+          const slotEscortIds = new Set(slot.escortData?.map(e => e.id) || [])
+          const slotVoucherIds = new Set(slot.vouchers?.map(v => v.id) || [])
+          const slotAvailabilityId = slot.availabilityId ? Number(slot.availabilityId) : null
+
+          const filteredNotes = (data || []).filter((note: OperationNote) => {
+            // Note is linked to this slot directly
+            if (slotAvailabilityId && note.activity_availability_id === slotAvailabilityId) return true
+            // Note is linked to a guide in this slot
+            if (note.guide_id && slotGuideIds.has(note.guide_id)) return true
+            // Note is linked to an escort in this slot
+            if (note.escort_id && slotEscortIds.has(note.escort_id)) return true
+            // Note is linked to a voucher in this slot
+            if (note.voucher_id && slotVoucherIds.has(note.voucher_id)) return true
+            return false
+          })
+
+          setNotes(filteredNotes)
+        }
+      } else {
+        // Standard fetch for other contexts
+        if (context.local_date) params.set('localDate', context.local_date)
+        if (context.activity_availability_id) params.set('activityAvailabilityId', String(context.activity_availability_id))
+        if (context.guide_id) params.set('guideId', context.guide_id)
+        if (context.escort_id) params.set('escortId', context.escort_id)
+        if (context.voucher_id) params.set('voucherId', context.voucher_id)
+
+        const res = await fetch(`/api/operation-notes?${params.toString()}`)
+        if (res.ok) {
+          const { data } = await res.json()
+          setNotes(data || [])
+        }
+      }
+    } catch (err) {
+      console.error('Error fetching notes:', err)
+    } finally {
+      setLoadingNotes(false)
+    }
+  }, [])
+
+  // Open notes drawer for a specific context
+  const openNotesDrawer = (context: NoteContext) => {
+    setNotesContext(context)
+    setNotesDrawerOpen(true)
+    fetchNotesForContext(context)
+  }
+
+  // Add a new note
+  const handleAddNote = async (content: string, noteType: string, linkTo?: { type: string; id?: string | number }) => {
+    if (!notesContext) return
+
+    const body: Record<string, unknown> = {
+      content,
+      note_type: noteType,
+    }
+
+    // Always include the local_date from context
+    if (notesContext.local_date) body.local_date = notesContext.local_date
+
+    // Use linkTo to determine what entity to link to (overrides context)
+    if (linkTo) {
+      if (linkTo.type === 'slot' && linkTo.id) {
+        body.activity_availability_id = Number(linkTo.id)
+      } else if (linkTo.type === 'guide' && linkTo.id) {
+        body.guide_id = linkTo.id
+      } else if (linkTo.type === 'escort' && linkTo.id) {
+        body.escort_id = linkTo.id
+      } else if (linkTo.type === 'voucher' && linkTo.id) {
+        body.voucher_id = linkTo.id
+      }
+      // 'date' type means no entity link, just date
+    } else {
+      // Fallback to context values if no linkTo provided
+      if (notesContext.activity_availability_id) body.activity_availability_id = notesContext.activity_availability_id
+      if (notesContext.guide_id) body.guide_id = notesContext.guide_id
+      if (notesContext.escort_id) body.escort_id = notesContext.escort_id
+      if (notesContext.voucher_id) body.voucher_id = notesContext.voucher_id
+    }
+
+    const res = await fetch('/api/operation-notes', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(body),
+    })
+
+    if (res.ok) {
+      fetchNotesForContext(notesContext)
+      fetchNotesCount()
+    }
+  }
+
+  // Add a reply to a note
+  const handleAddReply = async (noteId: string, content: string) => {
+    const res = await fetch('/api/operation-notes/replies', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ note_id: noteId, content }),
+    })
+
+    if (res.ok && notesContext) {
+      fetchNotesForContext(notesContext)
+    }
+  }
+
+  // Delete a note
+  const handleDeleteNote = async (noteId: string) => {
+    const res = await fetch(`/api/operation-notes?id=${noteId}`, {
+      method: 'DELETE',
+    })
+
+    if (res.ok && notesContext) {
+      fetchNotesForContext(notesContext)
+      fetchNotesCount()
+    }
+  }
+
+  // Delete a reply
+  const handleDeleteReply = async (replyId: string) => {
+    const res = await fetch(`/api/operation-notes/replies?id=${replyId}`, {
+      method: 'DELETE',
+    })
+
+    if (res.ok && notesContext) {
+      fetchNotesForContext(notesContext)
+    }
+  }
+
+  // Create a planned availability
+  const handleCreatePlannedAvailability = async () => {
+    if (!selectedFilter || !addPlannedDate || !addPlannedTime) return
+
+    setCreatingPlanned(true)
+    try {
+      const res = await fetch('/api/planned-availabilities', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          activity_id: selectedFilter,
+          local_date: addPlannedDate,
+          local_time: addPlannedTime + ':00', // Add seconds
+        }),
+      })
+
+      if (res.ok) {
+        setShowAddPlannedDialog(false)
+        setAddPlannedDate('')
+        setAddPlannedTime('')
+        // Reload data to show the new planned slot
+        loadData()
+      } else {
+        const error = await res.json()
+        alert(error.error || 'Failed to create planned availability')
+      }
+    } catch (err) {
+      console.error('Error creating planned availability:', err)
+      alert('Failed to create planned availability')
+    } finally {
+      setCreatingPlanned(false)
+    }
+  }
+
+  // Delete a planned availability
+  const handleDeletePlannedAvailability = async (plannedId: string) => {
+    if (!confirm('Are you sure you want to delete this planned slot?')) return
+
+    try {
+      const res = await fetch(`/api/planned-availabilities?id=${plannedId}`, {
+        method: 'DELETE',
+      })
+
+      if (res.ok) {
+        loadData()
+      } else {
+        alert('Failed to delete planned availability')
+      }
+    } catch (err) {
+      console.error('Error deleting planned availability:', err)
+    }
+  }
+
+  // Fetch notes count when date range changes
+  useEffect(() => {
+    fetchNotesCount()
+  }, [fetchNotesCount])
+
+  // Helper function to calculate total notes for a slot (including its entities)
+  const getSlotNotesCount = useCallback((slot: SlotData): number => {
+    let count = 0
+
+    // Notes linked directly to this slot
+    if (slot.availabilityId) {
+      count += notesCountBySlot.get(Number(slot.availabilityId)) || 0
+    }
+
+    // Notes linked to guides in this slot
+    slot.guideData?.forEach(guide => {
+      count += notesCountByGuide.get(guide.id) || 0
+    })
+
+    // Notes linked to escorts in this slot
+    slot.escortData?.forEach(escort => {
+      count += notesCountByEscort.get(escort.id) || 0
+    })
+
+    // Notes linked to vouchers in this slot
+    slot.vouchers?.forEach(voucher => {
+      count += notesCountByVoucher.get(voucher.id) || 0
+    })
+
+    return count
+  }, [notesCountBySlot, notesCountByGuide, notesCountByEscort, notesCountByVoucher])
 
   const loadTours = async () => {
     try {
@@ -1283,11 +1928,14 @@ export default function NewRecapPage() {
   }
 
   const handleGuideChange = async () => {
-    if (!selectedSlot?.availabilityId || !newGuideId) return
+    if (!newGuideId) return
 
-    const availabilityIdNum = Number(selectedSlot.availabilityId)
-    if (isNaN(availabilityIdNum)) {
-      console.error('Invalid availability ID')
+    // Check if it's a planned slot or a real availability
+    const isPlanned = selectedSlot?.isPlanned && selectedSlot?.plannedId
+    const hasRealAvailability = selectedSlot?.availabilityId
+
+    if (!isPlanned && !hasRealAvailability) {
+      console.error('No availability ID or planned ID')
       return
     }
 
@@ -1295,8 +1943,12 @@ export default function NewRecapPage() {
     try {
       // If there's an existing guide, delete the old assignment first
       if (selectedGuideToChange) {
+        const deleteParams = isPlanned
+          ? `planned_availability_id=${selectedSlot.plannedId}&guide_ids=${selectedGuideToChange.id}`
+          : `activity_availability_id=${selectedSlot.availabilityId}&guide_ids=${selectedGuideToChange.id}`
+
         const deleteRes = await fetch(
-          `/api/assignments/availability?activity_availability_id=${availabilityIdNum}&guide_ids=${selectedGuideToChange.id}`,
+          `/api/assignments/availability?${deleteParams}`,
           { method: 'DELETE' }
         )
 
@@ -1308,13 +1960,14 @@ export default function NewRecapPage() {
       }
 
       // Create new guide assignment
+      const createBody = isPlanned
+        ? { planned_availability_id: selectedSlot.plannedId, guide_ids: [newGuideId] }
+        : { activity_availability_id: Number(selectedSlot.availabilityId), guide_ids: [newGuideId] }
+
       const createRes = await fetch('/api/assignments/availability', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          activity_availability_id: availabilityIdNum,
-          guide_ids: [newGuideId]
-        })
+        body: JSON.stringify(createBody)
       })
 
       if (!createRes.ok) {
@@ -1334,18 +1987,24 @@ export default function NewRecapPage() {
   }
 
   const handleRemoveGuide = async () => {
-    if (!selectedSlot?.availabilityId || !selectedGuideToChange) return
+    if (!selectedGuideToChange) return
 
-    const availabilityIdNum = Number(selectedSlot.availabilityId)
-    if (isNaN(availabilityIdNum)) {
-      console.error('Invalid availability ID for removal')
+    const isPlanned = selectedSlot?.isPlanned && selectedSlot?.plannedId
+    const hasRealAvailability = selectedSlot?.availabilityId
+
+    if (!isPlanned && !hasRealAvailability) {
+      console.error('No availability ID or planned ID for removal')
       return
     }
 
     setChangingGuide(true)
     try {
+      const deleteParams = isPlanned
+        ? `planned_availability_id=${selectedSlot.plannedId}&guide_ids=${selectedGuideToChange.id}`
+        : `activity_availability_id=${selectedSlot.availabilityId}&guide_ids=${selectedGuideToChange.id}`
+
       const deleteRes = await fetch(
-        `/api/assignments/availability?activity_availability_id=${availabilityIdNum}&guide_ids=${selectedGuideToChange.id}`,
+        `/api/assignments/availability?${deleteParams}`,
         { method: 'DELETE' }
       )
 
@@ -1620,10 +2279,17 @@ export default function NewRecapPage() {
           ? data.activity_availability[0]
           : data.activity_availability
 
+        // Calculate non-guide ticket count
+        const tickets = data.tickets || []
+        const nonGuideTicketCount = tickets.filter((t: Ticket) =>
+          !t.ticket_type?.toLowerCase().includes('guide')
+        ).length
+
         const voucherDetail: VoucherDetail = {
           id: data.id,
           booking_number: data.booking_number,
           total_tickets: data.total_tickets,
+          non_guide_tickets: nonGuideTicketCount,
           product_name: data.product_name,
           category_name: Array.isArray(data.ticket_categories)
             ? (data.ticket_categories[0] as { id: string; name: string } | undefined)?.name || null
@@ -1631,7 +2297,7 @@ export default function NewRecapPage() {
           pdf_path: data.pdf_path,
           entry_time: data.entry_time,
           visit_date: data.visit_date,
-          tickets: data.tickets || [],
+          tickets,
           activity_availability: activityAvail ? {
             local_time: activityAvail.local_time,
             activities: Array.isArray(activityAvail.activities)
@@ -1946,6 +2612,17 @@ export default function NewRecapPage() {
         grouped[key].vouchers = [...(grouped[key].vouchers || []), ...row.vouchers]
       }
 
+      // Aggregate guide count (count unique guides across slots)
+      if (row.guideData && row.guideData.length > 0) {
+        const existingGuideIds = new Set(grouped[key].guideData?.map(g => g.id) || [])
+        row.guideData.forEach(guide => {
+          if (!existingGuideIds.has(guide.id)) {
+            grouped[key].guideData = [...(grouped[key].guideData || []), guide]
+          }
+        })
+        grouped[key].guidesAssigned = grouped[key].guideData?.length || 0
+      }
+
       // Aggregate costs
       grouped[key].guideCost += row.guideCost
       grouped[key].escortCost += row.escortCost
@@ -2226,6 +2903,7 @@ export default function NewRecapPage() {
             <thead className="bg-gray-100">
               <tr>
                 <th className="px-4 py-3 text-left">Data</th>
+                <th className="px-4 py-3 text-center w-16">Note</th>
                 <th className="px-4 py-3 text-right">Totale €</th>
                 <th className="px-4 py-3 text-center">Prenotazioni</th>
                 <th className="px-4 py-3 text-center">Pax</th>
@@ -2238,9 +2916,38 @@ export default function NewRecapPage() {
                 <th className="px-4 py-3 text-center">Stato</th>
                 <th className="px-4 py-3 text-center">Guide</th>
                 <th className="px-4 py-3 text-center">Escort</th>
-                <th className="px-4 py-3 text-center border-l-2 border-gray-300 bg-blue-50">Biglietti</th>
-                <th className="px-4 py-3 text-center bg-blue-50">Orario</th>
-                <th className="px-4 py-3 text-center bg-blue-50">Diff</th>
+                {ticketCategories.length > 0 ? (
+                  ticketCategories.map((cat, catIdx) => (
+                    <React.Fragment key={cat.name}>
+                      {/* B2B columns */}
+                      <th className={`px-4 py-3 text-center bg-purple-50 ${catIdx === 0 ? 'border-l-2 border-gray-300' : 'border-l border-purple-200'}`}>
+                        <span className="text-purple-700">{cat.short_code} B2B</span>
+                      </th>
+                      <th className="px-4 py-3 text-center bg-purple-50">
+                        <span className="text-purple-600 text-xs">Orario</span>
+                      </th>
+                      <th className="px-4 py-3 text-center bg-purple-50">
+                        <span className="text-purple-600 text-xs">Diff</span>
+                      </th>
+                      {/* B2C columns */}
+                      <th className="px-4 py-3 text-center bg-green-50 border-l border-green-200">
+                        <span className="text-green-700">{cat.short_code} B2C</span>
+                      </th>
+                      <th className="px-4 py-3 text-center bg-green-50">
+                        <span className="text-green-600 text-xs">Orario</span>
+                      </th>
+                      <th className="px-4 py-3 text-center bg-green-50">
+                        <span className="text-green-600 text-xs">Diff</span>
+                      </th>
+                    </React.Fragment>
+                  ))
+                ) : (
+                  <>
+                    <th className="px-4 py-3 text-center border-l-2 border-gray-300 bg-blue-50">Biglietti</th>
+                    <th className="px-4 py-3 text-center bg-blue-50">Orario</th>
+                    <th className="px-4 py-3 text-center bg-blue-50">Diff</th>
+                  </>
+                )}
               </tr>
             </thead>
             <tbody>
@@ -2270,9 +2977,43 @@ export default function NewRecapPage() {
                           {formatDate(row.date)}
                         </span>
                         {row.isDateGroup && (
-                          <span className="text-xs text-gray-500">({row.slots?.length || 0} slot)</span>
+                          <>
+                            <span className="text-xs text-gray-500">({row.slots?.length || 0} slot)</span>
+                            <button
+                              onClick={(e) => {
+                                e.stopPropagation()
+                                setAddPlannedDate(row.date)
+                                setAddPlannedTime('')
+                                setShowAddPlannedDialog(true)
+                              }}
+                              className="ml-2 w-5 h-5 flex items-center justify-center bg-blue-100 hover:bg-blue-200 text-blue-700 rounded text-xs font-bold transition-colors"
+                              title="Add planned slot"
+                            >
+                              +
+                            </button>
+                          </>
                         )}
                       </div>
+                    </td>
+                    {/* Notes cell */}
+                    <td className="px-4 py-3 text-center">
+                      <button
+                        onClick={() => openNotesDrawer({
+                          type: 'date',
+                          label: formatDate(row.date),
+                          local_date: row.date
+                        })}
+                        className={`inline-flex items-center justify-center gap-1 px-2 py-1 rounded-full text-xs transition-colors ${
+                          (notesCountByDate.get(row.date) || 0) > 0
+                            ? 'bg-amber-100 text-amber-700 hover:bg-amber-200'
+                            : 'bg-gray-100 text-gray-500 hover:bg-gray-200'
+                        }`}
+                      >
+                        <MessageSquare className="w-3 h-3" />
+                        {(notesCountByDate.get(row.date) || 0) > 0 && (
+                          <span>{notesCountByDate.get(row.date)}</span>
+                        )}
+                      </button>
                     </td>
                     <td className="px-4 py-3 text-right font-medium">
                       <HoverCard>
@@ -2404,159 +3145,176 @@ export default function NewRecapPage() {
                         )
                       })()}
                     </td>
-                    <td className="px-4 py-3 text-center border-l-2 border-gray-200">
-                      {row.vouchers && row.vouchers.length > 0 ? (
-                        row.ticketCount === row.totalParticipants ? (
-                          <button
-                            onClick={() => openVoucherDialog(row)}
-                            className="px-2 py-0.5 rounded text-sm font-medium cursor-pointer transition-colors bg-green-100 hover:bg-green-200 text-green-800"
-                          >
-                            {row.ticketCount || 0}
-                          </button>
-                        ) : (
-                          <HoverCard>
-                            <HoverCardTrigger asChild>
-                              <button
-                                onClick={() => openVoucherDialog(row)}
-                                className={`px-2 py-0.5 rounded text-sm font-medium cursor-pointer transition-colors ${
-                                  row.ticketCount! < row.totalParticipants
-                                    ? 'bg-orange-100 hover:bg-orange-200 text-orange-800'
-                                    : 'bg-red-100 hover:bg-red-200 text-red-800'
-                                }`}
-                              >
-                                {row.ticketCount || 0}
-                              </button>
-                            </HoverCardTrigger>
-                            <HoverCardContent className="w-48" side="left">
-                              <div className="text-sm">
-                                {row.ticketCount! < row.totalParticipants ? (
-                                  <>
-                                    <div className="font-medium text-orange-700">Biglietti mancanti</div>
-                                    <div className="text-gray-600 mt-1">
-                                      {row.ticketCount || 0} biglietti su {row.totalParticipants} partecipanti
-                                    </div>
-                                  </>
-                                ) : (
-                                  <>
-                                    <div className="font-medium text-red-700">Troppi biglietti</div>
-                                    <div className="text-gray-600 mt-1">
-                                      {row.ticketCount || 0} biglietti per {row.totalParticipants} partecipanti
-                                    </div>
-                                  </>
-                                )}
-                              </div>
-                            </HoverCardContent>
-                          </HoverCard>
-                        )
-                      ) : (
-                        <span className="font-medium text-gray-400">
-                          {row.ticketCount || 0}
-                        </span>
-                      )}
-                    </td>
-                    {/* Orario column */}
-                    <td className="px-4 py-3 text-center">
-                      {(() => {
-                        const uniqueTimes = [...new Set((row.vouchers || []).map(v => v.entry_time).filter(Boolean))]
-                        if (uniqueTimes.length === 0) {
-                          return <span className="text-gray-400">-</span>
-                        } else if (uniqueTimes.length === 1) {
-                          return <span className="text-sm">{uniqueTimes[0]?.substring(0, 5)}</span>
-                        } else {
-                          return (
-                            <HoverCard>
-                              <HoverCardTrigger asChild>
-                                <span className="px-2 py-0.5 rounded text-xs font-medium cursor-help bg-blue-100 text-blue-800">Vari</span>
-                              </HoverCardTrigger>
-                              <HoverCardContent className="w-32" side="left">
-                                <div className="text-sm">
-                                  <div className="font-medium text-blue-700 mb-1">Orari multipli</div>
-                                  {uniqueTimes.map((t, i) => (
-                                    <div key={i} className="text-gray-600">{t?.substring(0, 5)}</div>
-                                  ))}
-                                </div>
-                              </HoverCardContent>
-                            </HoverCard>
-                          )
-                        }
-                      })()}
-                    </td>
-                    {/* Diff column */}
-                    <td className="px-4 py-3 text-center">
-                      {(() => {
-                        const ticketCount = row.ticketCount || 0
-                        const diff = ticketCount - row.totalParticipants
-                        // Only show "-" if both tickets and participants are 0
-                        if (ticketCount === 0 && row.totalParticipants === 0) {
-                          return <span className="text-gray-400">-</span>
-                        }
-                        const colorClass = diff === 0
-                          ? 'bg-green-100 text-green-800'
-                          : diff < 0
-                            ? 'bg-red-100 text-red-800'
-                            : 'bg-orange-100 text-orange-800'
+                    {/* Dynamic columns for each ticket category - B2B and B2C */}
+                    {ticketCategories.length > 0 ? (
+                      ticketCategories.map((cat, catIdx) => {
+                        const categoryGroups = groupVouchersByCategory(row.vouchers || [])
+                        const group = categoryGroups.find(g => g.categoryName === cat.name)
+                        const b2bCount = group?.b2bCount || 0
+                        const b2cCount = group?.b2cCount || 0
+                        const b2bEntryTime = group?.b2bEntryTime
+                        const b2cEntryTime = group?.b2cEntryTime
+                        // Separate diffs for B2B and B2C
+                        const b2bDiff = b2bCount - (row.totalParticipants || 0)
+                        const b2cDiff = b2cCount - (row.totalParticipants || 0)
+                        const b2bDiffColorClass = b2bCount === 0
+                          ? 'text-gray-400'
+                          : b2bDiff === 0
+                            ? 'bg-green-100 text-green-800'
+                            : b2bDiff < 0
+                              ? 'bg-red-100 text-red-800'
+                              : 'bg-orange-100 text-orange-800'
+                        const b2cDiffColorClass = b2cCount === 0
+                          ? 'text-gray-400'
+                          : b2cDiff === 0
+                            ? 'bg-green-100 text-green-800'
+                            : b2cDiff < 0
+                              ? 'bg-red-100 text-red-800'
+                              : 'bg-orange-100 text-orange-800'
 
-                        // Check for existing voucher requests
-                        const availId = row.availabilityId ? Number(row.availabilityId) : null
-                        const existingRequest = availId ? voucherRequests.get(availId) : null
-                        const requestedPax = existingRequest?.totalPax || 0
-
-                        const partnerMapping = getActivityPartnerMapping(row.tourId, activityPartnerMappings)
-
-                        // If activity has partner mapping, wrap diff in HoverCard
-                        if (partnerMapping) {
-                          return (
-                            <HoverCard>
-                              <HoverCardTrigger asChild>
-                                <span className={`px-2 py-0.5 rounded text-sm font-medium cursor-pointer ${colorClass}`}>
-                                  {diff > 0 ? `+${diff}` : diff}
-                                </span>
-                              </HoverCardTrigger>
-                              <HoverCardContent className="w-56" side="left">
-                                <div className="space-y-2">
-                                  <div className="text-xs font-medium text-gray-500">
-                                    Partner: {partnerMapping.partners?.name || 'N/A'}
-                                  </div>
-                                  {existingRequest && (
-                                    <div className="text-sm">
-                                      <span className={existingRequest.status === 'fulfilled' ? 'text-green-700' : 'text-blue-700'}>
-                                        {existingRequest.count} richiesta/e per {requestedPax} pax
-                                        {existingRequest.status === 'fulfilled' ? ' (ricevuti)' : ' (richiesti)'}
-                                      </span>
-                                    </div>
-                                  )}
-                                  {diff < 0 && (
-                                    <button
-                                      onClick={(e) => {
-                                        e.stopPropagation()
-                                        handleOpenVoucherRequest(row)
-                                      }}
-                                      className="text-xs text-red-600 hover:text-red-800 transition-colors"
-                                    >
-                                      + Richiedi voucher
-                                    </button>
-                                  )}
-                                </div>
-                              </HoverCardContent>
-                            </HoverCard>
-                          )
-                        }
-
-                        // No partner mapping, just show the diff
                         return (
-                          <span className={`px-2 py-0.5 rounded text-sm font-medium ${colorClass}`}>
-                            {diff > 0 ? `+${diff}` : diff}
-                          </span>
+                          <React.Fragment key={`${row.id}-cat-${catIdx}`}>
+                            {/* B2B Count */}
+                            <td className={`px-4 py-3 text-center bg-purple-50/30 ${catIdx === 0 ? 'border-l-2 border-gray-200' : 'border-l border-purple-100'}`}>
+                              {b2bCount > 0 ? (
+                                <button
+                                  onClick={() => openVoucherDialog(row)}
+                                  className="px-2 py-0.5 rounded text-sm font-medium cursor-pointer transition-colors bg-purple-100 hover:bg-purple-200 text-purple-800"
+                                >
+                                  {b2bCount}
+                                </button>
+                              ) : (
+                                <span className="text-gray-400">0</span>
+                              )}
+                            </td>
+                            {/* B2B Entry Time */}
+                            <td className="px-4 py-3 text-center bg-purple-50/30">
+                              <span className="text-sm text-purple-600">{b2bEntryTime?.substring(0, 5) || '-'}</span>
+                            </td>
+                            {/* B2B Diff */}
+                            <td className="px-4 py-3 text-center bg-purple-50/30">
+                              {b2bCount > 0 ? (
+                                <span className={`px-2 py-0.5 rounded text-sm font-medium ${b2bDiffColorClass}`}>
+                                  {b2bDiff > 0 ? `+${b2bDiff}` : b2bDiff}
+                                </span>
+                              ) : (
+                                <span className="text-gray-400">-</span>
+                              )}
+                            </td>
+                            {/* B2C Count */}
+                            <td className="px-4 py-3 text-center bg-green-50/30 border-l border-green-100">
+                              {b2cCount > 0 ? (
+                                <button
+                                  onClick={() => openVoucherDialog(row)}
+                                  className="px-2 py-0.5 rounded text-sm font-medium cursor-pointer transition-colors bg-green-100 hover:bg-green-200 text-green-800"
+                                >
+                                  {b2cCount}
+                                </button>
+                              ) : (
+                                <span className="text-gray-400">0</span>
+                              )}
+                            </td>
+                            {/* B2C Entry Time */}
+                            <td className="px-4 py-3 text-center bg-green-50/30">
+                              <span className="text-sm text-green-600">{b2cEntryTime?.substring(0, 5) || '-'}</span>
+                            </td>
+                            {/* B2C Diff */}
+                            <td className="px-4 py-3 text-center bg-green-50/30">
+                              {b2cCount > 0 ? (
+                                <span className={`px-2 py-0.5 rounded text-sm font-medium ${b2cDiffColorClass}`}>
+                                  {b2cDiff > 0 ? `+${b2cDiff}` : b2cDiff}
+                                </span>
+                              ) : (
+                                <span className="text-gray-400">-</span>
+                              )}
+                            </td>
+                          </React.Fragment>
                         )
-                      })()}
-                    </td>
+                      })
+                    ) : (
+                      <>
+                        <td className="px-4 py-3 text-center border-l-2 border-gray-200">
+                          {row.vouchers && row.vouchers.length > 0 ? (
+                            <button
+                              onClick={() => openVoucherDialog(row)}
+                              className="px-2 py-0.5 rounded text-sm font-medium cursor-pointer transition-colors bg-gray-100 hover:bg-gray-200 text-gray-700"
+                            >
+                              {row.ticketCount || 0}
+                            </button>
+                          ) : (
+                            <span className="font-medium text-gray-400">{row.ticketCount || 0}</span>
+                          )}
+                        </td>
+                        <td className="px-4 py-3 text-center">
+                          <span className="text-gray-400">-</span>
+                        </td>
+                        <td className="px-4 py-3 text-center">
+                          <span className="text-gray-400">-</span>
+                        </td>
+                      </>
+                    )}
                   </tr>
 
                   {/* Righe espanse per le date */}
                   {row.isDateGroup && expandedRows.has(row.id) && row.slots?.map((slot, idx) => (
-                    <tr key={`${row.id}-${idx}`} className={`border-t ${slot.status === 'CLOSED' && !slot.bookingCount ? 'bg-red-50 text-gray-400' : 'bg-gray-50'}`}>
+                    <React.Fragment key={`${row.id}-slot-${idx}`}>
+                    <tr className={`border-t ${
+                      slot.isPlanned
+                        ? 'bg-blue-50 border-l-4 border-l-blue-400'
+                        : slot.status === 'CLOSED' && !slot.bookingCount
+                          ? 'bg-red-50 text-gray-400'
+                          : 'bg-gray-50'
+                    }`}>
                       <td className="px-4 py-2 pl-12">
-                        <span className="text-sm">{slot.time}</span>
+                        <div className="flex items-center gap-2">
+                          <span className="text-sm">{slot.time}</span>
+                          {slot.isPlanned && (
+                            <button
+                              onClick={() => slot.plannedId && handleDeletePlannedAvailability(slot.plannedId)}
+                              className="p-1 text-red-400 hover:text-red-600 hover:bg-red-50 rounded transition-colors"
+                              title="Delete planned slot"
+                            >
+                              <Trash2 className="w-3 h-3" />
+                            </button>
+                          )}
+                        </div>
+                      </td>
+                      {/* Note cell for slot rows */}
+                      <td className="px-4 py-2 text-center">
+                        {(() => {
+                          const slotNoteCount = getSlotNotesCount(slot)
+                          return slotNoteCount > 0 ? (
+                            <button
+                              onClick={() => openNotesDrawer({
+                                type: 'slot',
+                                id: slot.availabilityId,
+                                label: `${row.id} ${slot.time}`,
+                                local_date: row.id,
+                                activity_availability_id: Number(slot.availabilityId),
+                                slotData: slot
+                              })}
+                              className="inline-flex items-center gap-1 px-2 py-0.5 bg-amber-100 hover:bg-amber-200 text-amber-700 rounded text-xs cursor-pointer transition-colors"
+                            >
+                              <MessageSquare className="w-3 h-3" />
+                              {slotNoteCount}
+                            </button>
+                          ) : (
+                            <button
+                              onClick={() => slot.availabilityId && openNotesDrawer({
+                                type: 'slot',
+                                id: slot.availabilityId,
+                                label: `${row.id} ${slot.time}`,
+                                local_date: row.id,
+                                activity_availability_id: Number(slot.availabilityId),
+                                slotData: slot
+                              })}
+                              className="text-gray-300 hover:text-amber-500 transition-colors"
+                              title="Add note"
+                            >
+                              <MessageSquare className="w-4 h-4" />
+                            </button>
+                          )
+                        })()}
                       </td>
                       <td className="px-4 py-2 text-right text-sm">
                         <HoverCard>
@@ -2644,8 +3402,9 @@ export default function NewRecapPage() {
                               key={gIdx}
                               onClick={() => openGuideDialog(slot, guide)}
                               className="px-2 py-0.5 bg-green-100 hover:bg-green-200 text-green-800 rounded text-xs cursor-pointer transition-colors"
+                              title={guide.name}
                             >
-                              {guide.name}
+                              {guide.name.split(' ')[0]}
                             </button>
                           ))}
                           <button
@@ -2696,151 +3455,116 @@ export default function NewRecapPage() {
                           </button>
                         )}
                       </td>
-                      <td className="px-4 py-2 text-center text-sm border-l-2 border-gray-200">
-                        {slot.vouchers && slot.vouchers.length > 0 ? (
-                          slot.ticketCount === slot.totalParticipants ? (
-                            <button
-                              onClick={() => openVoucherDialog(slot)}
-                              className="px-2 py-0.5 rounded text-xs cursor-pointer transition-colors bg-green-100 hover:bg-green-200 text-green-800"
-                            >
-                              {slot.ticketCount || 0}
-                            </button>
-                          ) : (
-                            <HoverCard>
-                              <HoverCardTrigger asChild>
-                                <button
-                                  onClick={() => openVoucherDialog(slot)}
-                                  className={`px-2 py-0.5 rounded text-xs cursor-pointer transition-colors ${
-                                    slot.ticketCount! < slot.totalParticipants
-                                      ? 'bg-orange-100 hover:bg-orange-200 text-orange-800'
-                                      : 'bg-red-100 hover:bg-red-200 text-red-800'
-                                  }`}
-                                >
-                                  {slot.ticketCount || 0}
-                                </button>
-                              </HoverCardTrigger>
-                              <HoverCardContent className="w-48" side="left">
-                                <div className="text-sm">
-                                  {slot.ticketCount! < slot.totalParticipants ? (
-                                    <>
-                                      <div className="font-medium text-orange-700">Biglietti mancanti</div>
-                                      <div className="text-gray-600 mt-1">
-                                        {slot.ticketCount || 0} biglietti su {slot.totalParticipants} partecipanti
-                                      </div>
-                                    </>
-                                  ) : (
-                                    <>
-                                      <div className="font-medium text-red-700">Troppi biglietti</div>
-                                      <div className="text-gray-600 mt-1">
-                                        {slot.ticketCount || 0} biglietti per {slot.totalParticipants} partecipanti
-                                      </div>
-                                    </>
-                                  )}
-                                </div>
-                              </HoverCardContent>
-                            </HoverCard>
-                          )
-                        ) : (
-                          <span className="text-gray-400">0</span>
-                        )}
-                      </td>
-                      {/* Orario column for slots */}
-                      <td className="px-4 py-2 text-center text-sm">
-                        {(() => {
-                          const uniqueTimes = [...new Set((slot.vouchers || []).map(v => v.entry_time).filter(Boolean))]
-                          if (uniqueTimes.length === 0) {
-                            return <span className="text-gray-400">-</span>
-                          } else if (uniqueTimes.length === 1) {
-                            return <span>{uniqueTimes[0]?.substring(0, 5)}</span>
-                          } else {
-                            return (
-                              <HoverCard>
-                                <HoverCardTrigger asChild>
-                                  <span className="px-2 py-0.5 rounded text-xs font-medium cursor-help bg-blue-100 text-blue-800">Vari</span>
-                                </HoverCardTrigger>
-                                <HoverCardContent className="w-32" side="left">
-                                  <div className="text-sm">
-                                    <div className="font-medium text-blue-700 mb-1">Orari multipli</div>
-                                    {uniqueTimes.map((t, i) => (
-                                      <div key={i} className="text-gray-600">{t?.substring(0, 5)}</div>
-                                    ))}
-                                  </div>
-                                </HoverCardContent>
-                              </HoverCard>
-                            )
-                          }
-                        })()}
-                      </td>
-                      {/* Diff column for slots */}
-                      <td className="px-4 py-2 text-center text-sm">
-                        {(() => {
-                          const ticketCount = slot.ticketCount || 0
-                          const diff = ticketCount - slot.totalParticipants
-                          // Only show "-" if both tickets and participants are 0
-                          if (ticketCount === 0 && slot.totalParticipants === 0) {
-                            return <span className="text-gray-400">-</span>
-                          }
-                          const colorClass = diff === 0
-                            ? 'bg-green-100 text-green-800'
-                            : diff < 0
-                              ? 'bg-red-100 text-red-800'
-                              : 'bg-orange-100 text-orange-800'
+                      {/* Dynamic columns for each ticket category - slot rows - B2B and B2C */}
+                      {ticketCategories.length > 0 ? (
+                        ticketCategories.map((cat, catIdx) => {
+                          const categoryGroups = groupVouchersByCategory(slot.vouchers || [])
+                          const group = categoryGroups.find(g => g.categoryName === cat.name)
+                          const b2bCount = group?.b2bCount || 0
+                          const b2cCount = group?.b2cCount || 0
+                          const b2bEntryTime = group?.b2bEntryTime
+                          const b2cEntryTime = group?.b2cEntryTime
+                          // Separate diffs for B2B and B2C
+                          const b2bDiff = b2bCount - (slot.totalParticipants || 0)
+                          const b2cDiff = b2cCount - (slot.totalParticipants || 0)
+                          const b2bDiffColorClass = b2bCount === 0
+                            ? 'text-gray-400'
+                            : b2bDiff === 0
+                              ? 'bg-green-100 text-green-800'
+                              : b2bDiff < 0
+                                ? 'bg-red-100 text-red-800'
+                                : 'bg-orange-100 text-orange-800'
+                          const b2cDiffColorClass = b2cCount === 0
+                            ? 'text-gray-400'
+                            : b2cDiff === 0
+                              ? 'bg-green-100 text-green-800'
+                              : b2cDiff < 0
+                                ? 'bg-red-100 text-red-800'
+                                : 'bg-orange-100 text-orange-800'
 
-                          // Check for existing voucher requests
-                          const slotAvailId = slot.availabilityId ? Number(slot.availabilityId) : (slot.id ? Number(slot.id) : null)
-                          const existingRequest = slotAvailId ? voucherRequests.get(slotAvailId) : null
-                          const requestedPax = existingRequest?.totalPax || 0
-
-                          const partnerMapping = getActivityPartnerMapping(slot.tourId, activityPartnerMappings)
-
-                          // If activity has partner mapping, wrap diff in HoverCard
-                          if (partnerMapping) {
-                            return (
-                              <HoverCard>
-                                <HoverCardTrigger asChild>
-                                  <span className={`px-2 py-0.5 rounded text-xs font-medium cursor-pointer ${colorClass}`}>
-                                    {diff > 0 ? `+${diff}` : diff}
-                                  </span>
-                                </HoverCardTrigger>
-                                <HoverCardContent className="w-56" side="left">
-                                  <div className="space-y-2">
-                                    <div className="text-xs font-medium text-gray-500">
-                                      Partner: {partnerMapping.partners?.name || 'N/A'}
-                                    </div>
-                                    {existingRequest && (
-                                      <div className="text-sm">
-                                        <span className={existingRequest.status === 'fulfilled' ? 'text-green-700' : 'text-blue-700'}>
-                                          {existingRequest.count} richiesta/e per {requestedPax} pax
-                                          {existingRequest.status === 'fulfilled' ? ' (ricevuti)' : ' (richiesti)'}
-                                        </span>
-                                      </div>
-                                    )}
-                                    {diff < 0 && (
-                                      <button
-                                        onClick={(e) => {
-                                          e.stopPropagation()
-                                          handleOpenVoucherRequest(slot)
-                                        }}
-                                        className="text-xs text-red-600 hover:text-red-800 transition-colors"
-                                      >
-                                        + Richiedi voucher
-                                      </button>
-                                    )}
-                                  </div>
-                                </HoverCardContent>
-                              </HoverCard>
-                            )
-                          }
-
-                          // No partner mapping, just show the diff
                           return (
-                            <span className={`px-2 py-0.5 rounded text-xs font-medium ${colorClass}`}>
-                              {diff > 0 ? `+${diff}` : diff}
-                            </span>
+                            <React.Fragment key={`${row.id}-${idx}-cat-${catIdx}`}>
+                              {/* B2B Count */}
+                              <td className={`px-4 py-2 text-center text-sm bg-purple-50/30 ${catIdx === 0 ? 'border-l-2 border-gray-200' : 'border-l border-purple-100'}`}>
+                                {b2bCount > 0 ? (
+                                  <button
+                                    onClick={() => openVoucherDialog(slot)}
+                                    className="px-2 py-0.5 rounded text-xs cursor-pointer transition-colors bg-purple-100 hover:bg-purple-200 text-purple-800"
+                                  >
+                                    {b2bCount}
+                                  </button>
+                                ) : (
+                                  <span className="text-gray-400">0</span>
+                                )}
+                              </td>
+                              {/* B2B Entry Time */}
+                              <td className="px-4 py-2 text-center text-sm bg-purple-50/30">
+                                <span className="text-purple-600">{b2bEntryTime?.substring(0, 5) || '-'}</span>
+                              </td>
+                              {/* B2B Diff */}
+                              <td className="px-4 py-2 text-center text-sm bg-purple-50/30">
+                                {b2bCount > 0 ? (
+                                  <span className={`px-2 py-0.5 rounded text-xs font-medium ${b2bDiffColorClass}`}>
+                                    {b2bDiff > 0 ? `+${b2bDiff}` : b2bDiff}
+                                  </span>
+                                ) : (
+                                  <span className="text-gray-400">-</span>
+                                )}
+                              </td>
+                              {/* B2C Count */}
+                              <td className="px-4 py-2 text-center text-sm bg-green-50/30 border-l border-green-100">
+                                {b2cCount > 0 ? (
+                                  <button
+                                    onClick={() => openVoucherDialog(slot)}
+                                    className="px-2 py-0.5 rounded text-xs cursor-pointer transition-colors bg-green-100 hover:bg-green-200 text-green-800"
+                                  >
+                                    {b2cCount}
+                                  </button>
+                                ) : (
+                                  <span className="text-gray-400">0</span>
+                                )}
+                              </td>
+                              {/* B2C Entry Time */}
+                              <td className="px-4 py-2 text-center text-sm bg-green-50/30">
+                                <span className="text-green-600">{b2cEntryTime?.substring(0, 5) || '-'}</span>
+                              </td>
+                              {/* B2C Diff */}
+                              <td className="px-4 py-2 text-center text-sm bg-green-50/30">
+                                {b2cCount > 0 ? (
+                                  <span className={`px-2 py-0.5 rounded text-xs font-medium ${b2cDiffColorClass}`}>
+                                    {b2cDiff > 0 ? `+${b2cDiff}` : b2cDiff}
+                                  </span>
+                                ) : (
+                                  <span className="text-gray-400">-</span>
+                                )}
+                              </td>
+                            </React.Fragment>
                           )
-                        })()}
-                      </td>
+                        })
+                      ) : (
+                        <>
+                          <td className="px-4 py-2 text-center text-sm border-l-2 border-gray-200">
+                            {slot.vouchers && slot.vouchers.length > 0 ? (
+                              <button
+                                onClick={() => openVoucherDialog(slot)}
+                                className="px-2 py-0.5 rounded text-xs cursor-pointer transition-colors bg-gray-100 hover:bg-gray-200 text-gray-700"
+                              >
+                                {slot.ticketCount || 0}
+                              </button>
+                            ) : (
+                              <span className="text-gray-400">0</span>
+                            )}
+                          </td>
+                          <td className="px-4 py-2 text-center text-sm">
+                            <span className="text-gray-400">-</span>
+                          </td>
+                          <td className="px-4 py-2 text-center text-sm">
+                            <span className="text-gray-400">-</span>
+                          </td>
+                        </>
+                      )}
                     </tr>
+                  </React.Fragment>
                   ))}
 
                 </React.Fragment>
@@ -3421,6 +4145,145 @@ export default function NewRecapPage() {
           }}
         />
       )}
+
+      {/* Add Planned Availability Dialog */}
+      <Dialog open={showAddPlannedDialog} onOpenChange={setShowAddPlannedDialog}>
+        <DialogContent className="sm:max-w-md">
+          <DialogHeader>
+            <DialogTitle>Add Planned Slot</DialogTitle>
+            <DialogDescription>
+              Create a planned availability slot for {addPlannedDate ? new Date(addPlannedDate + 'T00:00:00').toLocaleDateString('it-IT', { weekday: 'short', day: '2-digit', month: '2-digit', year: 'numeric' }) : ''}. This slot will have a blue background until the real availability is created in Bokun.
+            </DialogDescription>
+          </DialogHeader>
+          <div className="space-y-4 py-4">
+            <div>
+              <label className="text-sm font-medium text-gray-700">Time</label>
+              <input
+                type="time"
+                value={addPlannedTime}
+                onChange={(e) => setAddPlannedTime(e.target.value)}
+                className="mt-1 w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500"
+              />
+            </div>
+          </div>
+          <DialogFooter>
+            <button
+              onClick={() => setShowAddPlannedDialog(false)}
+              className="px-4 py-2 text-gray-600 hover:text-gray-800"
+            >
+              Cancel
+            </button>
+            <button
+              onClick={handleCreatePlannedAvailability}
+              disabled={!addPlannedTime || creatingPlanned}
+              className="px-4 py-2 bg-blue-600 text-white rounded-md hover:bg-blue-700 disabled:opacity-50 disabled:cursor-not-allowed"
+            >
+              {creatingPlanned ? 'Creating...' : 'Create Planned Slot'}
+            </button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
+      {/* Notes Drawer */}
+      {notesContext && (() => {
+        // Find the date row for the current context
+        const contextDate = notesContext.local_date
+        const dateRow = data.find(row => row.date === contextDate || row.id === contextDate)
+
+        // Collect all unique guides, escorts, vouchers, and slots for this date
+        const guidesMap = new Map<string, { id: string; name: string; time?: string }>()
+        const escortsSet = new Map<string, string>()
+        const vouchersMap = new Map<string, { id: string; name: string; totalTickets?: number; entryTime?: string }>()
+        const slotsSet = new Map<number, string>()
+
+        // If context has slotData (opened from a slot row), only show that slot's entities
+        if (notesContext.slotData) {
+          const slot = notesContext.slotData
+          if (slot.availabilityId) {
+            slotsSet.set(Number(slot.availabilityId), slot.time)
+          }
+          slot.guideData?.forEach(g => {
+            guidesMap.set(g.id, { id: g.id, name: g.name, time: slot.time })
+          })
+          slot.escortData?.forEach(e => escortsSet.set(e.id, e.name))
+          slot.vouchers?.forEach(v => {
+            vouchersMap.set(v.id, {
+              id: v.id,
+              name: v.booking_number,
+              totalTickets: v.total_tickets,
+              entryTime: v.entry_time || undefined
+            })
+          })
+        } else if (dateRow) {
+          // From all slots of the date (to get the time for each guide)
+          dateRow.slots?.forEach(slot => {
+            if (slot.availabilityId) {
+              slotsSet.set(Number(slot.availabilityId), slot.time)
+            }
+            slot.guideData?.forEach(g => {
+              // Store guide with slot time
+              if (!guidesMap.has(g.id)) {
+                guidesMap.set(g.id, { id: g.id, name: g.name, time: slot.time })
+              }
+            })
+            slot.escortData?.forEach(e => escortsSet.set(e.id, e.name))
+            slot.vouchers?.forEach(v => {
+              if (!vouchersMap.has(v.id)) {
+                vouchersMap.set(v.id, {
+                  id: v.id,
+                  name: v.booking_number,
+                  totalTickets: v.total_tickets,
+                  entryTime: v.entry_time || undefined
+                })
+              }
+            })
+          })
+
+          // Also check date row level data
+          dateRow.guideData?.forEach(g => {
+            if (!guidesMap.has(g.id)) {
+              guidesMap.set(g.id, { id: g.id, name: g.name })
+            }
+          })
+          dateRow.escortData?.forEach(e => escortsSet.set(e.id, e.name))
+          dateRow.vouchers?.forEach(v => {
+            if (!vouchersMap.has(v.id)) {
+              vouchersMap.set(v.id, {
+                id: v.id,
+                name: v.booking_number,
+                totalTickets: v.total_tickets,
+                entryTime: v.entry_time || undefined
+              })
+            }
+          })
+        }
+
+        const availableGuides = Array.from(guidesMap.values())
+        const availableEscorts = Array.from(escortsSet.entries()).map(([id, name]) => ({ id, name }))
+        const availableVouchers = Array.from(vouchersMap.values())
+        const availableSlots = Array.from(slotsSet.entries()).map(([id, time]) => ({ id, time }))
+
+        return (
+          <NotesDrawer
+            isOpen={notesDrawerOpen}
+            onClose={() => {
+              setNotesDrawerOpen(false)
+              setNotesContext(null)
+            }}
+            context={notesContext}
+            notes={notes}
+            onAddNote={handleAddNote}
+            onAddReply={handleAddReply}
+            onDeleteNote={handleDeleteNote}
+            onDeleteReply={handleDeleteReply}
+            loading={loadingNotes}
+            availableGuides={availableGuides}
+            availableEscorts={availableEscorts}
+            availableVouchers={availableVouchers}
+            availableSlots={availableSlots}
+          />
+        )
+      })()}
     </div>
   )
 }

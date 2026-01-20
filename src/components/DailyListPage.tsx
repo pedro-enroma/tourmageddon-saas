@@ -3,7 +3,8 @@
 import { useState, useEffect, useRef, useMemo, useCallback } from 'react'
 import { supabase } from '@/lib/supabase'
 import { attachmentsApi } from '@/lib/api-client'
-import { Download, ChevronDown, Search, X, GripVertical, ChevronRight, User, UserCheck, Paperclip, Upload, Mail, Send, Loader2, MapPin, Ticket, FileText, Headphones, Printer, AlertTriangle, Link2, Users, Trash2, Plus, Settings } from 'lucide-react'
+import { Download, ChevronDown, Search, X, GripVertical, ChevronRight, User, UserCheck, Paperclip, Upload, Mail, Send, Loader2, MapPin, Ticket, FileText, Headphones, Printer, AlertTriangle, Link2, Users, Trash2, Plus, Settings, MessageSquare } from 'lucide-react'
+import NotesDrawer from '@/components/NotesDrawer'
 import { format } from 'date-fns'
 import * as XLSX from 'xlsx-js-style'
 
@@ -320,6 +321,51 @@ export default function DailyListPage() {
   const [loadingSplits, setLoadingSplits] = useState(false)
   const [savingSplit, setSavingSplit] = useState(false)
 
+  // Notes drawer state
+  interface OperationNote {
+    id: string
+    local_date: string | null
+    activity_availability_id: number | null
+    guide_id: string | null
+    escort_id: string | null
+    voucher_id: string | null
+    content: string
+    note_type: 'general' | 'urgent' | 'warning' | 'info'
+    created_by: string
+    created_by_email: string | null
+    created_at: string
+    replies: {
+      id: string
+      content: string
+      created_by: string
+      created_by_email: string | null
+      created_at: string
+    }[]
+  }
+
+  interface NoteContext {
+    type: 'date' | 'slot' | 'guide' | 'escort' | 'voucher'
+    id?: string | number
+    label: string
+    local_date?: string
+    activity_availability_id?: number
+    guide_id?: string
+    escort_id?: string
+    voucher_id?: string
+    slotGuides?: Person[]
+    slotEscorts?: Person[]
+    slotVouchers?: VoucherInfo[]
+  }
+
+  const [notesDrawerOpen, setNotesDrawerOpen] = useState(false)
+  const [notesContext, setNotesContext] = useState<NoteContext | null>(null)
+  const [notes, setNotes] = useState<OperationNote[]>([])
+  const [loadingNotes, setLoadingNotes] = useState(false)
+  const [notesCountBySlot, setNotesCountBySlot] = useState<Map<number, number>>(new Map())
+  const [notesCountByGuide, setNotesCountByGuide] = useState<Map<string, number>>(new Map())
+  const [notesCountByEscort, setNotesCountByEscort] = useState<Map<string, number>>(new Map())
+  const [notesCountByVoucher, setNotesCountByVoucher] = useState<Map<string, number>>(new Map())
+
   // File upload
   const fileInputRef = useRef<HTMLInputElement>(null)
   const [uploadingFor, setUploadingFor] = useState<number | null>(null)
@@ -495,6 +541,210 @@ export default function DailyListPage() {
       setAllGuides(guides || [])
     } catch (err) {
       console.error('Error fetching guides:', err)
+    }
+  }
+
+  // Fetch notes count for the selected date
+  const fetchNotesCount = useCallback(async () => {
+    if (!selectedDate) return
+
+    try {
+      const res = await fetch(`/api/operation-notes?localDate=${selectedDate}`)
+      if (res.ok) {
+        const { data } = await res.json()
+
+        const slotMap = new Map<number, number>()
+        const guideMap = new Map<string, number>()
+        const escortMap = new Map<string, number>()
+        const voucherMap = new Map<string, number>()
+
+        data?.forEach((note: OperationNote) => {
+          if (note.activity_availability_id) {
+            slotMap.set(note.activity_availability_id, (slotMap.get(note.activity_availability_id) || 0) + 1)
+          }
+          if (note.guide_id) {
+            guideMap.set(note.guide_id, (guideMap.get(note.guide_id) || 0) + 1)
+          }
+          if (note.escort_id) {
+            escortMap.set(note.escort_id, (escortMap.get(note.escort_id) || 0) + 1)
+          }
+          if (note.voucher_id) {
+            voucherMap.set(note.voucher_id, (voucherMap.get(note.voucher_id) || 0) + 1)
+          }
+        })
+
+        setNotesCountBySlot(slotMap)
+        setNotesCountByGuide(guideMap)
+        setNotesCountByEscort(escortMap)
+        setNotesCountByVoucher(voucherMap)
+      }
+    } catch (err) {
+      console.error('Error fetching notes count:', err)
+    }
+  }, [selectedDate])
+
+  // Fetch notes count when date changes
+  useEffect(() => {
+    fetchNotesCount()
+  }, [fetchNotesCount])
+
+  // Helper function to calculate total notes for a slot (including its entities)
+  const getSlotNotesCount = useCallback((
+    availabilityId: number | undefined,
+    guides: Person[],
+    escorts: Person[],
+    vouchers: VoucherInfo[]
+  ): number => {
+    let count = 0
+
+    if (availabilityId) {
+      count += notesCountBySlot.get(availabilityId) || 0
+    }
+
+    guides.forEach(guide => {
+      count += notesCountByGuide.get(guide.id) || 0
+    })
+
+    escorts.forEach(escort => {
+      count += notesCountByEscort.get(escort.id) || 0
+    })
+
+    vouchers.forEach(voucher => {
+      count += notesCountByVoucher.get(voucher.id) || 0
+    })
+
+    return count
+  }, [notesCountBySlot, notesCountByGuide, notesCountByEscort, notesCountByVoucher])
+
+  // Fetch notes for specific context
+  const fetchNotesForContext = useCallback(async (context: NoteContext) => {
+    setLoadingNotes(true)
+    try {
+      const params = new URLSearchParams()
+
+      // For slot context with entities, fetch all notes for the date and filter locally
+      if (context.type === 'slot' && context.local_date && (context.slotGuides || context.slotEscorts || context.slotVouchers)) {
+        params.set('localDate', context.local_date)
+
+        const res = await fetch(`/api/operation-notes?${params.toString()}`)
+        if (res.ok) {
+          const { data } = await res.json()
+
+          const slotGuideIds = new Set(context.slotGuides?.map(g => g.id) || [])
+          const slotEscortIds = new Set(context.slotEscorts?.map(e => e.id) || [])
+          const slotVoucherIds = new Set(context.slotVouchers?.map(v => v.id) || [])
+          const slotAvailabilityId = context.activity_availability_id
+
+          const filteredNotes = (data || []).filter((note: OperationNote) => {
+            if (slotAvailabilityId && note.activity_availability_id === slotAvailabilityId) return true
+            if (note.guide_id && slotGuideIds.has(note.guide_id)) return true
+            if (note.escort_id && slotEscortIds.has(note.escort_id)) return true
+            if (note.voucher_id && slotVoucherIds.has(note.voucher_id)) return true
+            return false
+          })
+
+          setNotes(filteredNotes)
+        }
+      } else {
+        if (context.local_date) params.set('localDate', context.local_date)
+        if (context.activity_availability_id) params.set('activityAvailabilityId', String(context.activity_availability_id))
+        if (context.guide_id) params.set('guideId', context.guide_id)
+        if (context.escort_id) params.set('escortId', context.escort_id)
+        if (context.voucher_id) params.set('voucherId', context.voucher_id)
+
+        const res = await fetch(`/api/operation-notes?${params.toString()}`)
+        if (res.ok) {
+          const { data } = await res.json()
+          setNotes(data || [])
+        }
+      }
+    } catch (err) {
+      console.error('Error fetching notes:', err)
+    } finally {
+      setLoadingNotes(false)
+    }
+  }, [])
+
+  // Open notes drawer
+  const openNotesDrawer = (context: NoteContext) => {
+    setNotesContext(context)
+    setNotesDrawerOpen(true)
+    fetchNotesForContext(context)
+  }
+
+  // Add a new note
+  const handleAddNote = async (content: string, noteType: string, linkTo?: { type: string; id?: string | number }) => {
+    if (!notesContext) return
+
+    const body: Record<string, unknown> = {
+      content,
+      note_type: noteType,
+    }
+
+    if (notesContext.local_date) body.local_date = notesContext.local_date
+
+    if (linkTo) {
+      if (linkTo.type === 'slot' && linkTo.id) {
+        body.activity_availability_id = Number(linkTo.id)
+      } else if (linkTo.type === 'guide' && linkTo.id) {
+        body.guide_id = linkTo.id
+      } else if (linkTo.type === 'escort' && linkTo.id) {
+        body.escort_id = linkTo.id
+      } else if (linkTo.type === 'voucher' && linkTo.id) {
+        body.voucher_id = linkTo.id
+      }
+    } else {
+      if (notesContext.activity_availability_id) body.activity_availability_id = notesContext.activity_availability_id
+      if (notesContext.guide_id) body.guide_id = notesContext.guide_id
+      if (notesContext.escort_id) body.escort_id = notesContext.escort_id
+      if (notesContext.voucher_id) body.voucher_id = notesContext.voucher_id
+    }
+
+    const res = await fetch('/api/operation-notes', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(body),
+    })
+
+    if (res.ok) {
+      fetchNotesForContext(notesContext)
+      fetchNotesCount()
+    }
+  }
+
+  // Add a reply to a note
+  const handleAddReply = async (noteId: string, content: string) => {
+    const res = await fetch('/api/operation-notes/replies', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ note_id: noteId, content }),
+    })
+
+    if (res.ok && notesContext) {
+      fetchNotesForContext(notesContext)
+    }
+  }
+
+  // Delete a note
+  const handleDeleteNote = async (noteId: string) => {
+    const res = await fetch(`/api/operation-notes?id=${noteId}`, {
+      method: 'DELETE',
+    })
+
+    if (res.ok && notesContext) {
+      fetchNotesForContext(notesContext)
+      fetchNotesCount()
+    }
+  }
+
+  // Delete a reply
+  const handleDeleteReply = async (replyId: string) => {
+    const res = await fetch(`/api/operation-notes/replies?id=${replyId}`, {
+      method: 'DELETE',
+    })
+
+    if (res.ok && notesContext) {
+      fetchNotesForContext(notesContext)
     }
   }
 
@@ -4626,6 +4876,32 @@ export default function DailyListPage() {
                             <span className="text-sm font-medium text-gray-700 bg-gray-200 px-2 py-1 rounded">
                               {timeSlot.totalParticipants} participants
                             </span>
+                            {/* Notes Button */}
+                            {(() => {
+                              const noteCount = getSlotNotesCount(slotAvailabilityId, slotGuides, slotEscorts, vouchersForSlot)
+                              return (
+                                <button
+                                  onClick={() => openNotesDrawer({
+                                    type: 'slot',
+                                    id: slotAvailabilityId,
+                                    label: `${tour.tourTitle} - ${timeSlot.time.substring(0, 5)}`,
+                                    local_date: selectedDate,
+                                    activity_availability_id: slotAvailabilityId,
+                                    slotGuides,
+                                    slotEscorts,
+                                    slotVouchers: vouchersForSlot
+                                  })}
+                                  className={`inline-flex items-center gap-1 px-2 py-1 rounded text-sm transition-colors ${
+                                    noteCount > 0
+                                      ? 'bg-amber-100 text-amber-700 hover:bg-amber-200'
+                                      : 'bg-gray-100 text-gray-500 hover:bg-gray-200'
+                                  }`}
+                                >
+                                  <MessageSquare className="w-4 h-4" />
+                                  {noteCount > 0 && <span>{noteCount}</span>}
+                                </button>
+                              )
+                            })()}
                             {/* Service Group Badge with HoverCard - shows for whole availability or splits in service groups */}
                             {(() => {
                               // Check if whole availability is in a service group
@@ -5933,6 +6209,28 @@ export default function DailyListPage() {
           </div>
         </SheetContent>
       </Sheet>
+
+      {/* Notes Drawer */}
+      {notesContext && (
+        <NotesDrawer
+          isOpen={notesDrawerOpen}
+          onClose={() => {
+            setNotesDrawerOpen(false)
+            setNotesContext(null)
+          }}
+          context={notesContext}
+          notes={notes}
+          onAddNote={handleAddNote}
+          onAddReply={handleAddReply}
+          onDeleteNote={handleDeleteNote}
+          onDeleteReply={handleDeleteReply}
+          loading={loadingNotes}
+          availableGuides={notesContext.slotGuides?.map(g => ({ id: g.id, name: `${g.first_name} ${g.last_name}` })) || []}
+          availableEscorts={notesContext.slotEscorts?.map(e => ({ id: e.id, name: `${e.first_name} ${e.last_name}` })) || []}
+          availableVouchers={notesContext.slotVouchers?.map(v => ({ id: v.id, name: v.booking_number, totalTickets: v.total_tickets, entryTime: v.entry_time || undefined })) || []}
+          availableSlots={notesContext.activity_availability_id ? [{ id: notesContext.activity_availability_id, time: notesContext.label.split(' - ')[1] || '' }] : []}
+        />
+      )}
     </div>
   )
 }

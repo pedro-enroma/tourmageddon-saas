@@ -27,18 +27,8 @@ export async function POST(request: NextRequest) {
     const file = formData.get('file') as File | null
     const voucherDataStr = formData.get('voucherData') as string
 
-    if (!file || !voucherDataStr) {
-      return NextResponse.json({ error: 'File and voucher data are required' }, { status: 400 })
-    }
-
-    // Security: Check file size
-    if (file.size > MAX_FILE_SIZE) {
-      return NextResponse.json({ error: 'File too large. Maximum size is 20MB.' }, { status: 413 })
-    }
-
-    // Security: Validate file type (must be PDF)
-    if (file.type !== 'application/pdf') {
-      return NextResponse.json({ error: 'File must be a PDF' }, { status: 400 })
+    if (!voucherDataStr) {
+      return NextResponse.json({ error: 'Voucher data is required' }, { status: 400 })
     }
 
     const voucherData = JSON.parse(voucherDataStr)
@@ -51,8 +41,29 @@ export async function POST(request: NextRequest) {
       product_name,
       activity_availability_id,
       ticket_class,
-      tickets
+      tickets,
+      // Manual entry / placeholder fields
+      manual_entry,
+      is_placeholder,
+      placeholder_ticket_count,
+      voucher_source,
+      notes
     } = voucherData
+
+    // For non-manual entries, file is required
+    if (!manual_entry && !file) {
+      return NextResponse.json({ error: 'File is required for PDF vouchers' }, { status: 400 })
+    }
+
+    // Security: Check file size if file exists
+    if (file && file.size > MAX_FILE_SIZE) {
+      return NextResponse.json({ error: 'File too large. Maximum size is 20MB.' }, { status: 413 })
+    }
+
+    // Security: Validate file type (must be PDF)
+    if (file && file.type !== 'application/pdf') {
+      return NextResponse.json({ error: 'File must be a PDF' }, { status: 400 })
+    }
 
     if (!booking_number || !category_id || !visit_date) {
       return NextResponse.json({ error: 'Missing required voucher fields' }, { status: 400 })
@@ -61,21 +72,51 @@ export async function POST(request: NextRequest) {
     const supabase = getServiceRoleClient()
     const { ip, userAgent } = getRequestContext(request)
 
-    // 1. Upload PDF to Supabase storage
-    const fileName = `${booking_number}_${Date.now()}.pdf`
-    const fileBuffer = await file.arrayBuffer()
-    const { error: uploadError } = await supabase.storage
-      .from('ticket-vouchers')
-      .upload(fileName, fileBuffer, {
-        contentType: 'application/pdf'
-      })
+    // For placeholder vouchers, get the category's name_deadline_days
+    let nameDeadlineAt: string | null = null
+    let deadlineStatus = 'not_applicable'
 
-    if (uploadError) {
-      console.error('Upload error:', uploadError)
-      return NextResponse.json({
-        error: `Failed to upload PDF: ${uploadError.message}`,
-        details: uploadError
-      }, { status: 500 })
+    if (is_placeholder) {
+      const { data: category } = await supabase
+        .from('ticket_categories')
+        .select('name_deadline_days_b2c, name_deadline_days_b2b')
+        .eq('id', category_id)
+        .single()
+
+      // Use the appropriate deadline based on voucher source
+      const source = voucher_source || 'b2b'
+      const deadlineDays = source === 'b2b'
+        ? category?.name_deadline_days_b2b
+        : category?.name_deadline_days_b2c
+
+      if (deadlineDays) {
+        // Calculate deadline: visit_date - deadlineDays at 23:59:59
+        const visitDateObj = new Date(visit_date)
+        visitDateObj.setDate(visitDateObj.getDate() - deadlineDays)
+        visitDateObj.setHours(23, 59, 59, 999)
+        nameDeadlineAt = visitDateObj.toISOString()
+        deadlineStatus = 'pending'
+      }
+    }
+
+    // 1. Upload PDF to Supabase storage (if file exists)
+    let fileName: string | null = null
+    if (file) {
+      fileName = `${booking_number}_${Date.now()}.pdf`
+      const fileBuffer = await file.arrayBuffer()
+      const { error: uploadError } = await supabase.storage
+        .from('ticket-vouchers')
+        .upload(fileName, fileBuffer, {
+          contentType: 'application/pdf'
+        })
+
+      if (uploadError) {
+        console.error('Upload error:', uploadError)
+        return NextResponse.json({
+          error: `Failed to upload PDF: ${uploadError.message}`,
+          details: uploadError
+        }, { status: 500 })
+      }
     }
 
     // 2. Create voucher record
@@ -91,14 +132,24 @@ export async function POST(request: NextRequest) {
         pdf_path: fileName,
         activity_availability_id,
         ticket_class,
-        total_tickets: tickets?.length || 0
+        total_tickets: is_placeholder ? placeholder_ticket_count : (tickets?.length || 0),
+        // Placeholder fields
+        manual_entry: manual_entry || false,
+        is_placeholder: is_placeholder || false,
+        placeholder_ticket_count: is_placeholder ? placeholder_ticket_count : null,
+        voucher_source: voucher_source || 'b2b',
+        name_deadline_at: nameDeadlineAt,
+        deadline_status: deadlineStatus,
+        notes: notes || null
       })
       .select()
       .single()
 
     if (voucherError) {
       // Clean up uploaded file if voucher creation fails
-      await supabase.storage.from('ticket-vouchers').remove([fileName])
+      if (fileName) {
+        await supabase.storage.from('ticket-vouchers').remove([fileName])
+      }
       console.error('Voucher creation error:', voucherError)
 
       // Check for duplicate booking number

@@ -227,6 +227,10 @@ export interface TicketCategory {
   b2b_indicator_text?: string
   b2b_price_adjustment?: number
   partner_id?: string
+  short_code?: string
+  display_order?: number
+  name_deadline_days_b2c?: number | null  // Days before visit_date when final names must be submitted (B2C)
+  name_deadline_days_b2b?: number | null  // Days before visit_date when final names must be submitted (B2B)
   created_at?: string
 }
 

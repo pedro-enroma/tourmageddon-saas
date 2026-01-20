@@ -2,7 +2,7 @@
 
 import { useState, useEffect } from 'react'
 import { supabase } from '@/lib/supabase'
-import { Search, FileText, ExternalLink, Trash2, Eye, Calendar, Clock, Users, X, Landmark, Train, Tag } from 'lucide-react'
+import { Search, FileText, ExternalLink, Trash2, Eye, Calendar, Clock, Users, X, Landmark, Train, Tag, AlertCircle, FileEdit } from 'lucide-react'
 import { Button } from '@/components/ui/button'
 
 interface Ticket {
@@ -25,6 +25,14 @@ interface Voucher {
   total_tickets: number
   ticket_class?: 'entrance' | 'transport' | 'other' | null
   created_at: string
+  // Placeholder fields
+  is_placeholder?: boolean
+  placeholder_ticket_count?: number | null
+  name_deadline_at?: string | null
+  deadline_status?: 'not_applicable' | 'pending' | 'escalated' | 'resolved' | null
+  manual_entry?: boolean
+  voucher_source?: 'b2b' | 'b2c' | null
+  notes?: string | null
   ticket_categories?: { id: string; name: string; ticket_class?: 'entrance' | 'transport' | 'other' } | null
   activity_availability?: {
     id: number
@@ -196,6 +204,44 @@ export default function VouchersListPage() {
     return date.toLocaleDateString('en-US', { weekday: 'long', year: 'numeric', month: 'long', day: 'numeric' })
   }
 
+  // Helper to calculate deadline status
+  const getDeadlineInfo = (voucher: Voucher) => {
+    if (!voucher.is_placeholder || !voucher.name_deadline_at) {
+      return null
+    }
+
+    const now = new Date()
+    const deadline = new Date(voucher.name_deadline_at)
+    const diff = deadline.getTime() - now.getTime()
+    const daysUntil = Math.ceil(diff / (1000 * 60 * 60 * 24))
+
+    if (voucher.deadline_status === 'escalated' || daysUntil < 0) {
+      return {
+        label: 'OVERDUE',
+        color: 'bg-red-100 text-red-700 border-red-200',
+        urgent: true
+      }
+    } else if (daysUntil <= 1) {
+      return {
+        label: 'Due today',
+        color: 'bg-orange-100 text-orange-700 border-orange-200',
+        urgent: true
+      }
+    } else if (daysUntil <= 3) {
+      return {
+        label: `${daysUntil} days left`,
+        color: 'bg-yellow-100 text-yellow-700 border-yellow-200',
+        urgent: false
+      }
+    } else {
+      return {
+        label: `${daysUntil} days left`,
+        color: 'bg-blue-100 text-blue-700 border-blue-200',
+        urgent: false
+      }
+    }
+  }
+
   return (
     <div className="p-6 max-w-7xl mx-auto">
       <div className="flex justify-between items-center mb-6">
@@ -271,32 +317,57 @@ export default function VouchersListPage() {
                     const ticketClass = voucher.ticket_categories?.ticket_class || voucher.ticket_class
                     const { Icon: ClassIcon, color: classColor } = getTicketClassIcon(ticketClass)
                     const ticketSource = getTicketSource(voucher.product_name)
+                    const deadlineInfo = getDeadlineInfo(voucher)
 
                     return (
                     <div
                       key={voucher.id}
-                      className="bg-white rounded-lg shadow border border-gray-200 p-4 hover:shadow-md transition-shadow"
+                      className={`bg-white rounded-lg shadow border p-4 hover:shadow-md transition-shadow ${
+                        deadlineInfo?.urgent ? 'border-red-300' : 'border-gray-200'
+                      }`}
                     >
                       <div className="flex items-start justify-between">
                         <div className="flex-1">
-                          <div className="flex items-center gap-3 mb-2">
+                          <div className="flex items-center gap-3 mb-2 flex-wrap">
                             <h3 className="font-semibold text-gray-900">{voucher.booking_number}</h3>
                             <span className="px-2 py-0.5 text-xs bg-orange-100 text-orange-700 rounded-full flex items-center gap-1">
                               <ClassIcon className={`w-3 h-3 ${classColor}`} />
                               {voucher.ticket_categories?.name || 'No category'}
                             </span>
+                            {/* Placeholder badge */}
+                            {voucher.is_placeholder && (
+                              <span className="px-2 py-0.5 text-xs bg-amber-100 text-amber-700 rounded-full flex items-center gap-1 border border-amber-200">
+                                <FileEdit className="w-3 h-3" />
+                                Placeholder
+                              </span>
+                            )}
+                            {/* Deadline badge */}
+                            {deadlineInfo && (
+                              <span className={`px-2 py-0.5 text-xs rounded-full flex items-center gap-1 border ${deadlineInfo.color}`}>
+                                {deadlineInfo.urgent && <AlertCircle className="w-3 h-3" />}
+                                <Clock className="w-3 h-3" />
+                                {deadlineInfo.label}
+                              </span>
+                            )}
                             {ticketClass === 'entrance' && (
                               <span className={`px-2 py-0.5 text-xs rounded-full ${
-                                ticketSource === 'b2b'
+                                (voucher.voucher_source || ticketSource) === 'b2b'
                                   ? 'bg-purple-100 text-purple-700'
                                   : 'bg-green-100 text-green-700'
                               }`}>
-                                {ticketSource === 'b2b' ? 'B2B' : 'B2C'}
+                                {(voucher.voucher_source || ticketSource) === 'b2b' ? 'B2B' : 'B2C'}
                               </span>
                             )}
                             {voucher.activity_availability && (
                               <span className="px-2 py-0.5 text-xs bg-green-100 text-green-700 rounded-full">
                                 Assigned
+                              </span>
+                            )}
+                            {/* Unlinked tour alert - for vouchers that couldn't be linked due to missing slot */}
+                            {voucher.notes?.includes('[UNLINKED]') && (
+                              <span className="px-2 py-0.5 text-xs bg-red-100 text-red-700 rounded-full flex items-center gap-1 border border-red-200">
+                                <AlertCircle className="w-3 h-3" />
+                                Tour Not Linked
                               </span>
                             )}
                           </div>
@@ -308,7 +379,9 @@ export default function VouchersListPage() {
                             </span>
                             <span className="flex items-center gap-1">
                               <Users className="w-4 h-4" />
-                              {voucher.total_tickets} tickets
+                              {voucher.is_placeholder
+                                ? `${voucher.placeholder_ticket_count || voucher.total_tickets} tickets (placeholder)`
+                                : `${voucher.total_tickets} tickets`}
                             </span>
                             {voucher.activity_availability && (
                               <span className="text-green-600">

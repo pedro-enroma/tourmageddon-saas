@@ -37,7 +37,7 @@ export async function POST(request: NextRequest) {
 
   try {
     const body = await request.json()
-    const { name, description, product_names, guide_requires_ticket, skip_name_check, extraction_mode, ticket_class, default_source, b2b_indicator_text, b2b_price_adjustment, partner_id } = body
+    const { name, description, product_names, guide_requires_ticket, skip_name_check, extraction_mode, ticket_class, default_source, b2b_indicator_text, b2b_price_adjustment, partner_id, short_code, display_order, name_deadline_days_b2c, name_deadline_days_b2b } = body
 
     if (!name) {
       return NextResponse.json({ error: 'Name is required' }, { status: 400 })
@@ -57,7 +57,11 @@ export async function POST(request: NextRequest) {
         default_source: default_source || 'auto',
         b2b_indicator_text: b2b_indicator_text || null,
         b2b_price_adjustment: b2b_price_adjustment || null,
-        partner_id: partner_id || null
+        partner_id: partner_id || null,
+        short_code: short_code || name.substring(0, 3).toUpperCase(),
+        display_order: display_order ?? 999,
+        name_deadline_days_b2c: name_deadline_days_b2c ?? null,
+        name_deadline_days_b2b: name_deadline_days_b2b ?? null
       }])
       .select()
       .single()
@@ -88,7 +92,7 @@ export async function PUT(request: NextRequest) {
 
   try {
     const body = await request.json()
-    const { id, name, description, product_names, guide_requires_ticket, skip_name_check, extraction_mode, ticket_class, default_source, b2b_indicator_text, b2b_price_adjustment, partner_id } = body
+    const { id, name, description, product_names, guide_requires_ticket, skip_name_check, extraction_mode, ticket_class, default_source, b2b_indicator_text, b2b_price_adjustment, partner_id, short_code, display_order, name_deadline_days_b2c, name_deadline_days_b2b } = body
 
     if (!id) {
       return NextResponse.json({ error: 'id is required' }, { status: 400 })
@@ -119,7 +123,11 @@ export async function PUT(request: NextRequest) {
         default_source: default_source || 'auto',
         b2b_indicator_text: b2b_indicator_text || null,
         b2b_price_adjustment: b2b_price_adjustment || null,
-        partner_id: partner_id || null
+        partner_id: partner_id || null,
+        short_code: short_code || null,
+        display_order: display_order ?? 999,
+        name_deadline_days_b2c: name_deadline_days_b2c ?? null,
+        name_deadline_days_b2b: name_deadline_days_b2b ?? null
       })
       .eq('id', id)
       .select()
