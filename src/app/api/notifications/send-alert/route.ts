@@ -1,7 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { Resend } from 'resend'
-import { createClient } from '@supabase/supabase-js'
-import { verifySession } from '@/lib/supabase-server'
+import { getServiceRoleClient, verifySession, isAdmin } from '@/lib/supabase-server'
 
 const getResend = () => {
   const apiKey = process.env.RESEND_API_KEY
@@ -11,11 +10,6 @@ const getResend = () => {
   }
   return new Resend(apiKey)
 }
-
-const getSupabase = () => createClient(
-  process.env.NEXT_PUBLIC_SUPABASE_URL!,
-  process.env.SUPABASE_SERVICE_ROLE_KEY || process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!
-)
 
 interface Mismatch {
   participant_id: number
@@ -182,9 +176,15 @@ export async function POST(request: NextRequest) {
     return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
   }
 
+  // Verify user is an admin
+  const adminCheck = await isAdmin(user.id)
+  if (!adminCheck) {
+    return NextResponse.json({ error: 'Forbidden: Admin access required' }, { status: 403 })
+  }
+
   try {
     const body = await request.json()
-    const { notificationId, recipientEmail } = body
+    const { notificationId } = body
 
     if (!notificationId) {
       return NextResponse.json({ error: 'Missing notificationId' }, { status: 400 })
@@ -197,7 +197,7 @@ export async function POST(request: NextRequest) {
       }, { status: 500 })
     }
 
-    const supabase = getSupabase()
+    const supabase = getServiceRoleClient()
 
     // Fetch the notification
     const { data: notification, error: fetchError } = await supabase
@@ -210,8 +210,8 @@ export async function POST(request: NextRequest) {
       return NextResponse.json({ error: 'Notification not found' }, { status: 404 })
     }
 
-    // Use provided email or default to admin email from env
-    const toEmail = recipientEmail || process.env.ADMIN_ALERT_EMAIL
+    // Only send to configured admin email - no arbitrary recipients allowed
+    const toEmail = process.env.ADMIN_ALERT_EMAIL
     if (!toEmail) {
       return NextResponse.json({ error: 'No recipient email configured. Set ADMIN_ALERT_EMAIL environment variable.' }, { status: 500 })
     }

@@ -42,6 +42,8 @@ import NewRecapPage from '@/components/NewRecapPage'
 import PartnersListPage from '@/components/PartnersListPage'
 import VoucherRequestsListPage from '@/components/VoucherRequestsListPage'
 import ActivityPartnerMappingsPage from '@/components/ActivityPartnerMappingsPage'
+import NotificationRulesPage from '@/components/NotificationRulesPage'
+import { PushNotificationToggle } from '@/components/PushNotificationToggle'
 import { LucideIcon } from 'lucide-react'
 
 // Custom SuperSantos Ball Icon
@@ -341,6 +343,11 @@ function AppSidebar({ currentView, onNavigate }: {
           title: "Users",
           icon: Shield,
           view: "user-management",
+        },
+        {
+          title: "Notification Rules",
+          icon: Bell,
+          view: "notification-rules",
         },
         {
           title: "Audit Logs",
@@ -1088,6 +1095,8 @@ export default function DashboardLayout() {
         return <PartnersListPage />
       case 'notifications':
         return <NotificationsPage />
+      case 'notification-rules':
+        return <NotificationRulesPage />
       case 'user-management':
         return <UserManagementPage />
       case 'audit-logs':
@@ -1167,6 +1176,8 @@ export default function DashboardLayout() {
         return 'Partners'
       case 'notifications':
         return 'Notifications'
+      case 'notification-rules':
+        return 'Notification Rules'
       case 'user-management':
         return 'User Management'
       case 'audit-logs':
@@ -1205,7 +1216,7 @@ export default function DashboardLayout() {
     if (currentView === 'content') {
       return 'Content'
     }
-    if (['user-management', 'audit-logs', 'booking-changes', 'availability-sync'].includes(currentView)) {
+    if (['user-management', 'notification-rules', 'audit-logs', 'booking-changes', 'availability-sync'].includes(currentView)) {
       return 'Settings'
     }
     if (['monitoring-colosseum'].includes(currentView)) {
@@ -1240,6 +1251,7 @@ export default function DashboardLayout() {
               >
                 <Search className="h-5 w-5 text-gray-500" />
               </button>
+              <PushNotificationToggle />
               <div className="flex items-center gap-2">
                 <div className="h-2 w-2 rounded-full bg-brand-green animate-pulse" />
                 <span className="text-xs text-gray-500">Live</span>

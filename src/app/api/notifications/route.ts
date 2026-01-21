@@ -1,12 +1,18 @@
 import { NextRequest, NextResponse } from 'next/server'
-import { getServiceRoleClient, verifySession } from '@/lib/supabase-server'
+import { getServiceRoleClient, verifySession, isAdmin } from '@/lib/supabase-server'
 import { auditCreate, auditUpdate } from '@/lib/audit-logger'
 
-// GET - List all notifications
+// GET - List all notifications (admin only)
 export async function GET(request: NextRequest) {
   const { user, error: authError } = await verifySession()
   if (authError || !user) {
     return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
+  }
+
+  // Verify user is an admin
+  const adminCheck = await isAdmin(user.id)
+  if (!adminCheck) {
+    return NextResponse.json({ error: 'Forbidden: Admin access required' }, { status: 403 })
   }
 
   try {
@@ -51,11 +57,17 @@ export async function GET(request: NextRequest) {
   }
 }
 
-// POST - Create new notification
+// POST - Create new notification (admin only)
 export async function POST(request: NextRequest) {
   const { user, error: authError } = await verifySession()
   if (authError || !user) {
     return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
+  }
+
+  // Verify user is an admin
+  const adminCheck = await isAdmin(user.id)
+  if (!adminCheck) {
+    return NextResponse.json({ error: 'Forbidden: Admin access required' }, { status: 403 })
   }
 
   try {
@@ -94,11 +106,17 @@ export async function POST(request: NextRequest) {
   }
 }
 
-// PUT - Update notification (mark as read/resolved)
+// PUT - Update notification (mark as read/resolved) - admin only
 export async function PUT(request: NextRequest) {
   const { user, error: authError } = await verifySession()
   if (authError || !user) {
     return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
+  }
+
+  // Verify user is an admin
+  const adminCheck = await isAdmin(user.id)
+  if (!adminCheck) {
+    return NextResponse.json({ error: 'Forbidden: Admin access required' }, { status: 403 })
   }
 
   try {
@@ -117,9 +135,22 @@ export async function PUT(request: NextRequest) {
       .eq('id', id)
       .single()
 
-    const updateData: Record<string, unknown> = {}
+    const updateData: Record<string, unknown> = {
+      updated_at: new Date().toISOString()
+    }
     if (typeof is_read === 'boolean') updateData.is_read = is_read
-    if (typeof is_resolved === 'boolean') updateData.is_resolved = is_resolved
+    if (typeof is_resolved === 'boolean') {
+      updateData.is_resolved = is_resolved
+      // Capture who resolved it and when
+      if (is_resolved === true) {
+        updateData.resolved_at = new Date().toISOString()
+        updateData.resolved_by = user.email || user.id
+      } else {
+        // If un-resolving, clear the resolved info
+        updateData.resolved_at = null
+        updateData.resolved_by = null
+      }
+    }
 
     const { data, error } = await supabase
       .from('booking_notifications')

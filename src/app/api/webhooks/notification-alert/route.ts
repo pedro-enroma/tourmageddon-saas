@@ -1,6 +1,8 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { Resend } from 'resend'
 import { createClient } from '@supabase/supabase-js'
+import { sendAgeMismatchPush } from '@/lib/push-notifications'
+import { evaluateRules } from '@/lib/notification-rules-engine'
 
 const getResend = () => {
   const apiKey = process.env.RESEND_API_KEY
@@ -177,12 +179,17 @@ function generateAlertHtml(notification: Notification): string {
 // This webhook is called by Supabase Database Webhook when a notification is created
 export async function POST(request: NextRequest) {
   try {
-    // Verify webhook secret (set this in Supabase webhook config)
+    // Verify webhook secret - REQUIRED for security
     const webhookSecret = request.headers.get('x-webhook-secret')
     const expectedSecret = process.env.SUPABASE_WEBHOOK_SECRET
 
-    // If webhook secret is configured, verify it
-    if (expectedSecret && webhookSecret !== expectedSecret) {
+    // Always require webhook secret to be configured and valid
+    if (!expectedSecret) {
+      console.error('SUPABASE_WEBHOOK_SECRET not configured - webhook disabled for security')
+      return NextResponse.json({ error: 'Webhook not configured' }, { status: 503 })
+    }
+
+    if (webhookSecret !== expectedSecret) {
       console.error('Invalid webhook secret')
       return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
     }
@@ -237,6 +244,35 @@ export async function POST(request: NextRequest) {
     })
 
     console.log('Alert email sent successfully for notification:', record.id)
+
+    // Send push notification to admins
+    const mismatchCount = record.details?.mismatches?.length || 1
+    try {
+      await sendAgeMismatchPush(
+        record.activity_booking_id,
+        'Booking Alert',
+        mismatchCount
+      )
+    } catch (pushError) {
+      console.error('Push notification failed:', pushError)
+      // Don't fail the webhook if push fails
+    }
+
+    // Evaluate custom notification rules
+    try {
+      await evaluateRules({
+        trigger: 'age_mismatch',
+        data: {
+          severity: record.severity || 'warning',
+          mismatch_count: mismatchCount,
+          product_name: record.title || 'Booking Alert',
+          booking_id: record.activity_booking_id,
+        }
+      })
+    } catch (rulesError) {
+      console.error('Rules evaluation failed:', rulesError)
+      // Don't fail the webhook if rules evaluation fails
+    }
 
     return NextResponse.json({
       success: true,

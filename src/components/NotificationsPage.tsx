@@ -1,8 +1,7 @@
 // src/components/NotificationsPage.tsx
 'use client'
 import React, { useState, useEffect, useCallback } from 'react'
-import { Bell, AlertTriangle, CheckCircle, Info, RefreshCw, Check, X, ChevronDown, ChevronUp, Calendar, User, Clock, Mail, Plus } from 'lucide-react'
-import { supabase } from '@/lib/supabase'
+import { Bell, AlertTriangle, CheckCircle, Info, RefreshCw, Check, X, ChevronDown, ChevronUp, Calendar, User, Clock, Mail } from 'lucide-react'
 import { notificationsApi } from '@/lib/api-client'
 import { Button } from "@/components/ui/button"
 import { format } from 'date-fns'
@@ -25,12 +24,19 @@ interface NotificationDetails {
   }>
   expected_counts?: Record<string, number>
   actual_counts?: Record<string, number>
+  // Rule-triggered notification details
+  rule_id?: string
+  rule_name?: string
+  trigger_event?: string
+  event_data?: Record<string, unknown>
+  notification_url?: string
+  channels_used?: string[]
 }
 
 interface Notification {
   id: string
-  activity_booking_id: number
-  notification_type: 'age_mismatch' | 'swap_fixed' | 'missing_dob' | 'other'
+  activity_booking_id: number | null
+  notification_type: 'age_mismatch' | 'swap_fixed' | 'missing_dob' | 'rule_triggered' | 'other'
   severity: 'info' | 'warning' | 'error'
   title: string
   message: string
@@ -55,15 +61,7 @@ interface SwapLogEntry {
   created_at: string
 }
 
-type TabType = 'notifications' | 'swap_log' | 'create'
-
-interface CreateNotificationForm {
-  activity_booking_id: string
-  notification_type: 'age_mismatch' | 'missing_dob' | 'missing_ticket' | 'manual' | 'other'
-  severity: 'info' | 'warning' | 'error'
-  title: string
-  message: string
-}
+type TabType = 'notifications' | 'swap_log'
 
 export default function NotificationsPage() {
   const [notifications, setNotifications] = useState<Notification[]>([])
@@ -72,33 +70,13 @@ export default function NotificationsPage() {
   const [activeTab, setActiveTab] = useState<TabType>('notifications')
   const [filter, setFilter] = useState<'all' | 'unread' | 'unresolved'>('unresolved')
   const [expandedNotifications, setExpandedNotifications] = useState<Set<string>>(new Set())
-  const [createForm, setCreateForm] = useState<CreateNotificationForm>({
-    activity_booking_id: '',
-    notification_type: 'manual',
-    severity: 'warning',
-    title: '',
-    message: ''
-  })
-  const [creating, setCreating] = useState(false)
 
   const fetchNotifications = useCallback(async () => {
     setLoading(true)
     try {
-      let query = supabase
-        .from('booking_notifications')
-        .select('*')
-        .order('created_at', { ascending: false })
-
-      if (filter === 'unread') {
-        query = query.eq('is_read', false)
-      } else if (filter === 'unresolved') {
-        query = query.eq('is_resolved', false)
-      }
-
-      const { data, error } = await query.limit(100)
-
-      if (error) throw error
-      setNotifications(data || [])
+      const result = await notificationsApi.list(filter)
+      if (result.error) throw new Error(result.error)
+      setNotifications((result.data as unknown as Notification[]) || [])
     } catch (error) {
       console.error('Error fetching notifications:', error)
     } finally {
@@ -109,14 +87,9 @@ export default function NotificationsPage() {
   const fetchSwapLog = useCallback(async () => {
     setLoading(true)
     try {
-      const { data, error } = await supabase
-        .from('booking_swap_log')
-        .select('*')
-        .order('created_at', { ascending: false })
-        .limit(100)
-
-      if (error) throw error
-      setSwapLog(data || [])
+      const result = await notificationsApi.listSwapLog()
+      if (result.error) throw new Error(result.error)
+      setSwapLog((result.data as unknown as SwapLogEntry[]) || [])
     } catch (error) {
       console.error('Error fetching swap log:', error)
     } finally {
@@ -186,43 +159,6 @@ export default function NotificationsPage() {
     setExpandedNotifications(newExpanded)
   }
 
-  const createNotification = async () => {
-    if (!createForm.title || !createForm.message) {
-      alert('Please fill in title and message')
-      return
-    }
-
-    setCreating(true)
-    try {
-      // Create via API
-      const result = await notificationsApi.create({
-        activity_booking_id: createForm.activity_booking_id ? createForm.activity_booking_id : undefined,
-        notification_type: createForm.notification_type,
-        message: `${createForm.title}: ${createForm.message}`,
-        is_read: false,
-        is_resolved: false
-      })
-
-      if (result.error) throw new Error(result.error)
-
-      alert('Notification created successfully!')
-      setCreateForm({
-        activity_booking_id: '',
-        notification_type: 'manual',
-        severity: 'warning',
-        title: '',
-        message: ''
-      })
-      setActiveTab('notifications')
-      fetchNotifications()
-    } catch (error) {
-      console.error('Error creating notification:', error)
-      alert('Failed to create notification')
-    } finally {
-      setCreating(false)
-    }
-  }
-
   const getSeverityIcon = (severity: string) => {
     switch (severity) {
       case 'error':
@@ -286,9 +222,9 @@ export default function NotificationsPage() {
           <div className="flex items-center gap-2">
             <AlertTriangle className="w-4 h-4" />
             Alerts
-            {notifications.filter(n => !n.is_resolved && n.notification_type === 'age_mismatch').length > 0 && (
+            {notifications.filter(n => !n.is_resolved && (n.notification_type === 'age_mismatch' || n.notification_type === 'rule_triggered')).length > 0 && (
               <span className="bg-red-100 text-red-600 text-xs px-1.5 py-0.5 rounded">
-                {notifications.filter(n => !n.is_resolved && n.notification_type === 'age_mismatch').length}
+                {notifications.filter(n => !n.is_resolved && (n.notification_type === 'age_mismatch' || n.notification_type === 'rule_triggered')).length}
               </span>
             )}
           </div>
@@ -304,19 +240,6 @@ export default function NotificationsPage() {
           <div className="flex items-center gap-2">
             <CheckCircle className="w-4 h-4" />
             Auto-Fix Log
-          </div>
-        </button>
-        <button
-          className={`pb-2 px-1 border-b-2 transition-colors ${
-            activeTab === 'create'
-              ? 'border-blue-500 text-blue-600'
-              : 'border-transparent text-gray-500 hover:text-gray-700'
-          }`}
-          onClick={() => setActiveTab('create')}
-        >
-          <div className="flex items-center gap-2">
-            <Plus className="w-4 h-4" />
-            Create Alert
           </div>
         </button>
       </div>
@@ -381,10 +304,17 @@ export default function NotificationsPage() {
                               <Calendar className="w-3 h-3" />
                               {format(new Date(notification.created_at), 'MMM d, yyyy HH:mm')}
                             </span>
-                            <span className="flex items-center gap-1">
-                              <User className="w-3 h-3" />
-                              Booking #{notification.activity_booking_id}
-                            </span>
+                            {notification.activity_booking_id && (
+                              <span className="flex items-center gap-1">
+                                <User className="w-3 h-3" />
+                                Booking #{notification.activity_booking_id}
+                              </span>
+                            )}
+                            {notification.notification_type === 'rule_triggered' && notification.details?.trigger_event && (
+                              <span className="bg-purple-100 text-purple-700 px-1.5 py-0.5 rounded text-xs">
+                                {notification.details.trigger_event.replace(/_/g, ' ')}
+                              </span>
+                            )}
                           </div>
                         </div>
                       </div>
@@ -525,6 +455,67 @@ export default function NotificationsPage() {
                           </div>
                         </div>
                       )}
+
+                      {/* Rule-triggered notification details */}
+                      {notification.notification_type === 'rule_triggered' && notification.details?.event_data && (
+                        <div className="space-y-3">
+                          {/* Key info cards */}
+                          <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
+                            {notification.details.event_data.customer_name && (
+                              <div className="bg-white rounded-lg p-3 border">
+                                <div className="text-xs text-gray-500 mb-1">Customer</div>
+                                <div className="font-semibold text-sm">{String(notification.details.event_data.customer_name)}</div>
+                              </div>
+                            )}
+                            {notification.details.event_data.confirmation_code && (
+                              <div className="bg-white rounded-lg p-3 border">
+                                <div className="text-xs text-gray-500 mb-1">Booking</div>
+                                <div className="font-semibold text-sm font-mono">{String(notification.details.event_data.confirmation_code)}</div>
+                              </div>
+                            )}
+                            {notification.details.event_data.travel_date && (
+                              <div className="bg-white rounded-lg p-3 border">
+                                <div className="text-xs text-gray-500 mb-1">Travel Date</div>
+                                <div className="font-semibold text-sm">{String(notification.details.event_data.travel_date)}</div>
+                              </div>
+                            )}
+                            {notification.details.event_data.pax_count !== undefined && (
+                              <div className="bg-white rounded-lg p-3 border">
+                                <div className="text-xs text-gray-500 mb-1">Passengers</div>
+                                <div className="font-semibold text-sm">{String(notification.details.event_data.pax_count)} pax</div>
+                              </div>
+                            )}
+                          </div>
+
+                          {/* Additional details in a compact table */}
+                          <details className="group">
+                            <summary className="text-xs text-gray-500 cursor-pointer hover:text-gray-700">
+                              Show all event data
+                            </summary>
+                            <div className="mt-2 bg-gray-50 rounded-lg p-3 text-xs">
+                              <div className="grid grid-cols-2 gap-x-4 gap-y-1">
+                                {Object.entries(notification.details.event_data)
+                                  .filter(([key]) => !['customer_name', 'confirmation_code', 'travel_date', 'pax_count'].includes(key))
+                                  .map(([key, value]) => (
+                                    <div key={key} className="flex justify-between py-0.5">
+                                      <span className="text-gray-500 capitalize">{key.replace(/_/g, ' ')}</span>
+                                      <span className="font-medium text-gray-700">
+                                        {typeof value === 'boolean' ? (value ? 'Yes' : 'No') : String(value || '-')}
+                                      </span>
+                                    </div>
+                                  ))}
+                              </div>
+                            </div>
+                          </details>
+
+                          {/* Rule info */}
+                          {notification.details.rule_name && (
+                            <div className="text-xs text-gray-400">
+                              Triggered by rule: <span className="font-medium">{notification.details.rule_name}</span>
+                            </div>
+                          )}
+                        </div>
+                      )}
                     </div>
                   )}
                 </div>
@@ -596,143 +587,6 @@ export default function NotificationsPage() {
         </>
       )}
 
-      {activeTab === 'create' && (
-        <div className="max-w-2xl">
-          <div className="bg-white rounded-lg border p-6">
-            <h2 className="text-lg font-semibold mb-4">Create New Alert</h2>
-
-            <div className="space-y-4">
-              {/* Activity Booking ID (optional) */}
-              <div>
-                <label className="block text-sm font-medium text-gray-700 mb-1">
-                  Activity Booking ID (optional)
-                </label>
-                <input
-                  type="text"
-                  value={createForm.activity_booking_id}
-                  onChange={(e) => setCreateForm({ ...createForm, activity_booking_id: e.target.value })}
-                  placeholder="e.g., 114927446"
-                  className="w-full px-3 py-2 border rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
-                />
-              </div>
-
-              {/* Notification Type */}
-              <div>
-                <label className="block text-sm font-medium text-gray-700 mb-1">
-                  Notification Type
-                </label>
-                <select
-                  value={createForm.notification_type}
-                  onChange={(e) => setCreateForm({ ...createForm, notification_type: e.target.value as CreateNotificationForm['notification_type'] })}
-                  className="w-full px-3 py-2 border rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
-                >
-                  <option value="manual">Manual Alert</option>
-                  <option value="age_mismatch">Age Mismatch</option>
-                  <option value="missing_dob">Missing DOB</option>
-                  <option value="missing_ticket">Missing Ticket</option>
-                  <option value="other">Other</option>
-                </select>
-              </div>
-
-              {/* Severity */}
-              <div>
-                <label className="block text-sm font-medium text-gray-700 mb-1">
-                  Severity
-                </label>
-                <div className="flex gap-3">
-                  {(['info', 'warning', 'error'] as const).map((sev) => (
-                    <label
-                      key={sev}
-                      className={`flex items-center gap-2 px-4 py-2 rounded-lg border cursor-pointer transition-colors ${
-                        createForm.severity === sev
-                          ? sev === 'info'
-                            ? 'bg-blue-50 border-blue-300 text-blue-700'
-                            : sev === 'warning'
-                            ? 'bg-yellow-50 border-yellow-300 text-yellow-700'
-                            : 'bg-red-50 border-red-300 text-red-700'
-                          : 'bg-gray-50 border-gray-200 text-gray-600 hover:bg-gray-100'
-                      }`}
-                    >
-                      <input
-                        type="radio"
-                        name="severity"
-                        value={sev}
-                        checked={createForm.severity === sev}
-                        onChange={(e) => setCreateForm({ ...createForm, severity: e.target.value as 'info' | 'warning' | 'error' })}
-                        className="sr-only"
-                      />
-                      {getSeverityIcon(sev)}
-                      <span className="capitalize">{sev}</span>
-                    </label>
-                  ))}
-                </div>
-              </div>
-
-              {/* Title */}
-              <div>
-                <label className="block text-sm font-medium text-gray-700 mb-1">
-                  Title <span className="text-red-500">*</span>
-                </label>
-                <input
-                  type="text"
-                  value={createForm.title}
-                  onChange={(e) => setCreateForm({ ...createForm, title: e.target.value })}
-                  placeholder="Short description of the alert"
-                  className="w-full px-3 py-2 border rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
-                />
-              </div>
-
-              {/* Message */}
-              <div>
-                <label className="block text-sm font-medium text-gray-700 mb-1">
-                  Message <span className="text-red-500">*</span>
-                </label>
-                <textarea
-                  value={createForm.message}
-                  onChange={(e) => setCreateForm({ ...createForm, message: e.target.value })}
-                  placeholder="Detailed description of the issue..."
-                  rows={4}
-                  className="w-full px-3 py-2 border rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-blue-500 resize-none"
-                />
-              </div>
-
-              {/* Submit Button */}
-              <div className="flex justify-end gap-3 pt-4">
-                <Button
-                  variant="outline"
-                  onClick={() => {
-                    setCreateForm({
-                      activity_booking_id: '',
-                      notification_type: 'manual',
-                      severity: 'warning',
-                      title: '',
-                      message: ''
-                    })
-                  }}
-                >
-                  Clear
-                </Button>
-                <Button
-                  onClick={createNotification}
-                  disabled={creating || !createForm.title || !createForm.message}
-                >
-                  {creating ? (
-                    <>
-                      <RefreshCw className="w-4 h-4 mr-2 animate-spin" />
-                      Creating...
-                    </>
-                  ) : (
-                    <>
-                      <Plus className="w-4 h-4 mr-2" />
-                      Create Alert
-                    </>
-                  )}
-                </Button>
-              </div>
-            </div>
-          </div>
-        </div>
-      )}
     </div>
   )
 }

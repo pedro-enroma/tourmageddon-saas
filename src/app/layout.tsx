@@ -20,6 +20,7 @@ export const metadata: Metadata = {
       { url: '/favicon.svg', type: 'image/svg+xml' },
     ],
   },
+  manifest: '/manifest.json',
 };
 
 export default function RootLayout({

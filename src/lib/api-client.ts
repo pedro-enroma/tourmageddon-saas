@@ -296,12 +296,32 @@ export interface BookingNotification {
   created_at: string
 }
 
+export interface SwapLogEntry {
+  id: string
+  activity_booking_id: number
+  participant_id: number
+  original_booked_title: string
+  corrected_booked_title: string
+  passenger_name: string
+  passenger_dob: string | null
+  calculated_age: number | null
+  reason: string | null
+  created_at: string
+}
+
 export const notificationsApi = {
-  list: () => apiRequest<BookingNotification[]>('/api/notifications'),
+  list: (filter?: 'all' | 'unread' | 'unresolved') => {
+    const params = new URLSearchParams()
+    if (filter === 'unread') params.set('unread_only', 'true')
+    if (filter === 'unresolved') params.set('unresolved_only', 'true')
+    const query = params.toString() ? `?${params.toString()}` : ''
+    return apiRequest<BookingNotification[]>(`/api/notifications${query}`)
+  },
   update: (notification: Partial<BookingNotification>) =>
     apiRequest<BookingNotification>('/api/notifications', 'PUT', notification),
   create: (notification: Partial<BookingNotification>) =>
     apiRequest<BookingNotification>('/api/notifications', 'POST', notification),
+  listSwapLog: () => apiRequest<SwapLogEntry[]>('/api/notifications/swap-log'),
 }
 
 // ============================================
