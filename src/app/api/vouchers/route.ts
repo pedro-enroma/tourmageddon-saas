@@ -51,6 +51,14 @@ export async function POST(request: NextRequest) {
       notes
     } = voucherData
 
+    console.log('[Voucher API] Creating voucher:', {
+      booking_number,
+      visit_date,
+      activity_availability_id,
+      planned_availability_id,
+      notes
+    })
+
     // For non-manual entries, file is required
     if (!manual_entry && !file) {
       return NextResponse.json({ error: 'File is required for PDF vouchers' }, { status: 400 })

@@ -1119,17 +1119,21 @@ export default function VoucherUploadPage() {
           } else if (dateMode === 'multiple' && selectedMultiDateActivityId && selectedMultiDateTime) {
             // For multiple dates, check if this date has a matching slot (real or planned)
             const dateStatus = multiDateAvailabilityStatus.find(s => s.date === visitDate)
+            console.log('[Voucher Save] Date:', visitDate, 'Status:', dateStatus)
             if (dateStatus?.hasSlot) {
               if (dateStatus.availabilityId) {
                 // Real slot
                 activityAvailabilityId = dateStatus.availabilityId
+                console.log('[Voucher Save] Using real slot:', activityAvailabilityId)
               } else if (dateStatus.plannedAvailabilityId) {
                 // Planned slot
                 plannedAvailabilityId = dateStatus.plannedAvailabilityId
+                console.log('[Voucher Save] Using planned slot:', plannedAvailabilityId)
               }
             } else {
               // No slot for this date - mark as unlinked
               isTourUnlinked = true
+              console.log('[Voucher Save] No slot found, marking as unlinked')
             }
           }
 
