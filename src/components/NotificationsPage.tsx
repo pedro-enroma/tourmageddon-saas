@@ -461,19 +461,19 @@ export default function NotificationsPage() {
                         <div className="space-y-3">
                           {/* Key info cards */}
                           <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
-                            {notification.details.event_data.customer_name && (
+                            {!!notification.details.event_data.customer_name && (
                               <div className="bg-white rounded-lg p-3 border">
                                 <div className="text-xs text-gray-500 mb-1">Customer</div>
                                 <div className="font-semibold text-sm">{String(notification.details.event_data.customer_name)}</div>
                               </div>
                             )}
-                            {notification.details.event_data.confirmation_code && (
+                            {!!notification.details.event_data.confirmation_code && (
                               <div className="bg-white rounded-lg p-3 border">
                                 <div className="text-xs text-gray-500 mb-1">Booking</div>
                                 <div className="font-semibold text-sm font-mono">{String(notification.details.event_data.confirmation_code)}</div>
                               </div>
                             )}
-                            {notification.details.event_data.travel_date && (
+                            {!!notification.details.event_data.travel_date && (
                               <div className="bg-white rounded-lg p-3 border">
                                 <div className="text-xs text-gray-500 mb-1">Travel Date</div>
                                 <div className="font-semibold text-sm">{String(notification.details.event_data.travel_date)}</div>
