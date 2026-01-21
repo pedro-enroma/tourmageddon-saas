@@ -293,6 +293,9 @@ export interface BookingNotification {
   message: string
   is_read: boolean
   is_resolved: boolean
+  resolved_at?: string
+  resolved_by?: string
+  remind_at?: string
   created_at: string
 }
 

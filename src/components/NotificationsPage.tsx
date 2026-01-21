@@ -1,10 +1,12 @@
 // src/components/NotificationsPage.tsx
 'use client'
 import React, { useState, useEffect, useCallback } from 'react'
-import { Bell, AlertTriangle, CheckCircle, Info, RefreshCw, Check, X, ChevronDown, ChevronUp, Calendar, User, Clock, Mail } from 'lucide-react'
+import { Bell, AlertTriangle, CheckCircle, Info, RefreshCw, Check, ChevronDown, ChevronUp, Calendar, User, Clock, Mail, Send } from 'lucide-react'
 import { notificationsApi } from '@/lib/api-client'
 import { Button } from "@/components/ui/button"
-import { format } from 'date-fns'
+import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter } from "@/components/ui/dialog"
+import { Checkbox } from "@/components/ui/checkbox"
+import { format, addHours, addDays, addMinutes } from 'date-fns'
 
 interface NotificationDetails {
   mismatches?: Array<{
@@ -45,8 +47,35 @@ interface Notification {
   is_resolved: boolean
   resolved_at: string | null
   resolved_by: string | null
+  remind_at: string | null
   created_at: string
 }
+
+// Predefined email recipients
+const EMAIL_RECIPIENTS = [
+  { id: 'pedro', name: 'Pedro', email: 'pedro@tourmageddon.it' },
+  { id: 'ops', name: 'Operations', email: 'ops@tourmageddon.it' },
+  { id: 'admin', name: 'Admin', email: 'admin@tourmageddon.it' },
+  { id: 'support', name: 'Support', email: 'support@tourmageddon.it' },
+]
+
+// Reminder time options
+const REMINDER_OPTIONS = [
+  { label: '30 minutes', value: () => addMinutes(new Date(), 30) },
+  { label: '1 hour', value: () => addHours(new Date(), 1) },
+  { label: '3 hours', value: () => addHours(new Date(), 3) },
+  { label: 'Tomorrow morning (9 AM)', value: () => {
+    const tomorrow = addDays(new Date(), 1)
+    tomorrow.setHours(9, 0, 0, 0)
+    return tomorrow
+  }},
+  { label: 'Tomorrow afternoon (2 PM)', value: () => {
+    const tomorrow = addDays(new Date(), 1)
+    tomorrow.setHours(14, 0, 0, 0)
+    return tomorrow
+  }},
+  { label: 'Next week', value: () => addDays(new Date(), 7) },
+]
 
 interface SwapLogEntry {
   id: string
@@ -70,6 +99,14 @@ export default function NotificationsPage() {
   const [activeTab, setActiveTab] = useState<TabType>('notifications')
   const [filter, setFilter] = useState<'all' | 'unread' | 'unresolved'>('unresolved')
   const [expandedNotifications, setExpandedNotifications] = useState<Set<string>>(new Set())
+
+  // Dialog states
+  const [escalateDialogOpen, setEscalateDialogOpen] = useState(false)
+  const [remindDialogOpen, setRemindDialogOpen] = useState(false)
+  const [selectedNotification, setSelectedNotification] = useState<Notification | null>(null)
+  const [selectedEmails, setSelectedEmails] = useState<string[]>([])
+  const [sendingEmail, setSendingEmail] = useState(false)
+  const [settingReminder, setSettingReminder] = useState(false)
 
   const fetchNotifications = useCallback(async () => {
     setLoading(true)
@@ -105,20 +142,8 @@ export default function NotificationsPage() {
     }
   }, [activeTab, filter, fetchNotifications, fetchSwapLog])
 
-  const markAsRead = async (id: string) => {
-    try {
-      // Update via API
-      const result = await notificationsApi.update({ id, is_read: true })
-      if (result.error) throw new Error(result.error)
-      fetchNotifications()
-    } catch (error) {
-      console.error('Error marking as read:', error)
-    }
-  }
-
   const markAsResolved = async (id: string) => {
     try {
-      // Update via API
       const result = await notificationsApi.update({
         id,
         is_resolved: true
@@ -130,23 +155,77 @@ export default function NotificationsPage() {
     }
   }
 
-  const sendEmailAlert = async (id: string) => {
+  // Open escalate dialog
+  const openEscalateDialog = (notification: Notification) => {
+    setSelectedNotification(notification)
+    setSelectedEmails([])
+    setEscalateDialogOpen(true)
+  }
+
+  // Send escalation email to selected recipients
+  const sendEscalationEmail = async () => {
+    if (!selectedNotification || selectedEmails.length === 0) return
+
+    setSendingEmail(true)
     try {
-      const response = await fetch('/api/notifications/send-alert', {
+      const response = await fetch('/api/notifications/escalate', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ notificationId: id })
+        body: JSON.stringify({
+          notificationId: selectedNotification.id,
+          recipients: selectedEmails
+        })
       })
       const data = await response.json()
       if (response.ok) {
-        alert('Email alert sent successfully!')
+        setEscalateDialogOpen(false)
+        alert(`Email sent to ${selectedEmails.length} recipient(s)!`)
       } else {
         alert(`Failed to send email: ${data.error}`)
       }
     } catch (error) {
-      console.error('Error sending email:', error)
-      alert('Failed to send email alert')
+      console.error('Error sending escalation email:', error)
+      alert('Failed to send escalation email')
+    } finally {
+      setSendingEmail(false)
     }
+  }
+
+  // Open remind dialog
+  const openRemindDialog = (notification: Notification) => {
+    setSelectedNotification(notification)
+    setRemindDialogOpen(true)
+  }
+
+  // Set reminder for notification
+  const setReminder = async (remindAt: Date) => {
+    if (!selectedNotification) return
+
+    setSettingReminder(true)
+    try {
+      const result = await notificationsApi.update({
+        id: selectedNotification.id,
+        remind_at: remindAt.toISOString()
+      })
+      if (result.error) throw new Error(result.error)
+      setRemindDialogOpen(false)
+      fetchNotifications()
+      alert(`Reminder set for ${format(remindAt, 'MMM d, yyyy h:mm a')}`)
+    } catch (error) {
+      console.error('Error setting reminder:', error)
+      alert('Failed to set reminder')
+    } finally {
+      setSettingReminder(false)
+    }
+  }
+
+  // Toggle email selection
+  const toggleEmailSelection = (email: string) => {
+    setSelectedEmails(prev =>
+      prev.includes(email)
+        ? prev.filter(e => e !== email)
+        : [...prev, email]
+    )
   }
 
   const toggleExpanded = (id: string) => {
@@ -321,32 +400,35 @@ export default function NotificationsPage() {
                       <div className="flex items-center gap-2">
                         {!notification.is_resolved && (
                           <>
-                            {notification.notification_type === 'age_mismatch' && (
-                              <Button
-                                size="sm"
-                                variant="outline"
-                                onClick={(e) => {
-                                  e.stopPropagation()
-                                  sendEmailAlert(notification.id)
-                                }}
-                                title="Send email alert"
-                                className="text-orange-600 border-orange-300 hover:bg-orange-50"
-                              >
-                                <Mail className="w-4 h-4 mr-1" />
-                                Email
-                              </Button>
-                            )}
+                            {/* Escalate Button */}
                             <Button
                               size="sm"
-                              variant="ghost"
+                              variant="outline"
                               onClick={(e) => {
                                 e.stopPropagation()
-                                markAsRead(notification.id)
+                                openEscalateDialog(notification)
                               }}
-                              title="Mark as read"
+                              title="Escalate via email"
+                              className="text-orange-600 border-orange-300 hover:bg-orange-50"
                             >
-                              <Check className="w-4 h-4" />
+                              <Send className="w-4 h-4 mr-1" />
+                              Escalate
                             </Button>
+                            {/* Remind Me Button */}
+                            <Button
+                              size="sm"
+                              variant="outline"
+                              onClick={(e) => {
+                                e.stopPropagation()
+                                openRemindDialog(notification)
+                              }}
+                              title="Remind me later"
+                              className="text-blue-600 border-blue-300 hover:bg-blue-50"
+                            >
+                              <Clock className="w-4 h-4 mr-1" />
+                              Remind
+                            </Button>
+                            {/* Resolve Button */}
                             <Button
                               size="sm"
                               variant="outline"
@@ -355,11 +437,18 @@ export default function NotificationsPage() {
                                 markAsResolved(notification.id)
                               }}
                               title="Mark as resolved"
+                              className="text-green-600 border-green-300 hover:bg-green-50"
                             >
-                              <X className="w-4 h-4 mr-1" />
+                              <Check className="w-4 h-4 mr-1" />
                               Resolve
                             </Button>
                           </>
+                        )}
+                        {notification.remind_at && !notification.is_resolved && (
+                          <span className="text-xs text-blue-500 flex items-center gap-1">
+                            <Clock className="w-3 h-3" />
+                            {format(new Date(notification.remind_at), 'MMM d, h:mm a')}
+                          </span>
                         )}
                         {expandedNotifications.has(notification.id) ? (
                           <ChevronUp className="w-5 h-5 text-gray-400" />
@@ -586,6 +675,114 @@ export default function NotificationsPage() {
           )}
         </>
       )}
+
+      {/* Escalate Dialog */}
+      <Dialog open={escalateDialogOpen} onOpenChange={setEscalateDialogOpen}>
+        <DialogContent className="sm:max-w-md">
+          <DialogHeader>
+            <DialogTitle className="flex items-center gap-2">
+              <Send className="w-5 h-5 text-orange-500" />
+              Escalate Notification
+            </DialogTitle>
+          </DialogHeader>
+          <div className="py-4">
+            <p className="text-sm text-gray-500 mb-4">
+              Select recipients to escalate this notification via email:
+            </p>
+            {selectedNotification && (
+              <div className="bg-gray-50 rounded-lg p-3 mb-4 text-sm">
+                <div className="font-semibold">{selectedNotification.title}</div>
+                <div className="text-gray-600 text-xs mt-1">{selectedNotification.message}</div>
+              </div>
+            )}
+            <div className="space-y-3">
+              {EMAIL_RECIPIENTS.map((recipient) => (
+                <div
+                  key={recipient.id}
+                  className="flex items-center gap-3 p-3 border rounded-lg hover:bg-gray-50 cursor-pointer"
+                  onClick={() => toggleEmailSelection(recipient.email)}
+                >
+                  <Checkbox
+                    checked={selectedEmails.includes(recipient.email)}
+                    onCheckedChange={() => toggleEmailSelection(recipient.email)}
+                  />
+                  <div className="flex-1">
+                    <div className="font-medium text-sm">{recipient.name}</div>
+                    <div className="text-xs text-gray-500">{recipient.email}</div>
+                  </div>
+                </div>
+              ))}
+            </div>
+          </div>
+          <DialogFooter>
+            <Button variant="outline" onClick={() => setEscalateDialogOpen(false)}>
+              Cancel
+            </Button>
+            <Button
+              onClick={sendEscalationEmail}
+              disabled={selectedEmails.length === 0 || sendingEmail}
+              className="bg-orange-500 hover:bg-orange-600"
+            >
+              {sendingEmail ? (
+                <>
+                  <RefreshCw className="w-4 h-4 mr-2 animate-spin" />
+                  Sending...
+                </>
+              ) : (
+                <>
+                  <Send className="w-4 h-4 mr-2" />
+                  Send to {selectedEmails.length} recipient{selectedEmails.length !== 1 ? 's' : ''}
+                </>
+              )}
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
+      {/* Remind Dialog */}
+      <Dialog open={remindDialogOpen} onOpenChange={setRemindDialogOpen}>
+        <DialogContent className="sm:max-w-md">
+          <DialogHeader>
+            <DialogTitle className="flex items-center gap-2">
+              <Clock className="w-5 h-5 text-blue-500" />
+              Set Reminder
+            </DialogTitle>
+          </DialogHeader>
+          <div className="py-4">
+            <p className="text-sm text-gray-500 mb-4">
+              When would you like to be reminded about this notification?
+            </p>
+            {selectedNotification && (
+              <div className="bg-gray-50 rounded-lg p-3 mb-4 text-sm">
+                <div className="font-semibold">{selectedNotification.title}</div>
+                <div className="text-gray-600 text-xs mt-1">{selectedNotification.message}</div>
+              </div>
+            )}
+            <div className="space-y-2">
+              {REMINDER_OPTIONS.map((option, index) => (
+                <button
+                  key={index}
+                  className="w-full text-left p-3 border rounded-lg hover:bg-blue-50 hover:border-blue-300 transition-colors"
+                  onClick={() => setReminder(option.value())}
+                  disabled={settingReminder}
+                >
+                  <div className="flex items-center justify-between">
+                    <span className="font-medium text-sm">{option.label}</span>
+                    <span className="text-xs text-gray-500">
+                      {format(option.value(), 'MMM d, h:mm a')}
+                    </span>
+                  </div>
+                </button>
+              ))}
+            </div>
+          </div>
+          <DialogFooter>
+            <Button variant="outline" onClick={() => setRemindDialogOpen(false)}>
+              Cancel
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
 
     </div>
   )

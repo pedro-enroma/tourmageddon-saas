@@ -114,7 +114,7 @@ export async function PUT(request: NextRequest) {
 
   try {
     const body = await request.json()
-    const { id, is_read, is_resolved } = body
+    const { id, is_read, is_resolved, remind_at } = body
 
     if (!id) {
       return NextResponse.json({ error: 'id is required' }, { status: 400 })
@@ -143,6 +143,10 @@ export async function PUT(request: NextRequest) {
         updateData.resolved_at = null
         updateData.resolved_by = null
       }
+    }
+    // Handle remind_at for snooze/reminder functionality
+    if (remind_at !== undefined) {
+      updateData.remind_at = remind_at
     }
 
     const { data, error } = await supabase
