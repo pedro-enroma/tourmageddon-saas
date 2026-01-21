@@ -44,6 +44,7 @@ import VoucherRequestsListPage from '@/components/VoucherRequestsListPage'
 import ActivityPartnerMappingsPage from '@/components/ActivityPartnerMappingsPage'
 import NotificationRulesPage from '@/components/NotificationRulesPage'
 import { PushNotificationToggle } from '@/components/PushNotificationToggle'
+import { setNotificationNavigator } from '@/components/NotificationToastProvider'
 import { LucideIcon } from 'lucide-react'
 
 // Custom SuperSantos Ball Icon
@@ -959,6 +960,7 @@ const CHANGELOG = [
       { type: 'feature', text: 'Notification Rules - Create automated notification rules with visual condition builder' },
       { type: 'feature', text: 'Rule Triggers - booking_cancelled, voucher_uploaded, age_mismatch, sync_failure events' },
       { type: 'feature', text: 'Multi-channel Delivery - Push notifications and Email via Resend' },
+      { type: 'feature', text: 'Real-time Toast Notifications - In-app alerts with persistent toasts until dismissed' },
       { type: 'feature', text: 'Template Variables - Dynamic content with {customer_name}, {booking_id}, etc.' },
       { type: 'improvement', text: 'Rule-triggered alerts appear in Operations > Notifications > Alerts' },
       { type: 'improvement', text: 'Security hardening - Admin role verification on all notification endpoints' },
@@ -1029,6 +1031,11 @@ export default function DashboardLayout() {
   const [currentView, setCurrentView] = useState('recap')
   const [searchOpen, setSearchOpen] = useState(false)
   const [changelogOpen, setChangelogOpen] = useState(false)
+
+  // Register navigation function for toast notifications
+  useEffect(() => {
+    setNotificationNavigator(setCurrentView)
+  }, [])
 
   // Keyboard shortcuts
   useEffect(() => {

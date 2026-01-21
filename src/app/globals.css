@@ -191,3 +191,76 @@
     background: linear-gradient(135deg, var(--brand-orange-light) 0%, var(--brand-green-light) 100%);
   }
 }
+
+/* Sonner Toast Styles */
+[data-sonner-toaster] {
+  --width: 380px;
+  font-family: var(--font-geist-sans), system-ui, sans-serif;
+}
+
+[data-sonner-toast] {
+  --border-radius: 14px;
+}
+
+[data-sonner-toast][data-type="error"] {
+  background: linear-gradient(135deg, #dc2626 0%, #b91c1c 100%);
+  border: none;
+  color: white;
+}
+
+[data-sonner-toast][data-type="warning"] {
+  background: linear-gradient(135deg, #f59e0b 0%, #d97706 100%);
+  border: none;
+  color: white;
+}
+
+[data-sonner-toast][data-type="success"] {
+  background: linear-gradient(135deg, #10b981 0%, #059669 100%);
+  border: none;
+  color: white;
+}
+
+[data-sonner-toast][data-type="info"] {
+  background: linear-gradient(135deg, #3b82f6 0%, #2563eb 100%);
+  border: none;
+  color: white;
+}
+
+[data-sonner-toast] [data-title] {
+  font-weight: 600;
+  letter-spacing: -0.01em;
+}
+
+[data-sonner-toast] [data-description] {
+  opacity: 0.92;
+  line-height: 1.5;
+}
+
+[data-sonner-toast] [data-close-button] {
+  background: rgba(255, 255, 255, 0.15);
+  border: none;
+  color: white;
+  opacity: 0.7;
+  transition: all 0.2s ease;
+}
+
+[data-sonner-toast] [data-close-button]:hover {
+  background: rgba(255, 255, 255, 0.25);
+  opacity: 1;
+}
+
+[data-sonner-toast] [data-button] {
+  background: rgba(255, 255, 255, 0.2);
+  color: white;
+  font-weight: 500;
+  border-radius: 8px;
+  padding: 6px 14px;
+  font-size: 12px;
+  transition: all 0.2s ease;
+  border: 1px solid rgba(255, 255, 255, 0.1);
+}
+
+[data-sonner-toast] [data-button]:hover {
+  background: rgba(255, 255, 255, 0.3);
+  transform: translateY(-1px);
+}
