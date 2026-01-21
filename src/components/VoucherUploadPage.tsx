@@ -106,7 +106,9 @@ interface ActivityInfo {
 interface MultiDateAvailabilityStatus {
   date: string
   availabilityId: number | null
+  plannedAvailabilityId: string | null
   hasSlot: boolean
+  isPlanned: boolean
 }
 
 export default function VoucherUploadPage() {
@@ -1115,10 +1117,16 @@ export default function VoucherUploadPage() {
               activityAvailabilityId = selectedAvailabilityId
             }
           } else if (dateMode === 'multiple' && selectedMultiDateActivityId && selectedMultiDateTime) {
-            // For multiple dates, check if this date has a matching slot
+            // For multiple dates, check if this date has a matching slot (real or planned)
             const dateStatus = multiDateAvailabilityStatus.find(s => s.date === visitDate)
-            if (dateStatus?.hasSlot && dateStatus.availabilityId) {
-              activityAvailabilityId = dateStatus.availabilityId
+            if (dateStatus?.hasSlot) {
+              if (dateStatus.availabilityId) {
+                // Real slot
+                activityAvailabilityId = dateStatus.availabilityId
+              } else if (dateStatus.plannedAvailabilityId) {
+                // Planned slot
+                plannedAvailabilityId = dateStatus.plannedAvailabilityId
+              }
             } else {
               // No slot for this date - mark as unlinked
               isTourUnlinked = true
@@ -1353,26 +1361,46 @@ export default function VoucherUploadPage() {
 
     setCheckingAvailability(true)
     try {
-      // Fetch all availabilities for this activity and time across all dates
-      const { data: availabilities } = await supabase
+      // Fetch all real availabilities for this activity and time across all dates
+      const { data: realAvailabilities } = await supabase
         .from('activity_availability')
         .select('id, local_date, local_time')
         .eq('activity_id', selectedMultiDateActivityId)
         .eq('local_time', selectedMultiDateTime)
         .in('local_date', dates)
 
-      // Create a map of date to availability_id
-      const availabilityMap = new Map<string, number>()
-      availabilities?.forEach(a => {
-        availabilityMap.set(a.local_date, a.id)
+      // Also fetch planned availabilities
+      const { data: plannedAvailabilities } = await supabase
+        .from('planned_availabilities')
+        .select('id, local_date, local_time')
+        .eq('activity_id', selectedMultiDateActivityId)
+        .eq('local_time', selectedMultiDateTime)
+        .eq('status', 'pending')
+        .in('local_date', dates)
+
+      // Create maps
+      const realMap = new Map<string, number>()
+      realAvailabilities?.forEach(a => {
+        realMap.set(a.local_date, a.id)
       })
 
-      // Build status for each date
-      const status: MultiDateAvailabilityStatus[] = dates.map(date => ({
-        date,
-        availabilityId: availabilityMap.get(date) || null,
-        hasSlot: availabilityMap.has(date)
-      }))
+      const plannedMap = new Map<string, string>()
+      plannedAvailabilities?.forEach(a => {
+        plannedMap.set(a.local_date, a.id)
+      })
+
+      // Build status for each date - prefer real slots over planned
+      const status: MultiDateAvailabilityStatus[] = dates.map(date => {
+        const hasReal = realMap.has(date)
+        const hasPlanned = plannedMap.has(date)
+        return {
+          date,
+          availabilityId: realMap.get(date) || null,
+          plannedAvailabilityId: !hasReal && hasPlanned ? plannedMap.get(date) || null : null,
+          hasSlot: hasReal || hasPlanned,
+          isPlanned: !hasReal && hasPlanned
+        }
+      })
 
       setMultiDateAvailabilityStatus(status)
     } finally {
@@ -1440,9 +1468,11 @@ export default function VoucherUploadPage() {
   // Calculate multi-date availability stats
   const multiDateStats = useMemo(() => {
     const linkedCount = multiDateAvailabilityStatus.filter(s => s.hasSlot).length
+    const plannedCount = multiDateAvailabilityStatus.filter(s => s.isPlanned).length
+    const realCount = linkedCount - plannedCount
     const missingCount = multiDateAvailabilityStatus.filter(s => !s.hasSlot).length
     const missingDates = multiDateAvailabilityStatus.filter(s => !s.hasSlot).map(s => s.date)
-    return { linkedCount, missingCount, missingDates, total: multiDateAvailabilityStatus.length }
+    return { linkedCount, plannedCount, realCount, missingCount, missingDates, total: multiDateAvailabilityStatus.length }
   }, [multiDateAvailabilityStatus])
 
   const warningCount = validationResults.filter(r => r.warnings.length > 0).length
@@ -1868,6 +1898,9 @@ export default function VoucherUploadPage() {
                         <Check className="w-5 h-5 text-green-600" />
                         <span className="text-sm text-green-800 font-medium">
                           All {multiDateStats.total} dates have matching tour slots
+                          {multiDateStats.plannedCount > 0 && (
+                            <span className="ml-1 text-blue-600">({multiDateStats.plannedCount} planned)</span>
+                          )}
                         </span>
                       </div>
                     )}
