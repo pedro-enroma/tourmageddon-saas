@@ -53,10 +53,9 @@ interface Notification {
 
 // Predefined email recipients
 const EMAIL_RECIPIENTS = [
-  { id: 'pedro', name: 'Pedro', email: 'pedro@tourmageddon.it' },
-  { id: 'ops', name: 'Operations', email: 'ops@tourmageddon.it' },
-  { id: 'admin', name: 'Admin', email: 'admin@tourmageddon.it' },
-  { id: 'support', name: 'Support', email: 'support@tourmageddon.it' },
+  { id: 'info', name: 'Info', email: 'info@enroma.com' },
+  { id: 'operations', name: 'Operations', email: 'operations@enroma.com' },
+  { id: 'visitasguiadas', name: 'Visitas Guiadas', email: 'visitasguiadas@enroma.com' },
 ]
 
 // Reminder time options
