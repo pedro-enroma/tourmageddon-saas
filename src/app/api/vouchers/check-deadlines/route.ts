@@ -1,5 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { getServiceRoleClient } from '@/lib/supabase-server'
+import { sendDeadlineEscalationPush } from '@/lib/push-notifications'
+import { evaluateRules } from '@/lib/notification-rules-engine'
 
 // This endpoint can be called by Vercel Cron or manually
 // It checks for overdue placeholder vouchers and escalates them
@@ -131,6 +133,38 @@ export async function POST(request: NextRequest) {
               ticket_count: voucher.placeholder_ticket_count
             }
           })
+
+        // Send push notification to admins
+        try {
+          await sendDeadlineEscalationPush(
+            voucher.booking_number,
+            category?.name || 'Unknown',
+            voucher.visit_date,
+            voucher.placeholder_ticket_count || 0
+          )
+        } catch (pushError) {
+          console.error(`Push notification failed for ${voucher.id}:`, pushError)
+          // Don't fail the whole process for push errors
+        }
+
+        // Evaluate custom notification rules
+        try {
+          const deadlineDate = voucher.name_deadline_at ? new Date(voucher.name_deadline_at) : null
+          const daysOverdue = deadlineDate ? Math.floor((Date.now() - deadlineDate.getTime()) / (1000 * 60 * 60 * 24)) : 0
+
+          await evaluateRules({
+            trigger: 'voucher_deadline_missed',
+            data: {
+              category_name: category?.name || 'Unknown',
+              ticket_count: voucher.placeholder_ticket_count || 0,
+              days_overdue: daysOverdue,
+              visit_date: voucher.visit_date,
+            }
+          })
+        } catch (rulesError) {
+          console.error(`Rules evaluation failed for ${voucher.id}:`, rulesError)
+          // Don't fail the whole process for rules errors
+        }
 
         processed.push(voucher.booking_number)
       } catch (err) {

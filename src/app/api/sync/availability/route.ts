@@ -3,6 +3,8 @@ import { createServerClient } from '@supabase/ssr'
 import { cookies } from 'next/headers'
 import { availabilitySyncSchema, validateInput } from '@/lib/security/validation'
 import { securityLogger } from '@/lib/security/logger'
+import { sendSyncFailurePush } from '@/lib/push-notifications'
+import { evaluateRules } from '@/lib/notification-rules-engine'
 
 // Rate limiting for sync operations
 const syncAttempts = new Map<string, { count: number; lastAttempt: number }>()
@@ -145,6 +147,29 @@ export async function POST(request: NextRequest) {
     if (response.ok) {
       return NextResponse.json(data, { status: 200 })
     } else {
+      // Send push notification for server errors (500+)
+      if (response.status >= 500) {
+        try {
+          await sendSyncFailurePush(productId, data.error || 'Server error')
+        } catch (pushError) {
+          console.error('Push notification failed:', pushError)
+        }
+
+        // Evaluate custom notification rules for sync failures
+        try {
+          await evaluateRules({
+            trigger: 'sync_failure',
+            data: {
+              product_id: productId,
+              error_type: 'server_error',
+              status_code: response.status,
+            }
+          })
+        } catch (rulesError) {
+          console.error('Rules evaluation failed:', rulesError)
+        }
+      }
+
       // Don't expose detailed external API errors to client
       return NextResponse.json(
         { error: data.error || 'Sync failed', details: data.details },
@@ -153,6 +178,29 @@ export async function POST(request: NextRequest) {
     }
   } catch (error) {
     securityLogger.error('Availability sync failed', error, { ip })
+
+    // Send push notification for sync failures
+    try {
+      const errorMessage = error instanceof Error ? error.message : 'Unknown error'
+      await sendSyncFailurePush('Unknown', errorMessage)
+    } catch (pushError) {
+      console.error('Push notification failed:', pushError)
+    }
+
+    // Evaluate custom notification rules for sync failures
+    try {
+      const errorMessage = error instanceof Error ? error.message : 'Unknown error'
+      await evaluateRules({
+        trigger: 'sync_failure',
+        data: {
+          product_id: 'unknown',
+          error_type: errorMessage,
+          status_code: 500,
+        }
+      })
+    } catch (rulesError) {
+      console.error('Rules evaluation failed:', rulesError)
+    }
 
     return NextResponse.json(
       { error: 'Failed to sync availability' },

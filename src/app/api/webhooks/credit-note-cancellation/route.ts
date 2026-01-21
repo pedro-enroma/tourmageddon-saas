@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { createClient } from '@supabase/supabase-js'
+import { evaluateRules } from '@/lib/notification-rules-engine'
 
 const getSupabase = () => createClient(
   process.env.NEXT_PUBLIC_SUPABASE_URL!,
@@ -82,6 +83,40 @@ async function hasCreditNote(supabase: ReturnType<typeof getSupabase>, bookingId
   return data && data.length > 0
 }
 
+// Check if booking has vouchers with uploaded names
+async function getVoucherInfo(supabase: ReturnType<typeof getSupabase>, bookingId: number): Promise<{ hasVouchers: boolean; voucherCount: number }> {
+  // Get activity bookings for this booking
+  const { data: activityBookings } = await supabase
+    .from('activity_bookings')
+    .select('activity_booking_id')
+    .eq('booking_id', bookingId)
+
+  if (!activityBookings || activityBookings.length === 0) {
+    return { hasVouchers: false, voucherCount: 0 }
+  }
+
+  const activityBookingIds = activityBookings.map(ab => ab.activity_booking_id)
+
+  // Check for vouchers linked to these activity bookings (non-placeholder vouchers have names)
+  const { data: vouchers, error } = await supabase
+    .from('vouchers')
+    .select('id, is_placeholder')
+    .in('activity_booking_id', activityBookingIds)
+
+  if (error) {
+    console.error('Error checking vouchers:', error)
+    return { hasVouchers: false, voucherCount: 0 }
+  }
+
+  // Count vouchers that have names (not placeholders or placeholders that have been filled)
+  const vouchersWithNames = vouchers?.filter(v => !v.is_placeholder) || []
+
+  return {
+    hasVouchers: vouchersWithNames.length > 0,
+    voucherCount: vouchersWithNames.length
+  }
+}
+
 // This webhook is called when a booking is cancelled
 // It can be triggered by:
 // 1. Supabase Database Webhook on bookings table (status change to CANCELLED)
@@ -137,6 +172,72 @@ export async function POST(request: NextRequest) {
 
     if (!bookingRecord) {
       return NextResponse.json({ message: 'No booking to process' })
+    }
+
+    // Evaluate notification rules for booking cancellation
+    try {
+      const voucherInfo = await getVoucherInfo(supabase, bookingRecord.booking_id)
+
+      // Get product info and customer info for the booking
+      const { data: activityBookingData } = await supabase
+        .from('activity_bookings')
+        .select(`
+          product_title,
+          start_date_time,
+          bookings (
+            confirmation_code,
+            total_price,
+            currency,
+            customers (
+              first_name,
+              last_name,
+              email
+            )
+          ),
+          pricing_category_bookings (
+            quantity
+          )
+        `)
+        .eq('booking_id', bookingRecord.booking_id)
+        .limit(1)
+        .single()
+
+      const productName = activityBookingData?.product_title || 'Unknown'
+      const travelDate = activityBookingData?.start_date_time ? new Date(activityBookingData.start_date_time) : null
+      const daysUntilTravel = travelDate ? Math.ceil((travelDate.getTime() - Date.now()) / (1000 * 60 * 60 * 24)) : 0
+
+      // Extract customer info
+      const bookingInfo = activityBookingData?.bookings as { confirmation_code?: string; total_price?: number; currency?: string; customers?: { first_name?: string; last_name?: string; email?: string } } | null
+      const customer = bookingInfo?.customers
+      const customerName = customer ? `${customer.first_name || ''} ${customer.last_name || ''}`.trim() : 'Unknown'
+      const customerEmail = customer?.email || ''
+
+      // Calculate pax count from pricing category bookings
+      const pricingBookings = activityBookingData?.pricing_category_bookings as { quantity: number }[] | null
+      const paxCount = pricingBookings?.reduce((sum, pb) => sum + (pb.quantity || 0), 0) || 0
+
+      await evaluateRules({
+        trigger: 'booking_cancelled',
+        data: {
+          activity_name: productName,
+          product_name: productName,
+          booking_id: bookingRecord.booking_id,
+          confirmation_code: bookingInfo?.confirmation_code || bookingRecord.confirmation_code,
+          customer_name: customerName,
+          customer_email: customerEmail,
+          pax_count: paxCount,
+          ticket_count: paxCount,
+          travel_date: travelDate ? travelDate.toISOString().split('T')[0] : '',
+          days_until_travel: daysUntilTravel,
+          has_uploaded_vouchers: voucherInfo.hasVouchers,
+          voucher_count: voucherInfo.voucherCount,
+          total_price: bookingInfo?.total_price || bookingRecord.total_price || 0,
+          currency: bookingInfo?.currency || bookingRecord.currency || 'EUR',
+        }
+      })
+    } catch (rulesError) {
+      console.error('Rules evaluation failed for booking cancellation:', rulesError)
+      // Don't fail the webhook if rules evaluation fails
     }
 
     // Check if credit note already exists

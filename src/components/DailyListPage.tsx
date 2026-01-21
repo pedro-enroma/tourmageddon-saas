@@ -276,6 +276,7 @@ export default function DailyListPage() {
     activityTitle: string
     time: string
     pax?: number
+    availabilityId: number
   }
 
   // Service group info type
@@ -1274,7 +1275,8 @@ export default function DailyListPage() {
             members.push({
               activityTitle: details.activityTitle,
               time: group.service_time?.substring(0, 5) || details.time,
-              pax: details.pax
+              pax: details.pax,
+              availabilityId: member.activity_availability_id
             })
           }
         })
@@ -2855,14 +2857,15 @@ export default function DailyListPage() {
         const guideName = `${guide.first_name} ${guide.last_name}`
 
         // Separate services into grouped and non-grouped
-        const groupedServices = new Map<string, { groupName: string; services: typeof services }>()
+        const groupedServices = new Map<string, { groupName: string; groupInfo: ServiceGroupInfo; services: typeof services }>()
         const nonGroupedServices: typeof services = []
+        const processedGroupIds = new Set<string>()
 
         for (const service of services) {
           const groupInfo = serviceGroupMemberships.get(service.availabilityId)
           if (groupInfo) {
             if (!groupedServices.has(groupInfo.groupId)) {
-              groupedServices.set(groupInfo.groupId, { groupName: groupInfo.groupName, services: [] })
+              groupedServices.set(groupInfo.groupId, { groupName: groupInfo.groupName, groupInfo, services: [] })
             }
             groupedServices.get(groupInfo.groupId)!.services.push(service)
           } else {
@@ -2871,16 +2874,59 @@ export default function DailyListPage() {
         }
 
         // Send ONE email per service group
-        for (const [, { groupName, services: groupServices }] of groupedServices.entries()) {
+        for (const [groupId, { groupName, groupInfo, services: guideGroupServices }] of groupedServices.entries()) {
+          if (processedGroupIds.has(groupId)) continue
+          processedGroupIds.add(groupId)
+
           if (!serviceGroupTemplate) {
             // Fallback: if no group template, send individual emails
             console.warn('No guide_service_group template found, sending individual emails for group:', groupName)
-            nonGroupedServices.push(...groupServices)
+            nonGroupedServices.push(...guideGroupServices)
             continue
           }
 
+          // Build ALL services from the group (not just the guide's assigned ones)
+          // by looking up each member's availabilityId in staffAssignments and matching to groupedTours
+          const allGroupServices: typeof services = []
+          for (const member of groupInfo.members) {
+            const staffAssignment = staffAssignments.get(member.availabilityId)
+            if (!staffAssignment) continue
+
+            const normalizeTime = (t: string) => t.substring(0, 5)
+            const staffTimeNorm = normalizeTime(staffAssignment.localTime)
+
+            // Find the matching tour and timeSlot from groupedTours
+            let foundTour: TourGroup | null = null
+            let foundTimeSlot: TimeSlotGroup | null = null
+
+            for (const tour of groupedTours) {
+              for (const timeSlot of tour.timeSlots) {
+                const firstBooking = timeSlot.bookings[0]
+                if (!firstBooking) continue
+
+                const slotTimeNorm = normalizeTime(timeSlot.time)
+                if (firstBooking.activity_id === staffAssignment.activityId && slotTimeNorm === staffTimeNorm) {
+                  foundTour = tour
+                  foundTimeSlot = timeSlot
+                  break
+                }
+              }
+              if (foundTour) break
+            }
+
+            if (foundTour && foundTimeSlot) {
+              const escortNames = staffAssignment.escorts.map(e => `${e.first_name} ${e.last_name}`)
+              allGroupServices.push({
+                tour: foundTour,
+                timeSlot: foundTimeSlot,
+                availabilityId: member.availabilityId,
+                escortNames
+              })
+            }
+          }
+
           // Sort services by time
-          const sortedGroupServices = [...groupServices].sort((a, b) =>
+          const sortedGroupServices = [...allGroupServices].sort((a, b) =>
             a.timeSlot.time.localeCompare(b.timeSlot.time)
           )
 

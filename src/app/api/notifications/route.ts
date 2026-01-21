@@ -24,14 +24,7 @@ export async function GET(request: NextRequest) {
     const supabase = getServiceRoleClient()
     let query = supabase
       .from('booking_notifications')
-      .select(`
-        *,
-        activity_bookings(
-          product_title,
-          start_date_time,
-          activity_availability(local_time)
-        )
-      `)
+      .select('*')
       .order('created_at', { ascending: false })
       .limit(limit)
 

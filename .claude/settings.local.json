@@ -148,7 +148,14 @@
       "mcp__plugin_supabase_supabase__list_projects",
       "mcp__plugin_supabase_supabase__apply_migration",
       "mcp__plugin_supabase_supabase__list_tables",
-      "Bash(source:*)"
+      "Bash(source:*)",
+      "mcp__plugin_context7_context7__resolve-library-id",
+      "mcp__plugin_context7_context7__query-docs",
+      "Bash(pgrep:*)",
+      "Bash(while pgrep -f \"next build\")",
+      "Bash(do sleep 2)",
+      "Bash(done)",
+      "Bash(SUPABASE_KEY='eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6InlkbnZxZXBoZWpiY3ZsZnpqemVqIiwicm9sZSI6InNlcnZpY2Vfcm9sZSIsImlhdCI6MTc1MTYyMzU5OCwiZXhwIjoyMDY3MTk5NTk4fQ.V6nMpqgis3ZSfvf7zo0BX4xf5BSoJQe2g0_2Qu0iKTc':*)"
     ],
     "deny": [],
     "ask": []
