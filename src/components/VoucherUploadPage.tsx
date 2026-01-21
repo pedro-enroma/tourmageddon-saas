@@ -1365,22 +1365,32 @@ export default function VoucherUploadPage() {
 
     setCheckingAvailability(true)
     try {
+      console.log('[checkMultiDateAvailability] Checking:', {
+        activityId: selectedMultiDateActivityId,
+        time: selectedMultiDateTime,
+        dates
+      })
+
       // Fetch all real availabilities for this activity and time across all dates
-      const { data: realAvailabilities } = await supabase
+      const { data: realAvailabilities, error: realError } = await supabase
         .from('activity_availability')
         .select('id, local_date, local_time')
         .eq('activity_id', selectedMultiDateActivityId)
         .eq('local_time', selectedMultiDateTime)
         .in('local_date', dates)
 
+      console.log('[checkMultiDateAvailability] Real:', realAvailabilities?.length || 0, realError || '')
+
       // Also fetch planned availabilities
-      const { data: plannedAvailabilities } = await supabase
+      const { data: plannedAvailabilities, error: plannedError } = await supabase
         .from('planned_availabilities')
         .select('id, local_date, local_time')
         .eq('activity_id', selectedMultiDateActivityId)
         .eq('local_time', selectedMultiDateTime)
         .eq('status', 'pending')
         .in('local_date', dates)
+
+      console.log('[checkMultiDateAvailability] Planned:', plannedAvailabilities, plannedError || '')
 
       // Create maps
       const realMap = new Map<string, number>()
