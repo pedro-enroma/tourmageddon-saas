@@ -40,6 +40,7 @@ export async function POST(request: NextRequest) {
       entry_time,
       product_name,
       activity_availability_id,
+      planned_availability_id,
       ticket_class,
       tickets,
       // Manual entry / placeholder fields
@@ -131,6 +132,7 @@ export async function POST(request: NextRequest) {
         product_name,
         pdf_path: fileName,
         activity_availability_id,
+        planned_availability_id: planned_availability_id || null,
         ticket_class,
         total_tickets: is_placeholder ? placeholder_ticket_count : (tickets?.length || 0),
         // Placeholder fields
