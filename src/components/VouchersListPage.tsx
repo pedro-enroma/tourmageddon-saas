@@ -22,6 +22,7 @@ interface Voucher {
   product_name: string
   pdf_path: string | null
   activity_availability_id: number | null
+  planned_availability_id: string | null
   total_tickets: number
   ticket_class?: 'entrance' | 'transport' | 'other' | null
   created_at: string
@@ -37,6 +38,12 @@ interface Voucher {
   activity_availability?: {
     id: number
     local_time: string
+    activities?: { title: string }
+  } | null
+  planned_availabilities?: {
+    id: string
+    local_time: string
+    local_date: string
     activities?: { title: string }
   } | null
   tickets?: Ticket[]
@@ -87,6 +94,12 @@ export default function VouchersListPage() {
             activity_availability (
               id,
               local_time,
+              activities (title)
+            ),
+            planned_availabilities (
+              id,
+              local_time,
+              local_date,
               activities (title)
             ),
             tickets (
@@ -363,6 +376,11 @@ export default function VouchersListPage() {
                                 Assigned
                               </span>
                             )}
+                            {!voucher.activity_availability && voucher.planned_availabilities && (
+                              <span className="px-2 py-0.5 text-xs bg-blue-100 text-blue-700 rounded-full">
+                                Assigned (Planned)
+                              </span>
+                            )}
                             {/* Unlinked tour alert - for vouchers that couldn't be linked due to missing slot */}
                             {voucher.notes?.includes('[UNLINKED]') && (
                               <span className="px-2 py-0.5 text-xs bg-red-100 text-red-700 rounded-full flex items-center gap-1 border border-red-200">
@@ -386,6 +404,11 @@ export default function VouchersListPage() {
                             {voucher.activity_availability && (
                               <span className="text-green-600">
                                 → {voucher.activity_availability.activities?.title} at {voucher.activity_availability.local_time}
+                              </span>
+                            )}
+                            {!voucher.activity_availability && voucher.planned_availabilities && (
+                              <span className="text-blue-600">
+                                → {voucher.planned_availabilities.activities?.title} at {voucher.planned_availabilities.local_time} (Planned)
                               </span>
                             )}
                           </div>
@@ -472,6 +495,17 @@ export default function VouchersListPage() {
                   </p>
                   <p className="text-sm text-green-700">
                     at {selectedVoucher.activity_availability.local_time}
+                  </p>
+                </div>
+              )}
+              {!selectedVoucher.activity_availability && selectedVoucher.planned_availabilities && (
+                <div className="bg-blue-50 p-4 rounded-lg mb-6">
+                  <p className="text-xs text-blue-600 mb-1">Assigned to (Planned Slot)</p>
+                  <p className="font-semibold text-blue-800">
+                    {selectedVoucher.planned_availabilities.activities?.title}
+                  </p>
+                  <p className="text-sm text-blue-700">
+                    at {selectedVoucher.planned_availabilities.local_time}
                   </p>
                 </div>
               )}

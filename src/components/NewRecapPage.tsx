@@ -624,11 +624,13 @@ export default function NewRecapPage() {
     })
 
     // Query per i voucher (biglietti) - fetch tickets for the date range with prices
+    // Include vouchers linked via activity_availability_id OR planned_availability_id
     const { data: vouchers } = await supabase
       .from('vouchers')
       .select(`
         id,
         activity_availability_id,
+        planned_availability_id,
         booking_number,
         total_tickets,
         product_name,
@@ -642,7 +644,7 @@ export default function NewRecapPage() {
       `)
       .gte('visit_date', dateRange.start)
       .lte('visit_date', dateRange.end)
-      .not('activity_availability_id', 'is', null)
+      .or('activity_availability_id.not.is.null,planned_availability_id.not.is.null')
 
     // Fetch product_activity_mappings to get ticket_source for products
     // This determines B2B vs B2C for non-placeholder (PDF-uploaded) vouchers
@@ -664,64 +666,77 @@ export default function NewRecapPage() {
     })
 
     // Crea mappa per i voucher per activity_availability_id
+    // Also create maps for planned_availability_id (keyed with "planned:" prefix)
     const ticketCountMap = new Map<string, number>()
     const voucherMap = new Map<string, VoucherInfo[]>()
     const voucherCostMap = new Map<string, number>()
+    // Planned voucher maps - keyed by planned_availability_id
+    const plannedTicketCountMap = new Map<string, number>()
+    const plannedVoucherMap = new Map<string, VoucherInfo[]>()
+    const plannedVoucherCostMap = new Map<string, number>()
+
     vouchers?.forEach((voucher) => {
+      // For placeholder vouchers, use placeholder_ticket_count directly
+      // For regular vouchers, count non-guide tickets from tickets table
+      let nonGuideTicketCount = 0
+      let voucherTicketCost = 0
+
+      if (voucher.is_placeholder && voucher.placeholder_ticket_count) {
+        // Placeholder vouchers: use the placeholder_ticket_count
+        nonGuideTicketCount = voucher.placeholder_ticket_count
+        voucherTicketCost = 0 // No cost info for placeholders
+      } else {
+        // Regular vouchers: count from tickets table
+        const tickets = voucher.tickets as { id: string; price: number; ticket_type?: string; pax_count?: number }[] | undefined
+        nonGuideTicketCount = tickets?.filter(t =>
+          !t.ticket_type?.toLowerCase().includes('guide')
+        ).reduce((sum, t) => sum + (t.pax_count || 1), 0) || 0
+        voucherTicketCost = tickets?.reduce((sum, t) => sum + (t.price || 0), 0) || 0
+      }
+
+      // Determine voucher source:
+      // - For placeholder vouchers (manual entry): use explicitly set voucher_source
+      // - For non-placeholder vouchers (PDF uploads): use ticket_source from product_activity_mappings
+      let effectiveSource: 'b2b' | 'b2c' | null = voucher.voucher_source as 'b2b' | 'b2c' | null
+      if (!voucher.is_placeholder && voucher.product_name) {
+        const mappedSource = productSourceMap.get(voucher.product_name)
+        if (mappedSource) {
+          effectiveSource = mappedSource
+        }
+      }
+
+      // Build voucher info
+      const voucherInfo: VoucherInfo = {
+        id: voucher.id,
+        booking_number: voucher.booking_number,
+        total_tickets: voucher.total_tickets,
+        non_guide_tickets: nonGuideTicketCount,  // Exclude guide tickets for diff
+        product_name: voucher.product_name,
+        category_name: Array.isArray(voucher.ticket_categories)
+          ? (voucher.ticket_categories[0] as { id: string; name: string } | undefined)?.name || null
+          : (voucher.ticket_categories as { id: string; name: string } | null)?.name || null,
+        pdf_path: voucher.pdf_path,
+        entry_time: voucher.entry_time,
+        is_placeholder: voucher.is_placeholder || false,
+        placeholder_ticket_count: voucher.placeholder_ticket_count,
+        voucher_source: effectiveSource
+      }
+
+      // Map to real availability
       if (voucher.activity_availability_id) {
         const availId = String(voucher.activity_availability_id)
-
-        // For placeholder vouchers, use placeholder_ticket_count directly
-        // For regular vouchers, count non-guide tickets from tickets table
-        let nonGuideTicketCount = 0
-        let voucherTicketCost = 0
-
-        if (voucher.is_placeholder && voucher.placeholder_ticket_count) {
-          // Placeholder vouchers: use the placeholder_ticket_count
-          nonGuideTicketCount = voucher.placeholder_ticket_count
-          voucherTicketCost = 0 // No cost info for placeholders
-        } else {
-          // Regular vouchers: count from tickets table
-          const tickets = voucher.tickets as { id: string; price: number; ticket_type?: string; pax_count?: number }[] | undefined
-          nonGuideTicketCount = tickets?.filter(t =>
-            !t.ticket_type?.toLowerCase().includes('guide')
-          ).reduce((sum, t) => sum + (t.pax_count || 1), 0) || 0
-          voucherTicketCost = tickets?.reduce((sum, t) => sum + (t.price || 0), 0) || 0
-        }
-
         ticketCountMap.set(availId, (ticketCountMap.get(availId) || 0) + nonGuideTicketCount)
         voucherCostMap.set(availId, (voucherCostMap.get(availId) || 0) + voucherTicketCost)
-
-        // Determine voucher source:
-        // - For placeholder vouchers (manual entry): use explicitly set voucher_source
-        // - For non-placeholder vouchers (PDF uploads): use ticket_source from product_activity_mappings
-        let effectiveSource: 'b2b' | 'b2c' | null = voucher.voucher_source as 'b2b' | 'b2c' | null
-        if (!voucher.is_placeholder && voucher.product_name) {
-          const mappedSource = productSourceMap.get(voucher.product_name)
-          if (mappedSource) {
-            effectiveSource = mappedSource
-          }
-        }
-
-        // Build voucher info
-        const voucherInfo: VoucherInfo = {
-          id: voucher.id,
-          booking_number: voucher.booking_number,
-          total_tickets: voucher.total_tickets,
-          non_guide_tickets: nonGuideTicketCount,  // Exclude guide tickets for diff
-          product_name: voucher.product_name,
-          category_name: Array.isArray(voucher.ticket_categories)
-            ? (voucher.ticket_categories[0] as { id: string; name: string } | undefined)?.name || null
-            : (voucher.ticket_categories as { id: string; name: string } | null)?.name || null,
-          pdf_path: voucher.pdf_path,
-          entry_time: voucher.entry_time,
-          is_placeholder: voucher.is_placeholder || false,
-          placeholder_ticket_count: voucher.placeholder_ticket_count,
-          voucher_source: effectiveSource
-        }
-
         const existingVouchers = voucherMap.get(availId) || []
         voucherMap.set(availId, [...existingVouchers, voucherInfo])
+      }
+      // Map to planned availability (when no real availability)
+      else if (voucher.planned_availability_id) {
+        const plannedId = String(voucher.planned_availability_id)
+        plannedTicketCountMap.set(plannedId, (plannedTicketCountMap.get(plannedId) || 0) + nonGuideTicketCount)
+        plannedVoucherCostMap.set(plannedId, (plannedVoucherCostMap.get(plannedId) || 0) + voucherTicketCost)
+        const existingVouchers = plannedVoucherMap.get(plannedId) || []
+        plannedVoucherMap.set(plannedId, [...existingVouchers, voucherInfo])
       }
     })
 
@@ -1124,6 +1139,11 @@ export default function NewRecapPage() {
             const plannedGuideNames = plannedGuideNamesMap.get(plannedIdStr) || []
             const plannedGuideData = plannedGuideDataMap.get(plannedIdStr) || []
 
+            // Get voucher data for this planned availability
+            const plannedTicketCount = plannedTicketCountMap.get(plannedIdStr) || 0
+            const plannedVouchers = plannedVoucherMap.get(plannedIdStr) || []
+            const plannedVoucherCost = plannedVoucherCostMap.get(plannedIdStr) || 0
+
             const plannedSlot: SlotData = {
               id: `planned-${planned.id}`,
               tourId: planned.activity_id,
@@ -1141,15 +1161,15 @@ export default function NewRecapPage() {
               guideNames: plannedGuideNames,
               guideData: plannedGuideData,
               escortData: [],
-              ticketCount: 0,
-              vouchers: [],
+              ticketCount: plannedTicketCount,
+              vouchers: plannedVouchers,
               lastReservation: null,
               firstReservation: null,
               guideCost: 0,
               escortCost: 0,
               headphoneCost: 0,
               printingCost: 0,
-              voucherCost: 0,
+              voucherCost: plannedVoucherCost,
               totalCost: 0,
               netProfit: 0,
               isPlanned: true,
