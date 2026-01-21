@@ -43,6 +43,8 @@ interface ActivityAvailability {
   local_date: string
   local_time: string
   activities?: { title: string }
+  planned_availability_id?: string // For planned slots (UUID)
+  is_planned?: boolean // Flag to indicate this is a planned slot
 }
 
 interface PricingCategoryBooking {
@@ -277,8 +279,8 @@ export default function VoucherUploadPage() {
 
     const activityIds = mappings.map(m => m.activity_id)
 
-    // Get availabilities for those activities on the visit date
-    const { data } = await supabase
+    // Get real availabilities for those activities on the visit date
+    const { data: realData } = await supabase
       .from('activity_availability')
       .select(`
         id,
@@ -291,17 +293,60 @@ export default function VoucherUploadPage() {
       .eq('local_date', combinedExtractedData.visit_date)
       .order('local_time')
 
-    // Transform data to match interface (activities comes as array from Supabase)
-    const transformed: ActivityAvailability[] = (data || []).map(item => ({
+    // Also get planned availabilities
+    const { data: plannedData } = await supabase
+      .from('planned_availabilities')
+      .select(`
+        id,
+        activity_id,
+        local_date,
+        local_time
+      `)
+      .in('activity_id', activityIds)
+      .eq('local_date', combinedExtractedData.visit_date)
+      .eq('status', 'pending')
+      .order('local_time')
+
+    // Get activity titles for planned slots
+    const { data: activitiesData } = await supabase
+      .from('activities')
+      .select('activity_id, title')
+      .in('activity_id', activityIds)
+
+    const activityTitles = new Map(activitiesData?.map(a => [a.activity_id, a.title]) || [])
+
+    // Transform real availabilities
+    const realTransformed: ActivityAvailability[] = (realData || []).map(item => ({
       id: item.id,
       activity_id: item.activity_id,
       local_date: item.local_date,
       local_time: item.local_time,
       activities: Array.isArray(item.activities)
         ? (item.activities[0] as { title: string } | undefined)
-        : (item.activities as { title: string } | undefined)
+        : (item.activities as { title: string } | undefined),
+      is_planned: false
     }))
-    setAvailabilities(transformed)
+
+    // Transform planned availabilities (use negative index as fake ID)
+    const plannedTransformed: ActivityAvailability[] = (plannedData || []).map((item, index) => ({
+      id: -(index + 1),
+      activity_id: item.activity_id,
+      local_date: item.local_date,
+      local_time: item.local_time,
+      activities: { title: activityTitles.get(item.activity_id) || 'Unknown Activity' },
+      planned_availability_id: item.id,
+      is_planned: true
+    }))
+
+    // Filter out planned slots that already have a matching real availability
+    const realKeys = new Set(realTransformed.map(r => `${r.activity_id}-${r.local_time}`))
+    const uniquePlanned = plannedTransformed.filter(p => !realKeys.has(`${p.activity_id}-${p.local_time}`))
+
+    // Merge and sort by time
+    const merged = [...realTransformed, ...uniquePlanned].sort((a, b) =>
+      a.local_time.localeCompare(b.local_time)
+    )
+    setAvailabilities(merged)
 
     // Fetch booking counts for each availability (per time slot)
     const countsMap = new Map<number, number>()
@@ -1163,8 +1208,8 @@ export default function VoucherUploadPage() {
 
     const activityIds = [...new Set(mappings.map(m => m.activity_id))]
 
-    // Get availabilities for those activities on the visit date
-    const { data } = await supabase
+    // Get real availabilities for those activities on the visit date
+    const { data: realData } = await supabase
       .from('activity_availability')
       .select(`
         id,
@@ -1177,16 +1222,59 @@ export default function VoucherUploadPage() {
       .eq('local_date', singleDate)
       .order('local_time')
 
-    // Transform data
-    const transformed: ActivityAvailability[] = (data || []).map(item => ({
+    // Also get planned availabilities
+    const { data: plannedData } = await supabase
+      .from('planned_availabilities')
+      .select(`
+        id,
+        activity_id,
+        local_date,
+        local_time
+      `)
+      .in('activity_id', activityIds)
+      .eq('local_date', singleDate)
+      .eq('status', 'pending')
+      .order('local_time')
+
+    // Get activity titles for planned slots
+    const { data: activitiesData } = await supabase
+      .from('activities')
+      .select('activity_id, title')
+      .in('activity_id', activityIds)
+
+    const activityTitles = new Map(activitiesData?.map(a => [a.activity_id, a.title]) || [])
+
+    // Transform real availabilities
+    const realTransformed: ActivityAvailability[] = (realData || []).map(item => ({
       id: item.id,
       activity_id: item.activity_id,
       local_date: item.local_date,
       local_time: item.local_time,
-      activities: Array.isArray(item.activities) ? item.activities[0] : item.activities
+      activities: Array.isArray(item.activities) ? item.activities[0] : item.activities,
+      is_planned: false
     }))
 
-    setAvailabilities(transformed)
+    // Transform planned availabilities (use negative index as fake ID)
+    const plannedTransformed: ActivityAvailability[] = (plannedData || []).map((item, index) => ({
+      id: -(index + 1), // Negative ID to distinguish from real ones
+      activity_id: item.activity_id,
+      local_date: item.local_date,
+      local_time: item.local_time,
+      activities: { title: activityTitles.get(item.activity_id) || 'Unknown Activity' },
+      planned_availability_id: item.id,
+      is_planned: true
+    }))
+
+    // Filter out planned slots that already have a matching real availability
+    const realKeys = new Set(realTransformed.map(r => `${r.activity_id}-${r.local_time}`))
+    const uniquePlanned = plannedTransformed.filter(p => !realKeys.has(`${p.activity_id}-${p.local_time}`))
+
+    // Merge and sort by time
+    const merged = [...realTransformed, ...uniquePlanned].sort((a, b) =>
+      a.local_time.localeCompare(b.local_time)
+    )
+
+    setAvailabilities(merged)
   }, [dateMode, singleDate, manualFormData.categoryId])
 
   useEffect(() => {
@@ -1684,10 +1772,10 @@ export default function VoucherUploadPage() {
                   </label>
                   {availabilities.map(avail => (
                     <label
-                      key={avail.id}
+                      key={avail.planned_availability_id || avail.id}
                       className={`flex items-center gap-3 p-2 rounded cursor-pointer hover:bg-gray-50 ${
                         selectedAvailabilityId === avail.id ? 'bg-orange-50 border border-orange-200' : ''
-                      }`}
+                      } ${avail.is_planned ? 'border-l-2 border-l-blue-400' : ''}`}
                     >
                       <input
                         type="radio"
@@ -1696,8 +1784,11 @@ export default function VoucherUploadPage() {
                         onChange={() => setSelectedAvailabilityId(avail.id)}
                         className="text-orange-600"
                       />
-                      <div>
-                        <p className="font-medium text-sm">{avail.activities?.title || avail.activity_id}</p>
+                      <div className="flex-1">
+                        <p className="font-medium text-sm">
+                          {avail.activities?.title || avail.activity_id}
+                          {avail.is_planned && <span className="ml-2 text-xs bg-blue-100 text-blue-700 px-1.5 py-0.5 rounded">(Planned)</span>}
+                        </p>
                         <p className="text-xs text-gray-500">{avail.local_time}</p>
                       </div>
                     </label>
@@ -2094,12 +2185,12 @@ export default function VoucherUploadPage() {
                         const bookingCount = availabilityBookingCounts.get(avail.id) || 0
                         return (
                           <label
-                            key={avail.id}
+                            key={avail.planned_availability_id || avail.id}
                             className={`flex items-center gap-3 p-3 rounded-lg border cursor-pointer transition-colors ${
                               selectedAvailabilityId === avail.id
                                 ? 'border-orange-500 bg-orange-50'
                                 : 'border-gray-200 hover:bg-gray-50'
-                            }`}
+                            } ${avail.is_planned ? 'border-l-2 border-l-blue-400' : ''}`}
                           >
                             <input
                               type="radio"
@@ -2109,7 +2200,10 @@ export default function VoucherUploadPage() {
                               className="w-4 h-4 text-orange-600"
                             />
                             <div className="flex-1">
-                              <p className="font-medium">{avail.activities?.title}</p>
+                              <p className="font-medium">
+                                {avail.activities?.title}
+                                {avail.is_planned && <span className="ml-2 text-xs bg-blue-100 text-blue-700 px-1.5 py-0.5 rounded">(Planned)</span>}
+                              </p>
                               <p className="text-sm text-gray-500">{avail.local_time}</p>
                             </div>
                             {bookingCount > 0 && (
