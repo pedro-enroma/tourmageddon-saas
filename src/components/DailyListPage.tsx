@@ -2886,36 +2886,34 @@ export default function DailyListPage() {
           }
 
           // Build ALL services from the group (not just the guide's assigned ones)
-          // by looking up each member's availabilityId in staffAssignments and matching to groupedTours
+          // by looking up each member's availabilityId and matching to groupedTours by activity title and time
           const allGroupServices: typeof services = []
+          const normalizeTime = (t: string) => t.substring(0, 5)
+
           for (const member of groupInfo.members) {
-            const staffAssignment = staffAssignments.get(member.availabilityId)
-            if (!staffAssignment) continue
-
-            const normalizeTime = (t: string) => t.substring(0, 5)
-            const staffTimeNorm = normalizeTime(staffAssignment.localTime)
-
-            // Find the matching tour and timeSlot from groupedTours
+            // Find the matching tour and timeSlot from groupedTours by activity title and time
             let foundTour: TourGroup | null = null
             let foundTimeSlot: TimeSlotGroup | null = null
 
             for (const tour of groupedTours) {
-              for (const timeSlot of tour.timeSlots) {
-                const firstBooking = timeSlot.bookings[0]
-                if (!firstBooking) continue
-
-                const slotTimeNorm = normalizeTime(timeSlot.time)
-                if (firstBooking.activity_id === staffAssignment.activityId && slotTimeNorm === staffTimeNorm) {
-                  foundTour = tour
-                  foundTimeSlot = timeSlot
-                  break
+              // Match by activity title (member has activityTitle from the group info)
+              if (tour.tourTitle === member.activityTitle) {
+                for (const timeSlot of tour.timeSlots) {
+                  const slotTimeNorm = normalizeTime(timeSlot.time)
+                  if (slotTimeNorm === normalizeTime(member.time || '')) {
+                    foundTour = tour
+                    foundTimeSlot = timeSlot
+                    break
+                  }
                 }
               }
               if (foundTour) break
             }
 
             if (foundTour && foundTimeSlot) {
-              const escortNames = staffAssignment.escorts.map(e => `${e.first_name} ${e.last_name}`)
+              // Get escort names from staff assignment if available
+              const staffAssignment = staffAssignments.get(member.availabilityId)
+              const escortNames = staffAssignment?.escorts.map(e => `${e.first_name} ${e.last_name}`) || []
               allGroupServices.push({
                 tour: foundTour,
                 timeSlot: foundTimeSlot,
