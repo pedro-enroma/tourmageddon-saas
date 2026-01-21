@@ -420,33 +420,14 @@ export default function ServiceGroupsPage() {
       costs?.forEach(c => costMap.set(c.activity_id, c.cost_amount))
       setActivityCosts(costMap)
 
-      // Fetch guides assigned to this date (from guide_assignments for all availabilities - both grouped and ungrouped)
-      const enrichedIds = enriched.map(a => a.id)
-      const groupedIds = Array.from(groupedAvailabilityIds)
-      const allAvailabilityIds = [...enrichedIds, ...groupedIds]
+      // Fetch ALL active guides (so they can be assigned to groups)
+      const { data: guidesData } = await supabase
+        .from('guides')
+        .select('guide_id, first_name, last_name')
+        .eq('active', true)
+        .order('first_name')
 
-      if (allAvailabilityIds.length > 0) {
-        const { data: assignments } = await supabase
-          .from('guide_assignments')
-          .select('guide_id')
-          .in('activity_availability_id', allAvailabilityIds)
-
-        const uniqueGuideIds = [...new Set(assignments?.map(a => a.guide_id).filter(Boolean) || [])]
-
-        if (uniqueGuideIds.length > 0) {
-          const { data: guidesData } = await supabase
-            .from('guides')
-            .select('guide_id, first_name, last_name')
-            .in('guide_id', uniqueGuideIds)
-            .order('first_name')
-
-          setGuides(guidesData || [])
-        } else {
-          setGuides([])
-        }
-      } else {
-        setGuides([])
-      }
+      setGuides(guidesData || [])
 
     } catch (err) {
       console.error('Error fetching data:', err)
