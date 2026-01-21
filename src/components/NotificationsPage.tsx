@@ -1,7 +1,7 @@
 // src/components/NotificationsPage.tsx
 'use client'
 import React, { useState, useEffect, useCallback } from 'react'
-import { Bell, AlertTriangle, CheckCircle, Info, RefreshCw, Check, ChevronDown, ChevronUp, Calendar, User, Clock, Mail, Send } from 'lucide-react'
+import { Bell, AlertTriangle, CheckCircle, Info, RefreshCw, Check, ChevronDown, ChevronUp, Calendar, User, Clock, Send } from 'lucide-react'
 import { notificationsApi } from '@/lib/api-client'
 import { Button } from "@/components/ui/button"
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter } from "@/components/ui/dialog"
