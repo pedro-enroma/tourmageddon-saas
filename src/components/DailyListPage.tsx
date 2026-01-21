@@ -1528,7 +1528,7 @@ export default function DailyListPage() {
     }
   }
 
-  // Generate Excel for grouped services (multiple tours/timeslots in one file)
+  // Generate Excel for grouped services (all services in ONE sheet, stacked vertically)
   const generateGroupDailyListExcel = async (
     groupName: string,
     services: { tour: TourGroup; timeSlot: TimeSlotGroup }[],
@@ -1537,29 +1537,59 @@ export default function DailyListPage() {
     try {
       if (services.length === 0) return null
 
-      const wb = XLSX.utils.book_new()
+      const excelData: any[][] = []
+      const dateStr = format(new Date(selectedDate), 'dd/MM/yyyy')
+
+      // Track row positions for styling
+      interface ServiceRowInfo {
+        titleRow: number
+        headerRow: number
+        dataStartRow: number
+        dataEndRow: number
+        participantsRow: number
+        totalPaxRow: number
+        totalCols: number
+      }
+      const serviceRowInfos: ServiceRowInfo[] = []
+
+      let maxCols = 6 // Minimum columns
+
+      // Main title for the consolidated file
+      excelData.push([`${groupName} - ${dateStr}`])
+      excelData.push([]) // Empty row after main title
+
+      let currentRow = 2 // Start after main title and empty row
 
       // Sort services by time
       const sortedServices = [...services].sort((a, b) =>
         a.timeSlot.time.localeCompare(b.timeSlot.time)
       )
 
-      // Create one sheet per service
-      for (const service of sortedServices) {
-        const { tour, timeSlot } = service
+      for (let i = 0; i < sortedServices.length; i++) {
+        const { tour, timeSlot } = sortedServices[i]
         const firstBooking = timeSlot.bookings[0]
         if (!firstBooking) continue
 
         const participantCategories = await getAllParticipantCategoriesForActivity(firstBooking.activity_id)
+        const totalCols = participantCategories.length + 4
+        if (totalCols > maxCols) maxCols = totalCols
+
+        const titleRowIdx = currentRow
+
+        // Service title row (blue background)
         const bookingDate = new Date(firstBooking.booking_date).toLocaleDateString('it-IT')
+        const serviceTitle = `${tour.tourTitle} - ${bookingDate} - ${timeSlot.time}`
+        excelData.push([serviceTitle])
+        currentRow++
 
-        const excelData: any[][] = []
-        const titleHeader = `${tour.tourTitle} - ${bookingDate} - ${timeSlot.time}`
-        excelData.push([titleHeader])
-
+        // Header row (gray background)
+        const headerRowIdx = currentRow
         const headers = ['Data', 'Ora', ...participantCategories, 'Nome e Cognome', 'Telefono']
         excelData.push(headers)
+        currentRow++
 
+        // Data rows
+        const dataStartRowIdx = currentRow
         const totals: { [key: string]: number } = {}
         participantCategories.forEach(cat => totals[cat] = 0)
 
@@ -1581,34 +1611,73 @@ export default function DailyListPage() {
           row.push(fullName)
           row.push(booking.customer?.phone_number || '')
           excelData.push(row)
+          currentRow++
         })
+        const dataEndRowIdx = currentRow - 1
 
+        // Participants row (gray background)
+        const participantsRowIdx = currentRow
         const participantsRow: any[] = ['', 'Participants']
         participantCategories.forEach(category => participantsRow.push(totals[category]))
         participantsRow.push('', '')
         excelData.push(participantsRow)
+        currentRow++
 
+        // Total PAX row (blue background) with guide info
+        const totalPaxRowIdx = currentRow
         const totalParticipants = participantCategories.reduce((sum, cat) => sum + totals[cat], 0)
         const totalPaxRow: any[] = ['', 'TOTAL PAX', totalParticipants]
-        for (let i = 0; i < participantCategories.length - 1; i++) totalPaxRow.push('')
+        for (let j = 0; j < participantCategories.length - 1; j++) totalPaxRow.push('')
         totalPaxRow.push('guide')
         totalPaxRow.push(guideName || '')
         excelData.push(totalPaxRow)
+        currentRow++
 
-        const ws = XLSX.utils.aoa_to_sheet(excelData)
-
-        // Merge title cells
-        if (!ws['!merges']) ws['!merges'] = []
-        ws['!merges'].push({
-          s: { r: 0, c: 0 },
-          e: { r: 0, c: participantCategories.length + 3 }
+        // Store row info for styling
+        serviceRowInfos.push({
+          titleRow: titleRowIdx,
+          headerRow: headerRowIdx,
+          dataStartRow: dataStartRowIdx,
+          dataEndRow: dataEndRowIdx,
+          participantsRow: participantsRowIdx,
+          totalPaxRow: totalPaxRowIdx,
+          totalCols
         })
 
-        const totalCols = participantCategories.length + 4
+        // Add spacing between services
+        if (i < sortedServices.length - 1) {
+          excelData.push([])
+          excelData.push([])
+          currentRow += 2
+        }
+      }
 
-        // Apply styles (same as single service)
+      const wb = XLSX.utils.book_new()
+      const ws = XLSX.utils.aoa_to_sheet(excelData)
+      if (!ws['!merges']) ws['!merges'] = []
+
+      // Style the main consolidated title (row 0)
+      for (let col = 0; col < maxCols; col++) {
+        const cellAddress = XLSX.utils.encode_cell({ r: 0, c: col })
+        if (!ws[cellAddress]) ws[cellAddress] = { t: 's', v: '' }
+        ws[cellAddress].s = {
+          font: { bold: true, sz: 16, color: { rgb: "FFFFFF" } },
+          fill: { fgColor: { rgb: "2563EB" } }, // Darker blue for main title
+          alignment: { horizontal: "center", vertical: "center" }
+        }
+      }
+      ws['!merges'].push({
+        s: { r: 0, c: 0 },
+        e: { r: 0, c: maxCols - 1 }
+      })
+
+      // Style each service section
+      for (const info of serviceRowInfos) {
+        const { titleRow, headerRow, dataStartRow, dataEndRow, participantsRow, totalPaxRow, totalCols } = info
+
+        // Service title row - blue background, white text, merged
         for (let col = 0; col < totalCols; col++) {
-          const cellAddress = XLSX.utils.encode_cell({ r: 0, c: col })
+          const cellAddress = XLSX.utils.encode_cell({ r: titleRow, c: col })
           if (!ws[cellAddress]) ws[cellAddress] = { t: 's', v: '' }
           ws[cellAddress].s = {
             font: { bold: true, sz: 18, color: { rgb: "FFFFFF" } },
@@ -1616,9 +1685,14 @@ export default function DailyListPage() {
             alignment: { horizontal: "center", vertical: "center" }
           }
         }
+        ws['!merges'].push({
+          s: { r: titleRow, c: 0 },
+          e: { r: titleRow, c: totalCols - 1 }
+        })
 
+        // Header row - gray background
         for (let col = 0; col < totalCols; col++) {
-          const cellAddress = XLSX.utils.encode_cell({ r: 1, c: col })
+          const cellAddress = XLSX.utils.encode_cell({ r: headerRow, c: col })
           const cell = ws[cellAddress]
           if (cell) {
             cell.s = {
@@ -1629,32 +1703,8 @@ export default function DailyListPage() {
           }
         }
 
-        const participantsRowIndex = 2 + timeSlot.bookings.length
-        const totalPaxRowIndex = participantsRowIndex + 1
-
-        for (let col = 0; col < totalCols; col++) {
-          const cellAddress = XLSX.utils.encode_cell({ r: participantsRowIndex, c: col })
-          const cell = ws[cellAddress]
-          if (cell) {
-            cell.s = {
-              font: { bold: true, sz: 13 },
-              fill: { fgColor: { rgb: "D9D9D9" } },
-              alignment: { horizontal: "center", vertical: "center" }
-            }
-          }
-        }
-
-        for (let col = 0; col < totalCols; col++) {
-          const cellAddress = XLSX.utils.encode_cell({ r: totalPaxRowIndex, c: col })
-          if (!ws[cellAddress]) ws[cellAddress] = { t: 's', v: '' }
-          ws[cellAddress].s = {
-            font: { bold: true, sz: 13, color: { rgb: "FFFFFF" } },
-            fill: { fgColor: { rgb: "4472C4" } },
-            alignment: { horizontal: "center", vertical: "center" }
-          }
-        }
-
-        for (let row = 2; row < 2 + timeSlot.bookings.length; row++) {
+        // Data rows - centered text
+        for (let row = dataStartRow; row <= dataEndRow; row++) {
           for (let col = 0; col < totalCols; col++) {
             const cellAddress = XLSX.utils.encode_cell({ r: row, c: col })
             const cell = ws[cellAddress]
@@ -1667,27 +1717,44 @@ export default function DailyListPage() {
           }
         }
 
-        if (!ws['!rows']) ws['!rows'] = []
-        ws['!rows'][0] = { hpt: 30 }
-        ws['!rows'][1] = { hpt: 20 }
+        // Participants row - gray background
+        for (let col = 0; col < totalCols; col++) {
+          const cellAddress = XLSX.utils.encode_cell({ r: participantsRow, c: col })
+          const cell = ws[cellAddress]
+          if (cell) {
+            cell.s = {
+              font: { bold: true, sz: 13 },
+              fill: { fgColor: { rgb: "D9D9D9" } },
+              alignment: { horizontal: "center", vertical: "center" }
+            }
+          }
+        }
 
-        const colWidths = [
-          { wch: 12 },
-          { wch: 8 },
-          ...participantCategories.map(() => ({ wch: 15 })),
-          { wch: 25 },
-          { wch: 20 },
-        ]
-        ws['!cols'] = colWidths
-
-        // Use tour title + time as sheet name (max 31 chars for Excel)
-        const sheetName = `${timeSlot.time} ${tour.tourTitle}`.substring(0, 31).replace(/[\\/*?[\]:]/g, '')
-        XLSX.utils.book_append_sheet(wb, ws, sheetName)
+        // Total PAX row - blue background
+        for (let col = 0; col < totalCols; col++) {
+          const cellAddress = XLSX.utils.encode_cell({ r: totalPaxRow, c: col })
+          if (!ws[cellAddress]) ws[cellAddress] = { t: 's', v: '' }
+          ws[cellAddress].s = {
+            font: { bold: true, sz: 13, color: { rgb: "FFFFFF" } },
+            fill: { fgColor: { rgb: "4472C4" } },
+            alignment: { horizontal: "center", vertical: "center" }
+          }
+        }
       }
+
+      // Set column widths
+      ws['!cols'] = [
+        { wch: 12 },
+        { wch: 8 },
+        ...Array(maxCols - 4).fill({ wch: 15 }),
+        { wch: 25 },
+        { wch: 20 },
+      ]
+
+      XLSX.utils.book_append_sheet(wb, ws, 'Services')
 
       const buffer = XLSX.write(wb, { type: 'base64', bookType: 'xlsx' })
       const cleanGroupName = groupName.replace(/[/\\?%*:|"<>]/g, '-')
-      const dateStr = format(new Date(selectedDate), 'dd.MM.yyyy')
 
       return {
         data: buffer,
