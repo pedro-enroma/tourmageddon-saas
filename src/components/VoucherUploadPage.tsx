@@ -1102,9 +1102,18 @@ export default function VoucherUploadPage() {
           // Determine activity_availability_id based on mode
           let activityAvailabilityId: number | null = null
           let isTourUnlinked = false
+          let plannedAvailabilityId: string | null = null
 
           if (dateMode === 'single') {
-            activityAvailabilityId = selectedAvailabilityId
+            // Check if selected availability is a planned slot (negative ID)
+            const selectedAvail = availabilities.find(a => a.id === selectedAvailabilityId)
+            if (selectedAvail?.is_planned) {
+              // Planned slot - don't use the fake ID, store planned_availability_id instead
+              activityAvailabilityId = null
+              plannedAvailabilityId = selectedAvail.planned_availability_id || null
+            } else {
+              activityAvailabilityId = selectedAvailabilityId
+            }
           } else if (dateMode === 'multiple' && selectedMultiDateActivityId && selectedMultiDateTime) {
             // For multiple dates, check if this date has a matching slot
             const dateStatus = multiDateAvailabilityStatus.find(s => s.date === visitDate)
@@ -1128,13 +1137,16 @@ export default function VoucherUploadPage() {
             entry_time: combinedEntryTime,
             product_name: manualFormData.productName,
             activity_availability_id: activityAvailabilityId,
+            planned_availability_id: plannedAvailabilityId,
             ticket_class: 'entrance',
             // Placeholder-specific fields
             manual_entry: true,
             is_placeholder: true,
             placeholder_ticket_count: manualFormData.ticketCount,
             voucher_source: manualFormData.voucherSource,
-            notes: isTourUnlinked ? `[UNLINKED] Tour slot not found for this date. ${manualFormData.notes || ''}`.trim() : manualFormData.notes,
+            notes: plannedAvailabilityId
+              ? `[PLANNED] Linked to planned slot. ${manualFormData.notes || ''}`.trim()
+              : (isTourUnlinked ? `[UNLINKED] Tour slot not found for this date. ${manualFormData.notes || ''}`.trim() : manualFormData.notes),
             tickets: [] // No individual tickets for placeholder
           }))
 
