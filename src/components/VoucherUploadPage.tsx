@@ -348,10 +348,10 @@ export default function VoucherUploadPage() {
     )
     setAvailabilities(merged)
 
-    // Fetch booking counts for each availability (per time slot)
+    // Fetch booking counts for each availability (per time slot) - only for real slots
     const countsMap = new Map<number, number>()
 
-    for (const avail of transformed) {
+    for (const avail of merged.filter(a => !a.is_planned)) {
       // Parse the time to create a 1-minute window
       const [hours, minutes] = avail.local_time.split(':')
       const startTime = `${avail.local_date}T${hours}:${minutes}:00`
