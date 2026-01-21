@@ -950,8 +950,20 @@ function SearchDialog({ isOpen, onClose }: { isOpen: boolean; onClose: () => voi
 }
 
 // App version and changelog
-const APP_VERSION = '4.0'
+const APP_VERSION = '4.1'
 const CHANGELOG = [
+  {
+    version: '4.1',
+    date: '2026-01-21',
+    changes: [
+      { type: 'feature', text: 'Notification Rules - Create automated notification rules with visual condition builder' },
+      { type: 'feature', text: 'Rule Triggers - booking_cancelled, voucher_uploaded, age_mismatch, sync_failure events' },
+      { type: 'feature', text: 'Multi-channel Delivery - Push notifications and Email via Resend' },
+      { type: 'feature', text: 'Template Variables - Dynamic content with {customer_name}, {booking_id}, etc.' },
+      { type: 'improvement', text: 'Rule-triggered alerts appear in Operations > Notifications > Alerts' },
+      { type: 'improvement', text: 'Security hardening - Admin role verification on all notification endpoints' },
+    ]
+  },
   {
     version: '4.0',
     date: '2026-01-20',
