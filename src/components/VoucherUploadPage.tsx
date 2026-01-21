@@ -1296,17 +1296,34 @@ export default function VoucherUploadPage() {
       return
     }
 
-    // Get all unique times for this activity across any dates
-    const { data } = await supabase
+    console.log('[fetchAvailableTimesForActivity] Activity:', selectedMultiDateActivityId, 'Dates count:', dates.length)
+
+    // Get all unique times for this activity across any dates from activity_availability
+    const { data: realTimes, error: realError } = await supabase
       .from('activity_availability')
       .select('local_time')
       .eq('activity_id', selectedMultiDateActivityId)
       .in('local_date', dates)
 
-    if (data) {
-      const uniqueTimes = [...new Set(data.map(d => d.local_time))].sort()
-      setAvailableTimesForActivity(uniqueTimes)
-    }
+    console.log('[fetchAvailableTimesForActivity] Real times:', realTimes?.length || 0, realError || '')
+
+    // Also get times from planned_availabilities (planned slots)
+    const { data: plannedTimes, error: plannedError } = await supabase
+      .from('planned_availabilities')
+      .select('local_time')
+      .eq('activity_id', selectedMultiDateActivityId)
+      .in('local_date', dates)
+
+    console.log('[fetchAvailableTimesForActivity] Planned times:', plannedTimes?.length || 0, plannedError || '')
+
+    // Merge and dedupe times from both sources
+    const allTimes = [
+      ...(realTimes || []).map(d => d.local_time),
+      ...(plannedTimes || []).map(d => d.local_time)
+    ]
+    const uniqueTimes = [...new Set(allTimes)].sort()
+    console.log('[fetchAvailableTimesForActivity] Unique times:', uniqueTimes)
+    setAvailableTimesForActivity(uniqueTimes)
   }, [selectedMultiDateActivityId, calculatedDatesKey])
 
   useEffect(() => {
