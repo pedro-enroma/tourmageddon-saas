@@ -79,7 +79,14 @@ SUPPORTED TICKET TYPES:
 - Colosseum: Look for "COLOSSEO" or "Parco archeologico del Colosseo", codes start with "SPC" (16 chars), various ticket types
 - Pompei: Look for "Parco Archeologico di Pompei" or "ticketone", TktID codes (10 digits), "INTERO" (€19) or "Gratuito" (€0)
 - Italo trains: Look for "italotreno", use "CODICE BIGLIETTO" + "RIC. N.", extract unique passengers only (appear on multiple pages)
-- Trenitalia trains: Look for "TRENITALIA", use "PNR:" + "Numero Titolo:", extract unique passengers only
+- Trenitalia trains: Look for "TRENITALIA" or "POMPEI LINK" or "lefrecce.it".
+  Use "RETRIEVAL CODE" as booking reference. Each RETRIEVAL CODE is a SEPARATE booking.
+  A PDF may contain MULTIPLE bookings (multiple RETRIEVAL CODEs) - extract ALL passengers from ALL bookings.
+  Within the SAME booking, passengers appear on BOTH outbound and return legs - extract each person ONLY ONCE per booking.
+  Generate ticket_code as "TREN-{RETRIEVAL_CODE}-{PASSENGER_NUMBER}" (e.g., "TREN-1740761100-1").
+  Count total unique passengers across ALL bookings (e.g., if booking A has 7 passengers and booking B has 3, total is 10).
+  For POMPEI LINK routes (Pompei Scavi <-> Napoli), set product_name to "POMPEI LINK".
+  IMPORTANT: Mark ONLY the very first ticket (globally, index 0) as ticket_type "guide". ALL other tickets (index 1+) must be "adult" - even if they're from different bookings
 - Catacombe: Look for "Catacombe" or "TU ITALIA SRL" or "enroma.com". This is a PER-PERSON voucher.
   Each booking entry has: Nome (name), Numero di persone (pax count like "2 adulti + 3 minori"), Data (date), Ora (time), Catacombe (location).
   IMPORTANT: Create a SEPARATE ticket for EACH person (adult or child), NOT one ticket per booking.
@@ -97,8 +104,9 @@ SUPPORTED TICKET TYPES:
   Set price to 0 for all tickets (prices will be assigned by ticket_type_mappings).
 
 RULES:
-- For train tickets, passengers appear on BOTH outbound and return pages - extract each person ONLY ONCE
-- For train tickets, generate ticket_code as "{CARRIER}-{BOOKING}-{INDEX}" (e.g., "ITALO-109846687-1")
+- For train tickets, a PDF may contain MULTIPLE bookings (different RETRIEVAL CODEs or PNR codes). Extract ALL passengers from ALL bookings.
+- Within the SAME booking, passengers appear on BOTH outbound and return pages - extract each person ONLY ONCE per booking
+- For train tickets, generate ticket_code as "{CARRIER}-{BOOKING}-{INDEX}" (e.g., "ITALO-109846687-1", "TREN-1740761100-1")
 - Convert all dates to YYYY-MM-DD format
 - Convert all times to HH:MM format
 - Use Title Case for holder names

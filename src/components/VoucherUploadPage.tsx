@@ -502,12 +502,25 @@ export default function VoucherUploadPage() {
       const totalTickets = combinedExtractedData.tickets.length
       const totalParticipants = participants.length
 
+      // Count guide tickets (ticket_type contains "guide")
+      const guideTicketCount = combinedExtractedData.tickets.filter(t =>
+        t.ticket_type.toLowerCase().includes('guide') ||
+        t.ticket_type.toLowerCase().includes('guia')
+      ).length
+
       // Create a single summary result for quantity validation
       const warnings: string[] = []
 
-      // Check total count
-      if (totalTickets !== totalParticipants) {
-        warnings.push(`Total ticket count (${totalTickets}) doesn't match participant count (${totalParticipants})`)
+      // Check total count - account for guide tickets when category requires them
+      const expectedTickets = categoryGuideRequiresTicket
+        ? totalParticipants + guideTicketCount
+        : totalParticipants
+
+      if (totalTickets !== expectedTickets) {
+        const explanation = categoryGuideRequiresTicket
+          ? ` (${totalParticipants} participants + ${guideTicketCount} guide)`
+          : ''
+        warnings.push(`Total ticket count (${totalTickets}) doesn't match expected count (${expectedTickets})${explanation}`)
       }
 
       // Check per-type counts using mappings
