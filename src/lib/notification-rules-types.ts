@@ -54,6 +54,9 @@ export const TRIGGER_EVENTS = {
   GUIDE_ASSIGNED: 'guide_assigned',
   ESCORT_ASSIGNED: 'escort_assigned',
   ASSIGNMENT_REMOVED: 'assignment_removed',
+  // Slot status events (for daily checks)
+  SLOT_MISSING_GUIDE: 'slot_missing_guide',
+  SLOT_PLACEHOLDER_GUIDE: 'slot_placeholder_guide',
   // System events
   AGE_MISMATCH: 'age_mismatch',
   SYNC_FAILURE: 'sync_failure',
@@ -131,6 +134,23 @@ export const TRIGGER_FIELDS: Record<string, { field: string; label: string; type
     { field: 'assignment_type', label: 'Assignment Type', type: 'string' },
     { field: 'person_name', label: 'Person Name', type: 'string' },
     { field: 'activity_name', label: 'Activity Name', type: 'string' },
+  ],
+  slot_missing_guide: [
+    { field: 'activity_name', label: 'Activity Name', type: 'string' },
+    { field: 'slot_date', label: 'Slot Date', type: 'date' },
+    { field: 'slot_time', label: 'Slot Time', type: 'string' },
+    { field: 'booking_count', label: 'Booking Count', type: 'number' },
+    { field: 'participant_count', label: 'Participant Count', type: 'number' },
+    { field: 'days_until_slot', label: 'Days Until Slot', type: 'number' },
+  ],
+  slot_placeholder_guide: [
+    { field: 'activity_name', label: 'Activity Name', type: 'string' },
+    { field: 'slot_date', label: 'Slot Date', type: 'date' },
+    { field: 'slot_time', label: 'Slot Time', type: 'string' },
+    { field: 'guide_name', label: 'Guide Name', type: 'string' },
+    { field: 'booking_count', label: 'Booking Count', type: 'number' },
+    { field: 'participant_count', label: 'Participant Count', type: 'number' },
+    { field: 'days_until_slot', label: 'Days Until Slot', type: 'number' },
   ],
   age_mismatch: [
     { field: 'severity', label: 'Severity', type: 'string' },

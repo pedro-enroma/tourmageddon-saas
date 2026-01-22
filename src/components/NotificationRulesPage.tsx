@@ -24,6 +24,8 @@ const TRIGGER_LABELS: Record<string, string> = {
   guide_assigned: 'Guide Assigned',
   escort_assigned: 'Escort Assigned',
   assignment_removed: 'Assignment Removed',
+  slot_missing_guide: 'Slot Missing Guide',
+  slot_placeholder_guide: 'Slot Has Cercare Guide',
   age_mismatch: 'Age Mismatch',
   sync_failure: 'Sync Failure',
 }
@@ -33,6 +35,7 @@ const TRIGGER_CATEGORIES = {
   'Bookings': ['booking_created', 'booking_modified', 'booking_cancelled'],
   'Vouchers': ['voucher_uploaded', 'voucher_deadline_approaching', 'voucher_deadline_missed'],
   'Assignments': ['guide_assigned', 'escort_assigned', 'assignment_removed'],
+  'Slot Status': ['slot_missing_guide', 'slot_placeholder_guide'],
   'System': ['age_mismatch', 'sync_failure'],
 }
 

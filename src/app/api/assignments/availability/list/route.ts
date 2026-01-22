@@ -36,7 +36,8 @@ export async function GET(request: NextRequest) {
             first_name,
             last_name,
             email,
-            phone_number
+            phone_number,
+            is_placeholder
           )
         `)
         .in('activity_availability_id', availabilityIds),
@@ -50,7 +51,8 @@ export async function GET(request: NextRequest) {
             first_name,
             last_name,
             email,
-            phone_number
+            phone_number,
+            is_placeholder
           )
         `)
         .in('activity_availability_id', availabilityIds),

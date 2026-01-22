@@ -211,11 +211,13 @@ interface Availability {
 interface GuideInfo {
   id: string
   name: string
+  is_placeholder?: boolean
 }
 
 interface EscortInfo {
   id: string
   name: string
+  is_placeholder?: boolean
 }
 
 interface SlotData {
@@ -279,6 +281,7 @@ interface AvailableGuide {
   first_name: string
   last_name: string
   languages?: string[]
+  is_placeholder?: boolean
 }
 
 interface BusyGuideInfo {
@@ -397,7 +400,7 @@ export default function NewRecapPage() {
   const [escortDialogOpen, setEscortDialogOpen] = useState(false)
   const [selectedSlotForEscort, setSelectedSlotForEscort] = useState<SlotData | null>(null)
   const [selectedEscortToChange, setSelectedEscortToChange] = useState<EscortInfo | null>(null)
-  const [availableEscorts, setAvailableEscorts] = useState<{ escort_id: string; first_name: string; last_name: string }[]>([])
+  const [availableEscorts, setAvailableEscorts] = useState<{ escort_id: string; first_name: string; last_name: string; is_placeholder?: boolean }[]>([])
   const [newEscortId, setNewEscortId] = useState<string>('')
   const [changingEscort, setChangingEscort] = useState(false)
   const [escortSearchTerm, setEscortSearchTerm] = useState('')
@@ -576,7 +579,8 @@ export default function NewRecapPage() {
         guide:guides (
           guide_id,
           first_name,
-          last_name
+          last_name,
+          is_placeholder
         )
       `)
 
@@ -594,6 +598,7 @@ export default function NewRecapPage() {
       // Supabase returns guide as an array
       const guide = Array.isArray(assignment.guide) ? assignment.guide[0] : assignment.guide
       const guideName = guide ? `${guide.first_name} ${guide.last_name}` : null
+      const isPlaceholder = guide?.is_placeholder || false
 
       // Handle real availability assignments
       if (assignment.activity_availability_id) {
@@ -604,9 +609,9 @@ export default function NewRecapPage() {
           const existingNames = guideNamesMap.get(availId) || []
           guideNamesMap.set(availId, [...existingNames, guideName])
 
-          // Store guide data with ID
+          // Store guide data with ID and placeholder flag
           const existingData = guideDataMap.get(availId) || []
-          guideDataMap.set(availId, [...existingData, { id: assignment.guide_id, name: guideName }])
+          guideDataMap.set(availId, [...existingData, { id: assignment.guide_id, name: guideName, is_placeholder: isPlaceholder }])
         }
       }
 
@@ -619,9 +624,9 @@ export default function NewRecapPage() {
           const existingNames = plannedGuideNamesMap.get(plannedId) || []
           plannedGuideNamesMap.set(plannedId, [...existingNames, guideName])
 
-          // Store guide data with ID
+          // Store guide data with ID and placeholder flag
           const existingData = plannedGuideDataMap.get(plannedId) || []
-          plannedGuideDataMap.set(plannedId, [...existingData, { id: assignment.guide_id, name: guideName }])
+          plannedGuideDataMap.set(plannedId, [...existingData, { id: assignment.guide_id, name: guideName, is_placeholder: isPlaceholder }])
         }
       }
     })
@@ -747,7 +752,7 @@ export default function NewRecapPage() {
     // Fetch escort assignments with escort details
     const { data: escortAssignments } = await supabase
       .from('escort_assignments')
-      .select('assignment_id, escort_id, activity_availability_id, escort:escorts(first_name, last_name)')
+      .select('assignment_id, escort_id, activity_availability_id, escort:escorts(first_name, last_name, is_placeholder)')
 
     // Fetch headphone assignments
     const { data: headphoneAssignments } = await supabase
@@ -948,7 +953,7 @@ export default function NewRecapPage() {
       const escort = Array.isArray(assignment.escort) ? assignment.escort[0] : assignment.escort
       if (escort) {
         const escortName = `${escort.first_name} ${escort.last_name}`
-        const escortInfo: EscortInfo = { id: assignment.escort_id, name: escortName }
+        const escortInfo: EscortInfo = { id: assignment.escort_id, name: escortName, is_placeholder: escort.is_placeholder || false }
 
         // Add to per-slot map
         const existingData = escortDataMap.get(availId) || []
@@ -1795,12 +1800,15 @@ export default function NewRecapPage() {
       const res = await fetch('/api/guides')
       if (res.ok) {
         const { data } = await res.json()
-        // Filter only active guides and sort by first name
+        // Filter only active guides and sort: placeholders first, then by first name
         const activeGuides = (data || [])
           .filter((g: { active: boolean }) => g.active !== false)
-          .sort((a: AvailableGuide, b: AvailableGuide) =>
-            a.first_name.localeCompare(b.first_name)
-          )
+          .sort((a: AvailableGuide, b: AvailableGuide) => {
+            // Placeholders first
+            if (a.is_placeholder && !b.is_placeholder) return -1
+            if (!a.is_placeholder && b.is_placeholder) return 1
+            return a.first_name.localeCompare(b.first_name)
+          })
         setAvailableGuides(activeGuides)
       }
     } catch (error) {
@@ -2042,12 +2050,18 @@ export default function NewRecapPage() {
   const loadAvailableEscorts = async () => {
     const { data, error } = await supabase
       .from('escorts')
-      .select('escort_id, first_name, last_name')
+      .select('escort_id, first_name, last_name, is_placeholder')
       .eq('active', true)
       .order('first_name')
 
     if (!error && data) {
-      setAvailableEscorts(data)
+      // Sort: placeholders first, then by first name
+      const sortedEscorts = data.sort((a, b) => {
+        if (a.is_placeholder && !b.is_placeholder) return -1
+        if (!a.is_placeholder && b.is_placeholder) return 1
+        return a.first_name.localeCompare(b.first_name)
+      })
+      setAvailableEscorts(sortedEscorts)
     }
   }
 
@@ -3537,10 +3551,14 @@ export default function NewRecapPage() {
                             <button
                               key={gIdx}
                               onClick={() => openGuideDialog(slot, guide)}
-                              className="px-2 py-0.5 bg-green-100 hover:bg-green-200 text-green-800 rounded text-xs cursor-pointer transition-colors"
+                              className={`px-2 py-0.5 rounded text-xs cursor-pointer transition-colors ${
+                                guide.is_placeholder
+                                  ? 'bg-amber-100 hover:bg-amber-200 text-amber-800 border border-amber-300'
+                                  : 'bg-green-100 hover:bg-green-200 text-green-800'
+                              }`}
                               title={guide.name}
                             >
-                              {guide.name.split(' ')[0]}
+                              {guide.is_placeholder ? '🔍' : ''}{guide.name.split(' ')[0]}
                             </button>
                           ))}
                           <button
@@ -3555,8 +3573,12 @@ export default function NewRecapPage() {
                         {slot.escortData && slot.escortData.length > 0 ? (
                           <HoverCard>
                             <HoverCardTrigger asChild>
-                              <span className="px-2 py-0.5 bg-purple-100 text-purple-800 rounded text-xs cursor-help">
-                                {slot.escortData.length}
+                              <span className={`px-2 py-0.5 rounded text-xs cursor-help ${
+                                slot.escortData.some(e => e.is_placeholder)
+                                  ? 'bg-amber-100 text-amber-800 border border-amber-300'
+                                  : 'bg-purple-100 text-purple-800'
+                              }`}>
+                                {slot.escortData.some(e => e.is_placeholder) ? '🔍' : ''}{slot.escortData.length}
                               </span>
                             </HoverCardTrigger>
                             <HoverCardContent className="w-56" side="left">
@@ -3567,9 +3589,13 @@ export default function NewRecapPage() {
                                     <button
                                       key={eIdx}
                                       onClick={() => openEscortDialog(slot, escort)}
-                                      className="inline-block w-fit px-2 py-1 text-xs bg-purple-100 hover:bg-purple-200 text-purple-800 rounded transition-colors text-left"
+                                      className={`inline-block w-fit px-2 py-1 text-xs rounded transition-colors text-left ${
+                                        escort.is_placeholder
+                                          ? 'bg-amber-100 hover:bg-amber-200 text-amber-800 border border-amber-300'
+                                          : 'bg-purple-100 hover:bg-purple-200 text-purple-800'
+                                      }`}
                                     >
-                                      {escort.name}
+                                      {escort.is_placeholder ? '🔍 ' : ''}{escort.name}
                                     </button>
                                   ))}
                                 </div>
@@ -3763,6 +3789,7 @@ export default function NewRecapPage() {
                       .map(guide => {
                         const busyInfo = isGuideBusy(guide.guide_id)
                         const isBusy = !!busyInfo
+                        const isPlaceholder = guide.is_placeholder
 
                         return (
                           <button
@@ -3775,12 +3802,14 @@ export default function NewRecapPage() {
                                 ? 'bg-gray-50 cursor-not-allowed opacity-70'
                                 : newGuideId === guide.guide_id
                                   ? 'bg-brand-orange-light'
-                                  : 'hover:bg-gray-50'
+                                  : isPlaceholder
+                                    ? 'bg-amber-50 hover:bg-amber-100 border-l-4 border-l-amber-400'
+                                    : 'hover:bg-gray-50'
                             }`}
                           >
                             <div className="flex items-center justify-between">
-                              <span className={`font-medium text-sm ${isBusy ? 'text-gray-500' : ''}`}>
-                                {guide.first_name} {guide.last_name}
+                              <span className={`font-medium text-sm ${isBusy ? 'text-gray-500' : isPlaceholder ? 'text-amber-700' : ''}`}>
+                                {isPlaceholder ? '🔍 ' : ''}{guide.first_name} {guide.last_name}
                               </span>
                               <span className="text-base">
                                 {guide.languages?.map(lang => getLanguageFlag(lang)).join(' ') || ''}
@@ -3885,22 +3914,27 @@ export default function NewRecapPage() {
                     ) : (
                       filteredEscorts
                         .filter(e => e.escort_id !== selectedEscortToChange?.id)
-                        .map(escort => (
-                          <button
-                            key={escort.escort_id}
-                            type="button"
-                            onClick={() => setNewEscortId(escort.escort_id)}
-                            className={`w-full px-3 py-2 text-left border-b border-gray-100 last:border-b-0 transition-colors ${
-                              newEscortId === escort.escort_id
-                                ? 'bg-purple-100'
-                                : 'hover:bg-gray-50'
-                            }`}
-                          >
-                            <span className="font-medium text-sm">
-                              {escort.first_name} {escort.last_name}
-                            </span>
-                          </button>
-                        ))
+                        .map(escort => {
+                          const isPlaceholder = escort.is_placeholder
+                          return (
+                            <button
+                              key={escort.escort_id}
+                              type="button"
+                              onClick={() => setNewEscortId(escort.escort_id)}
+                              className={`w-full px-3 py-2 text-left border-b border-gray-100 last:border-b-0 transition-colors ${
+                                newEscortId === escort.escort_id
+                                  ? 'bg-purple-100'
+                                  : isPlaceholder
+                                    ? 'bg-amber-50 hover:bg-amber-100 border-l-4 border-l-amber-400'
+                                    : 'hover:bg-gray-50'
+                              }`}
+                            >
+                              <span className={`font-medium text-sm ${isPlaceholder ? 'text-amber-700' : ''}`}>
+                                {isPlaceholder ? '🔍 ' : ''}{escort.first_name} {escort.last_name}
+                              </span>
+                            </button>
+                          )
+                        })
                     )}
                 </div>
               </div>
@@ -3935,22 +3969,27 @@ export default function NewRecapPage() {
                         Nessun escort trovato
                       </div>
                     ) : (
-                      filteredEscorts.map(escort => (
-                        <button
-                          key={escort.escort_id}
-                          type="button"
-                          onClick={() => setNewEscortId(escort.escort_id)}
-                          className={`w-full px-3 py-2 text-left border-b border-gray-100 last:border-b-0 transition-colors ${
-                            newEscortId === escort.escort_id
-                              ? 'bg-purple-100'
-                              : 'hover:bg-gray-50'
-                          }`}
-                        >
-                          <span className="font-medium text-sm">
-                            {escort.first_name} {escort.last_name}
-                          </span>
-                        </button>
-                      ))
+                      filteredEscorts.map(escort => {
+                        const isPlaceholder = escort.is_placeholder
+                        return (
+                          <button
+                            key={escort.escort_id}
+                            type="button"
+                            onClick={() => setNewEscortId(escort.escort_id)}
+                            className={`w-full px-3 py-2 text-left border-b border-gray-100 last:border-b-0 transition-colors ${
+                              newEscortId === escort.escort_id
+                                ? 'bg-purple-100'
+                                : isPlaceholder
+                                  ? 'bg-amber-50 hover:bg-amber-100 border-l-4 border-l-amber-400'
+                                  : 'hover:bg-gray-50'
+                            }`}
+                          >
+                            <span className={`font-medium text-sm ${isPlaceholder ? 'text-amber-700' : ''}`}>
+                              {isPlaceholder ? '🔍 ' : ''}{escort.first_name} {escort.last_name}
+                            </span>
+                          </button>
+                        )
+                      })
                     )}
                   </div>
                 </div>

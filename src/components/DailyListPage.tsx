@@ -122,6 +122,7 @@ interface Person {
   last_name: string
   email?: string
   phone_number?: string
+  is_placeholder?: boolean
 }
 
 interface StaffAssignment {
@@ -1104,7 +1105,8 @@ export default function DailyListPage() {
           first_name: guide.first_name,
           last_name: guide.last_name,
           email: guide.email,
-          phone_number: guide.phone_number
+          phone_number: guide.phone_number,
+          is_placeholder: guide.is_placeholder || false
         })
       }
     })
@@ -1117,7 +1119,8 @@ export default function DailyListPage() {
           first_name: escort.first_name,
           last_name: escort.last_name,
           email: escort.email,
-          phone_number: escort.phone_number
+          phone_number: escort.phone_number,
+          is_placeholder: escort.is_placeholder || false
         })
       }
     })
@@ -4658,11 +4661,12 @@ export default function DailyListPage() {
   ]
 
   // Sortable row component for drag & drop
-  const SortableBookingRow = ({ booking, splitIndex, splitName, guideName, serviceGroupName }: {
+  const SortableBookingRow = ({ booking, splitIndex, splitName, guideName, guideIsPlaceholder, serviceGroupName }: {
     booking: PaxData;
     splitIndex?: number;
     splitName?: string;
     guideName?: string;
+    guideIsPlaceholder?: boolean;
     serviceGroupName?: string;
   }) => {
     const {
@@ -4695,7 +4699,13 @@ export default function DailyListPage() {
             <span>{booking.activity_title}</span>
             {splitName && (
               <span className="text-xs font-semibold text-purple-600">
-                {splitName}{guideName ? ` - ${guideName}` : ''}{serviceGroupName ? ` • ${serviceGroupName}` : ''}
+                {splitName}
+                {guideName && (
+                  <span className={guideIsPlaceholder ? 'text-amber-600' : ''}>
+                    {' - '}{guideIsPlaceholder ? '🔍 ' : ''}{guideName}
+                  </span>
+                )}
+                {serviceGroupName ? ` • ${serviceGroupName}` : ''}
               </span>
             )}
           </div>
@@ -5311,6 +5321,7 @@ export default function DailyListPage() {
                                 // Get split info if booking is in a split
                                 let splitName: string | undefined
                                 let guideName: string | undefined
+                                let guideIsPlaceholder: boolean | undefined
                                 let serviceGroupName: string | undefined
                                 if (splitIndex >= 0) {
                                   const split = splitsForSlot[splitIndex]
@@ -5319,6 +5330,7 @@ export default function DailyListPage() {
                                   if (split.guide_id) {
                                     const guide = staffForSlot?.guides.find(g => g.id === split.guide_id)
                                     guideName = guide ? `${guide.first_name} ${guide.last_name}` : undefined
+                                    guideIsPlaceholder = guide?.is_placeholder
                                   }
                                   // Get service group info (with its guide name)
                                   const serviceGroup = splitServiceGroupMemberships.get(split.id)
@@ -5337,6 +5349,7 @@ export default function DailyListPage() {
                                     splitIndex={splitIndex >= 0 ? splitIndex : undefined}
                                     splitName={splitName}
                                     guideName={guideName}
+                                    guideIsPlaceholder={guideIsPlaceholder}
                                     serviceGroupName={serviceGroupName}
                                   />
                                 )
@@ -5906,8 +5919,8 @@ export default function DailyListPage() {
                                     <SelectContent>
                                       <SelectItem value="none">No guide</SelectItem>
                                       {assignedGuides.map(guide => (
-                                        <SelectItem key={guide.id} value={guide.id}>
-                                          {guide.first_name} {guide.last_name}
+                                        <SelectItem key={guide.id} value={guide.id} className={guide.is_placeholder ? 'text-amber-700 bg-amber-50' : ''}>
+                                          {guide.is_placeholder ? '🔍 ' : ''}{guide.first_name} {guide.last_name}
                                         </SelectItem>
                                       ))}
                                     </SelectContent>

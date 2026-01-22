@@ -58,6 +58,7 @@ export interface Guide {
   paid_in_cash?: boolean
   uses_app?: boolean
   user_id?: string | null
+  is_placeholder?: boolean
   created_at?: string
 }
 
@@ -82,6 +83,7 @@ export interface Escort {
   active: boolean
   uses_app?: boolean
   user_id?: string | null
+  is_placeholder?: boolean
   created_at?: string
 }
 
