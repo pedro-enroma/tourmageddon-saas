@@ -36,6 +36,7 @@ import PrintingAssignmentsPage from '@/components/PrintingAssignmentsPage'
 import ColosseumMonitoringPage from '@/components/ColosseumMonitoringPage'
 import TrainMonitoringPage from '@/components/TrainMonitoringPage'
 import VaticanMonitoringPage from '@/components/VaticanMonitoringPage'
+import CivitatisMonitoringPage from '@/components/CivitatisMonitoringPage'
 import InvoicingPage from '@/components/InvoicingPage'
 import ResourceCostsConfigPage from '@/components/ResourceCostsConfigPage'
 import ServiceGroupsPage from '@/components/ServiceGroupsPage'
@@ -343,6 +344,11 @@ function AppSidebar({ currentView, onNavigate }: {
           title: "Trains",
           icon: TrendingUp,
           view: "monitoring-trains",
+        },
+        {
+          title: "Civitatis",
+          icon: Search,
+          view: "monitoring-civitatis",
         },
       ],
     },
@@ -971,6 +977,7 @@ const CHANGELOG = [
     changes: [
       { type: 'feature', text: 'Vatican Monitoring - Track Vatican ticket prices and availability' },
       { type: 'feature', text: 'Train Monitoring - Track train prices between Rome and other cities' },
+      { type: 'feature', text: 'Civitatis Monitoring - Track Civitatis tour prices and availability' },
     ]
   },
   {
@@ -1148,6 +1155,8 @@ export default function DashboardLayout() {
         return <TrainMonitoringPage />
       case 'monitoring-vatican':
         return <VaticanMonitoringPage />
+      case 'monitoring-civitatis':
+        return <CivitatisMonitoringPage />
       case 'resource-costs':
         return <ResourceCostsConfigPage />
       case 'service-groups':
@@ -1233,6 +1242,8 @@ export default function DashboardLayout() {
         return 'Train Price Tracker'
       case 'monitoring-vatican':
         return 'Vatican Price Monitor'
+      case 'monitoring-civitatis':
+        return 'Civitatis Monitor'
       case 'resource-costs':
         return 'Staff Cost'
       case 'service-groups':
@@ -1266,7 +1277,7 @@ export default function DashboardLayout() {
     if (['user-management', 'notification-rules', 'audit-logs', 'booking-changes', 'availability-sync'].includes(currentView)) {
       return 'Settings'
     }
-    if (['monitoring-colosseum', 'monitoring-trains', 'monitoring-vatican'].includes(currentView)) {
+    if (['monitoring-colosseum', 'monitoring-trains', 'monitoring-vatican', 'monitoring-civitatis'].includes(currentView)) {
       return 'Monitoring'
     }
     return 'Dashboard'
