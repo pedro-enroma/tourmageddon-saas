@@ -963,8 +963,16 @@ function SearchDialog({ isOpen, onClose }: { isOpen: boolean; onClose: () => voi
 }
 
 // App version and changelog
-const APP_VERSION = '4.1'
+const APP_VERSION = '4.2'
 const CHANGELOG = [
+  {
+    version: '4.2',
+    date: '2026-01-22',
+    changes: [
+      { type: 'feature', text: 'Vatican Monitoring - Track Vatican ticket prices and availability' },
+      { type: 'feature', text: 'Train Monitoring - Track train prices between Rome and other cities' },
+    ]
+  },
   {
     version: '4.1',
     date: '2026-01-21',
