@@ -48,7 +48,7 @@ const nextConfig: NextConfig = {
               "img-src 'self' data: https: blob:",
               "font-src 'self' data:",
               "connect-src 'self' https://*.supabase.co wss://*.supabase.co https://booking-webhook-system-production.up.railway.app",
-              "frame-src 'self' https://coliseo-ticket-tracker.vercel.app", // Allow external iframes
+              "frame-src 'self' https://coliseo-ticket-tracker.vercel.app https://train-tracker-web.vercel.app https://vatican-monitor.vercel.app", // Allow external iframes
               "frame-ancestors 'none'",
               "base-uri 'self'",
               "form-action 'self'",

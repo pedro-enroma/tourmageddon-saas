@@ -34,6 +34,8 @@ import EscortAssignmentsPage from '@/components/EscortAssignmentsPage'
 import HeadphoneAssignmentsPage from '@/components/HeadphoneAssignmentsPage'
 import PrintingAssignmentsPage from '@/components/PrintingAssignmentsPage'
 import ColosseumMonitoringPage from '@/components/ColosseumMonitoringPage'
+import TrainMonitoringPage from '@/components/TrainMonitoringPage'
+import VaticanMonitoringPage from '@/components/VaticanMonitoringPage'
 import InvoicingPage from '@/components/InvoicingPage'
 import ResourceCostsConfigPage from '@/components/ResourceCostsConfigPage'
 import ServiceGroupsPage from '@/components/ServiceGroupsPage'
@@ -331,6 +333,16 @@ function AppSidebar({ currentView, onNavigate }: {
           title: "Colosseum",
           icon: Landmark,
           view: "monitoring-colosseum",
+        },
+        {
+          title: "Vatican",
+          icon: Building2,
+          view: "monitoring-vatican",
+        },
+        {
+          title: "Trains",
+          icon: TrendingUp,
+          view: "monitoring-trains",
         },
       ],
     },
@@ -1124,6 +1136,10 @@ export default function DashboardLayout() {
         return <BookingChangesLogPage />
       case 'monitoring-colosseum':
         return <ColosseumMonitoringPage />
+      case 'monitoring-trains':
+        return <TrainMonitoringPage />
+      case 'monitoring-vatican':
+        return <VaticanMonitoringPage />
       case 'resource-costs':
         return <ResourceCostsConfigPage />
       case 'service-groups':
@@ -1205,6 +1221,10 @@ export default function DashboardLayout() {
         return 'Booking Changes'
       case 'monitoring-colosseum':
         return 'Colosseum Monitoring'
+      case 'monitoring-trains':
+        return 'Train Price Tracker'
+      case 'monitoring-vatican':
+        return 'Vatican Price Monitor'
       case 'resource-costs':
         return 'Staff Cost'
       case 'service-groups':
@@ -1238,7 +1258,7 @@ export default function DashboardLayout() {
     if (['user-management', 'notification-rules', 'audit-logs', 'booking-changes', 'availability-sync'].includes(currentView)) {
       return 'Settings'
     }
-    if (['monitoring-colosseum'].includes(currentView)) {
+    if (['monitoring-colosseum', 'monitoring-trains', 'monitoring-vatican'].includes(currentView)) {
       return 'Monitoring'
     }
     return 'Dashboard'
