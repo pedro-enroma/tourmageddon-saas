@@ -3,12 +3,18 @@
 import { useState, useEffect } from 'react'
 import { supabase } from '@/lib/supabase'
 import { escortsApi } from '@/lib/api-client'
-import { Plus, Edit, Trash2, Search, X } from 'lucide-react'
+import { Plus, Edit, Trash2, Search, X, UserPlus, KeyRound, UserMinus } from 'lucide-react'
 import { Button } from '@/components/ui/button'
 import { Label } from '@/components/ui/label'
 import { Checkbox } from '@/components/ui/checkbox'
 
 const AVAILABLE_LANGUAGES = ['English', 'Spanish', 'Portuguese']
+
+const LANGUAGE_CODES: Record<string, string> = {
+  'English': 'EN',
+  'Spanish': 'ES',
+  'Portuguese': 'PT'
+}
 
 interface Escort {
   escort_id: string
@@ -19,6 +25,8 @@ interface Escort {
   license_number: string | null
   languages: string[]
   active: boolean
+  uses_app: boolean
+  user_id: string | null
   created_at: string
   updated_at: string
 }
@@ -32,6 +40,14 @@ export default function EscortsListPage() {
   const [error, setError] = useState<string | null>(null)
   const [saving, setSaving] = useState(false)
 
+  // User account modal state
+  const [showUserModal, setShowUserModal] = useState(false)
+  const [userModalEscort, setUserModalEscort] = useState<Escort | null>(null)
+  const [userPassword, setUserPassword] = useState('')
+  const [userModalMode, setUserModalMode] = useState<'create' | 'reset'>('create')
+  const [userModalSaving, setUserModalSaving] = useState(false)
+  const [userModalError, setUserModalError] = useState<string | null>(null)
+
   // Form state
   const [formData, setFormData] = useState({
     first_name: '',
@@ -40,7 +56,8 @@ export default function EscortsListPage() {
     phone_number: '',
     license_number: '',
     languages: [] as string[],
-    active: true
+    active: true,
+    uses_app: false
   })
 
   useEffect(() => {
@@ -76,7 +93,8 @@ export default function EscortsListPage() {
         phone_number: escort.phone_number || '',
         license_number: escort.license_number || '',
         languages: escort.languages,
-        active: escort.active
+        active: escort.active,
+        uses_app: escort.uses_app || false
       })
     } else {
       setEditingEscort(null)
@@ -87,7 +105,8 @@ export default function EscortsListPage() {
         phone_number: '',
         license_number: '',
         languages: [],
-        active: true
+        active: true,
+        uses_app: false
       })
     }
     setShowModal(true)
@@ -115,7 +134,8 @@ export default function EscortsListPage() {
           phone_number: formData.phone_number || undefined,
           license_number: formData.license_number || undefined,
           languages: formData.languages,
-          active: formData.active
+          active: formData.active,
+          uses_app: formData.uses_app
         })
 
         if (result.error) throw new Error(result.error)
@@ -167,6 +187,106 @@ export default function EscortsListPage() {
     }))
   }
 
+  // User account management functions
+  const handleOpenUserModal = (escort: Escort, mode: 'create' | 'reset') => {
+    setUserModalEscort(escort)
+    setUserModalMode(mode)
+    setUserPassword('')
+    setUserModalError(null)
+    setShowUserModal(true)
+  }
+
+  const handleCloseUserModal = () => {
+    setShowUserModal(false)
+    setUserModalEscort(null)
+    setUserPassword('')
+    setUserModalError(null)
+  }
+
+  const handleCreateUserAccount = async () => {
+    if (!userModalEscort || !userPassword) return
+
+    setUserModalSaving(true)
+    setUserModalError(null)
+
+    try {
+      const response = await fetch('/api/escorts/user', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          escort_id: userModalEscort.escort_id,
+          password: userPassword
+        })
+      })
+
+      const result = await response.json()
+
+      if (!response.ok) {
+        throw new Error(result.error || 'Failed to create user account')
+      }
+
+      handleCloseUserModal()
+      fetchEscorts()
+    } catch (err) {
+      console.error('Error creating user account:', err)
+      setUserModalError(err instanceof Error ? err.message : 'Failed to create user account')
+    } finally {
+      setUserModalSaving(false)
+    }
+  }
+
+  const handleResetPassword = async () => {
+    if (!userModalEscort || !userPassword) return
+
+    setUserModalSaving(true)
+    setUserModalError(null)
+
+    try {
+      const response = await fetch('/api/escorts/user', {
+        method: 'PUT',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          escort_id: userModalEscort.escort_id,
+          new_password: userPassword
+        })
+      })
+
+      const result = await response.json()
+
+      if (!response.ok) {
+        throw new Error(result.error || 'Failed to reset password')
+      }
+
+      handleCloseUserModal()
+    } catch (err) {
+      console.error('Error resetting password:', err)
+      setUserModalError(err instanceof Error ? err.message : 'Failed to reset password')
+    } finally {
+      setUserModalSaving(false)
+    }
+  }
+
+  const handleRemoveUserAccount = async (escort: Escort) => {
+    if (!confirm(`Are you sure you want to remove the user account for ${escort.first_name} ${escort.last_name}? This will delete their login credentials.`)) return
+
+    try {
+      const response = await fetch(`/api/escorts/user?escort_id=${escort.escort_id}`, {
+        method: 'DELETE'
+      })
+
+      const result = await response.json()
+
+      if (!response.ok) {
+        throw new Error(result.error || 'Failed to remove user account')
+      }
+
+      fetchEscorts()
+    } catch (err) {
+      console.error('Error removing user account:', err)
+      setError(err instanceof Error ? err.message : 'Failed to remove user account')
+    }
+  }
+
   const filteredEscorts = escorts.filter(escort =>
     escort.first_name.toLowerCase().includes(searchTerm.toLowerCase()) ||
     escort.last_name.toLowerCase().includes(searchTerm.toLowerCase()) ||
@@ -211,60 +331,95 @@ export default function EscortsListPage() {
       {loading ? (
         <div className="text-center py-8">Loading escorts...</div>
       ) : (
-        <div className="bg-white rounded-lg shadow overflow-hidden">
+        <div className="bg-white rounded-lg shadow overflow-x-auto">
           <table className="min-w-full divide-y divide-gray-200">
             <thead className="bg-gray-50">
               <tr>
-                <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Name</th>
-                <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Email</th>
-                <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Phone</th>
-                <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">License</th>
-                <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Languages</th>
-                <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Status</th>
-                <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Actions</th>
+                <th className="px-3 py-2 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Name</th>
+                <th className="px-3 py-2 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Email</th>
+                <th className="px-3 py-2 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Phone</th>
+                <th className="px-3 py-2 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Lang</th>
+                <th className="px-3 py-2 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Status</th>
+                <th className="px-3 py-2 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">App</th>
+                <th className="px-3 py-2 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Actions</th>
               </tr>
             </thead>
             <tbody className="bg-white divide-y divide-gray-200">
               {filteredEscorts.length === 0 ? (
                 <tr>
-                  <td colSpan={7} className="px-6 py-4 text-center text-gray-500">
+                  <td colSpan={7} className="px-3 py-4 text-center text-gray-500">
                     No escorts found
                   </td>
                 </tr>
               ) : (
                 filteredEscorts.map((escort) => (
                   <tr key={escort.escort_id}>
-                    <td className="px-6 py-4 whitespace-nowrap">
+                    <td className="px-3 py-2 whitespace-nowrap">
                       <div className="text-sm font-medium text-gray-900">
                         {escort.first_name} {escort.last_name}
                       </div>
                     </td>
-                    <td className="px-6 py-4 whitespace-nowrap">
+                    <td className="px-3 py-2 whitespace-nowrap">
                       <div className="text-sm text-gray-900">{escort.email}</div>
                     </td>
-                    <td className="px-6 py-4 whitespace-nowrap">
+                    <td className="px-3 py-2 whitespace-nowrap">
                       <div className="text-sm text-gray-900">{escort.phone_number || '-'}</div>
                     </td>
-                    <td className="px-6 py-4 whitespace-nowrap">
-                      <div className="text-sm text-gray-900">{escort.license_number || '-'}</div>
-                    </td>
-                    <td className="px-6 py-4 whitespace-nowrap">
+                    <td className="px-3 py-2 whitespace-nowrap">
                       <div className="flex gap-1 flex-wrap">
                         {escort.languages.map(lang => (
-                          <span key={lang} className="px-2 py-1 text-xs bg-green-100 text-green-800 rounded-full">
-                            {lang}
+                          <span key={lang} className="px-1.5 py-0.5 text-xs bg-green-100 text-green-800 rounded">
+                            {LANGUAGE_CODES[lang] || lang.slice(0, 2).toUpperCase()}
                           </span>
                         ))}
                       </div>
                     </td>
-                    <td className="px-6 py-4 whitespace-nowrap">
-                      <span className={`px-2 py-1 text-xs rounded-full ${
+                    <td className="px-3 py-2 whitespace-nowrap">
+                      <span className={`px-1.5 py-0.5 text-xs rounded ${
                         escort.active ? 'bg-green-100 text-green-800' : 'bg-gray-100 text-gray-800'
                       }`}>
                         {escort.active ? 'Active' : 'Inactive'}
                       </span>
                     </td>
-                    <td className="px-6 py-4 whitespace-nowrap text-sm">
+                    <td className="px-3 py-2 whitespace-nowrap">
+                      {escort.uses_app ? (
+                        <div className="flex items-center gap-1">
+                          {escort.user_id ? (
+                            <>
+                              <span className="px-1.5 py-0.5 text-xs bg-blue-100 text-blue-800 rounded">Connected</span>
+                              <button
+                                onClick={() => handleOpenUserModal(escort, 'reset')}
+                                className="text-yellow-600 hover:text-yellow-800 p-1"
+                                title="Reset Password"
+                              >
+                                <KeyRound className="w-3.5 h-3.5" />
+                              </button>
+                              <button
+                                onClick={() => handleRemoveUserAccount(escort)}
+                                className="text-red-600 hover:text-red-800 p-1"
+                                title="Remove User Account"
+                              >
+                                <UserMinus className="w-3.5 h-3.5" />
+                              </button>
+                            </>
+                          ) : (
+                            <>
+                              <span className="px-1.5 py-0.5 text-xs bg-yellow-100 text-yellow-800 rounded">No User</span>
+                              <button
+                                onClick={() => handleOpenUserModal(escort, 'create')}
+                                className="text-green-600 hover:text-green-800 p-1"
+                                title="Create User Account"
+                              >
+                                <UserPlus className="w-3.5 h-3.5" />
+                              </button>
+                            </>
+                          )}
+                        </div>
+                      ) : (
+                        <span className="px-1.5 py-0.5 text-xs bg-gray-100 text-gray-500 rounded">Disabled</span>
+                      )}
+                    </td>
+                    <td className="px-3 py-2 whitespace-nowrap text-sm">
                       <div className="flex gap-2">
                         <button
                           onClick={() => handleOpenModal(escort)}
@@ -288,7 +443,7 @@ export default function EscortsListPage() {
         </div>
       )}
 
-      {/* Modal */}
+      {/* Edit/Create Modal */}
       {showModal && (
         <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50 p-4">
           <div className="bg-white rounded-lg shadow-xl max-w-2xl w-full max-h-[90vh] overflow-y-auto">
@@ -383,13 +538,20 @@ export default function EscortsListPage() {
                 )}
               </div>
 
-              <div className="mt-4">
+              <div className="mt-4 flex gap-6">
                 <label className="flex items-center gap-2 cursor-pointer">
                   <Checkbox
                     checked={formData.active}
                     onCheckedChange={(checked) => setFormData({...formData, active: checked as boolean})}
                   />
                   <span className="text-sm">Active</span>
+                </label>
+                <label className="flex items-center gap-2 cursor-pointer">
+                  <Checkbox
+                    checked={formData.uses_app}
+                    onCheckedChange={(checked) => setFormData({...formData, uses_app: checked as boolean})}
+                  />
+                  <span className="text-sm">Uses App</span>
                 </label>
               </div>
 
@@ -410,6 +572,72 @@ export default function EscortsListPage() {
                 </Button>
               </div>
             </form>
+          </div>
+        </div>
+      )}
+
+      {/* User Account Modal */}
+      {showUserModal && userModalEscort && (
+        <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50 p-4">
+          <div className="bg-white rounded-lg shadow-xl max-w-md w-full">
+            {/* Header */}
+            <div className="p-6 border-b flex justify-between items-center">
+              <h2 className="text-xl font-semibold">
+                {userModalMode === 'create' ? 'Create User Account' : 'Reset Password'}
+              </h2>
+              <button onClick={handleCloseUserModal} className="text-gray-500 hover:text-gray-700">
+                <X className="w-6 h-6" />
+              </button>
+            </div>
+
+            {/* Content */}
+            <div className="p-6">
+              {userModalError && (
+                <div className="bg-red-50 border border-red-200 rounded-lg p-4 mb-4">
+                  <p className="text-sm text-red-700">{userModalError}</p>
+                </div>
+              )}
+
+              <p className="text-sm text-gray-600 mb-4">
+                {userModalMode === 'create'
+                  ? `Create a user account for ${userModalEscort.first_name} ${userModalEscort.last_name} (${userModalEscort.email})`
+                  : `Reset password for ${userModalEscort.first_name} ${userModalEscort.last_name}`
+                }
+              </p>
+
+              <div>
+                <Label className="text-sm font-medium mb-1">
+                  {userModalMode === 'create' ? 'Password' : 'New Password'}
+                </Label>
+                <input
+                  type="password"
+                  value={userPassword}
+                  onChange={(e) => setUserPassword(e.target.value)}
+                  placeholder="Minimum 6 characters"
+                  className="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500"
+                />
+              </div>
+
+              {/* Footer */}
+              <div className="flex justify-end gap-3 mt-6 pt-6 border-t">
+                <Button
+                  type="button"
+                  variant="outline"
+                  onClick={handleCloseUserModal}
+                >
+                  Cancel
+                </Button>
+                <Button
+                  onClick={userModalMode === 'create' ? handleCreateUserAccount : handleResetPassword}
+                  disabled={userPassword.length < 6 || userModalSaving}
+                >
+                  {userModalSaving
+                    ? 'Processing...'
+                    : (userModalMode === 'create' ? 'Create Account' : 'Reset Password')
+                  }
+                </Button>
+              </div>
+            </div>
           </div>
         </div>
       )}

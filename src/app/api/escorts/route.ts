@@ -95,7 +95,7 @@ export async function PUT(request: NextRequest) {
 
   try {
     const body = await request.json()
-    const { escort_id, first_name, last_name, email, phone_number, languages, active } = body
+    const { escort_id, first_name, last_name, email, phone_number, languages, active, uses_app } = body
 
     if (!escort_id) {
       return NextResponse.json({ error: 'escort_id is required' }, { status: 400 })
@@ -127,7 +127,8 @@ export async function PUT(request: NextRequest) {
         email,
         phone_number: phone_number || null,
         languages,
-        active
+        active,
+        uses_app: uses_app ?? false
       })
       .eq('escort_id', escort_id)
       .select()

@@ -56,6 +56,8 @@ export interface Guide {
   languages: string[]
   active: boolean
   paid_in_cash?: boolean
+  uses_app?: boolean
+  user_id?: string | null
   created_at?: string
 }
 
@@ -78,6 +80,8 @@ export interface Escort {
   license_number?: string
   languages: string[]
   active: boolean
+  uses_app?: boolean
+  user_id?: string | null
   created_at?: string
 }
 
