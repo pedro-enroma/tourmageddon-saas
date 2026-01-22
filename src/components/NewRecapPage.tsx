@@ -467,6 +467,8 @@ export default function NewRecapPage() {
   const [notesCountByEscort, setNotesCountByEscort] = useState<Map<string, number>>(new Map())
   const [notesCountBySlot, setNotesCountBySlot] = useState<Map<number, number>>(new Map())
   const [notesCountByVoucher, setNotesCountByVoucher] = useState<Map<string, number>>(new Map())
+  const [notesByDate, setNotesByDate] = useState<Map<string, OperationNote[]>>(new Map())
+  const [notesBySlot, setNotesBySlot] = useState<Map<number, OperationNote[]>>(new Map())
 
   // Planned availability state
   const [, setPlannedAvailabilities] = useState<PlannedAvailability[]>([])
@@ -1518,11 +1520,16 @@ export default function NewRecapPage() {
         const escortMap = new Map<string, number>()
         const slotMap = new Map<number, number>()
         const voucherMap = new Map<string, number>()
+        const notesByDateMap = new Map<string, OperationNote[]>()
+        const notesBySlotMap = new Map<number, OperationNote[]>()
 
         data?.forEach((note: OperationNote) => {
           // Count ALL notes for a date (regardless of what entity they're linked to)
           if (note.local_date) {
             dateMap.set(note.local_date, (dateMap.get(note.local_date) || 0) + 1)
+            // Store actual notes by date
+            const existingNotes = notesByDateMap.get(note.local_date) || []
+            notesByDateMap.set(note.local_date, [...existingNotes, note])
           }
           // Guide-specific notes
           if (note.guide_id) {
@@ -1535,6 +1542,9 @@ export default function NewRecapPage() {
           // Slot-specific notes
           if (note.activity_availability_id) {
             slotMap.set(note.activity_availability_id, (slotMap.get(note.activity_availability_id) || 0) + 1)
+            // Store actual notes by slot
+            const existingSlotNotes = notesBySlotMap.get(note.activity_availability_id) || []
+            notesBySlotMap.set(note.activity_availability_id, [...existingSlotNotes, note])
           }
           // Voucher-specific notes
           if (note.voucher_id) {
@@ -1547,6 +1557,8 @@ export default function NewRecapPage() {
         setNotesCountByEscort(escortMap)
         setNotesCountBySlot(slotMap)
         setNotesCountByVoucher(voucherMap)
+        setNotesByDate(notesByDateMap)
+        setNotesBySlot(notesBySlotMap)
       }
     } catch (err) {
       console.error('Error fetching notes count:', err)
@@ -3017,23 +3029,85 @@ export default function NewRecapPage() {
                     </td>
                     {/* Notes cell */}
                     <td className="px-4 py-3 text-center">
-                      <button
-                        onClick={() => openNotesDrawer({
-                          type: 'date',
-                          label: formatDate(row.date),
-                          local_date: row.date
-                        })}
-                        className={`inline-flex items-center justify-center gap-1 px-2 py-1 rounded-full text-xs transition-colors ${
-                          (notesCountByDate.get(row.date) || 0) > 0
-                            ? 'bg-amber-100 text-amber-700 hover:bg-amber-200'
-                            : 'bg-gray-100 text-gray-500 hover:bg-gray-200'
-                        }`}
-                      >
-                        <MessageSquare className="w-3 h-3" />
-                        {(notesCountByDate.get(row.date) || 0) > 0 && (
-                          <span>{notesCountByDate.get(row.date)}</span>
-                        )}
-                      </button>
+                      {(() => {
+                        const dateNotes = notesByDate.get(row.date) || []
+                        if (dateNotes.length > 0) {
+                          // Count by type
+                          const counts = { urgent: 0, warning: 0, info: 0, general: 0 }
+                          dateNotes.forEach(n => { counts[n.note_type] = (counts[n.note_type] || 0) + 1 })
+
+                          // Determine most urgent type for background color
+                          const mostUrgent = counts.urgent > 0 ? 'urgent' : counts.warning > 0 ? 'warning' : counts.info > 0 ? 'info' : 'general'
+                          const bgColor = mostUrgent === 'urgent' ? 'bg-red-100 text-red-700 hover:bg-red-200' :
+                                         mostUrgent === 'warning' ? 'bg-amber-100 text-amber-700 hover:bg-amber-200' :
+                                         mostUrgent === 'info' ? 'bg-blue-100 text-blue-700 hover:bg-blue-200' :
+                                         'bg-gray-100 text-gray-700 hover:bg-gray-200'
+
+                          // Sort notes for hover display
+                          const sortedNotes = [...dateNotes].sort((a, b) => {
+                            const priority = { urgent: 0, warning: 1, info: 2, general: 3 }
+                            return (priority[a.note_type] || 3) - (priority[b.note_type] || 3)
+                          })
+
+                          // Build display string showing counts per type
+                          const parts = []
+                          if (counts.urgent > 0) parts.push(<span key="u" className="text-red-600">{counts.urgent}U</span>)
+                          if (counts.warning > 0) parts.push(<span key="w" className="text-amber-600">{counts.warning}W</span>)
+                          if (counts.info > 0) parts.push(<span key="i" className="text-blue-600">{counts.info}I</span>)
+                          if (counts.general > 0) parts.push(<span key="g" className="text-gray-600">{counts.general}G</span>)
+
+                          return (
+                            <HoverCard>
+                              <HoverCardTrigger asChild>
+                                <button
+                                  onClick={() => openNotesDrawer({
+                                    type: 'date',
+                                    label: formatDate(row.date),
+                                    local_date: row.date
+                                  })}
+                                  className={`inline-flex items-center gap-1.5 px-2 py-1 rounded text-xs font-medium transition-colors ${bgColor}`}
+                                >
+                                  {parts.map((part, idx) => (
+                                    <span key={idx}>{part}</span>
+                                  ))}
+                                </button>
+                              </HoverCardTrigger>
+                              <HoverCardContent className="w-72" side="left">
+                                <div className="space-y-2 max-h-48 overflow-y-auto">
+                                  {sortedNotes.map((note, idx) => (
+                                    <div key={note.id} className={`text-sm ${idx > 0 ? 'border-t pt-2' : ''}`}>
+                                      <div className={`text-xs font-medium mb-1 ${
+                                        note.note_type === 'urgent' ? 'text-red-600' :
+                                        note.note_type === 'warning' ? 'text-amber-600' :
+                                        note.note_type === 'info' ? 'text-blue-600' : 'text-gray-600'
+                                      }`}>
+                                        {note.note_type.toUpperCase()}
+                                      </div>
+                                      <div className="text-gray-700">{note.content}</div>
+                                      <div className="text-[10px] text-gray-400 mt-1">
+                                        {note.created_by_email?.split('@')[0]} - {new Date(note.created_at).toLocaleDateString('it-IT')}
+                                      </div>
+                                    </div>
+                                  ))}
+                                </div>
+                              </HoverCardContent>
+                            </HoverCard>
+                          )
+                        }
+                        return (
+                          <button
+                            onClick={() => openNotesDrawer({
+                              type: 'date',
+                              label: formatDate(row.date),
+                              local_date: row.date
+                            })}
+                            className="text-gray-300 hover:text-amber-500 transition-colors"
+                            title="Add note"
+                          >
+                            <MessageSquare className="w-4 h-4" />
+                          </button>
+                        )
+                      })()}
                     </td>
                     <td className="px-4 py-3 text-right font-medium">
                       <HoverCard>
@@ -3302,23 +3376,80 @@ export default function NewRecapPage() {
                       {/* Note cell for slot rows */}
                       <td className="px-4 py-2 text-center">
                         {(() => {
-                          const slotNoteCount = getSlotNotesCount(slot)
-                          return slotNoteCount > 0 ? (
-                            <button
-                              onClick={() => openNotesDrawer({
-                                type: 'slot',
-                                id: slot.availabilityId,
-                                label: `${row.id} ${slot.time}`,
-                                local_date: row.id,
-                                activity_availability_id: Number(slot.availabilityId),
-                                slotData: slot
-                              })}
-                              className="inline-flex items-center gap-1 px-2 py-0.5 bg-amber-100 hover:bg-amber-200 text-amber-700 rounded text-xs cursor-pointer transition-colors"
-                            >
-                              <MessageSquare className="w-3 h-3" />
-                              {slotNoteCount}
-                            </button>
-                          ) : (
+                          const slotId = slot.availabilityId ? Number(slot.availabilityId) : null
+                          const slotNotes = slotId ? (notesBySlot.get(slotId) || []) : []
+
+                          if (slotNotes.length > 0) {
+                            // Determine most urgent type for background color
+                            const hasUrgent = slotNotes.some(n => n.note_type === 'urgent')
+                            const hasWarning = slotNotes.some(n => n.note_type === 'warning')
+                            const hasInfo = slotNotes.some(n => n.note_type === 'info')
+                            const mostUrgent = hasUrgent ? 'urgent' : hasWarning ? 'warning' : hasInfo ? 'info' : 'general'
+
+                            const bgColor = mostUrgent === 'urgent' ? 'bg-red-100 text-red-700 hover:bg-red-200' :
+                                           mostUrgent === 'warning' ? 'bg-amber-100 text-amber-700 hover:bg-amber-200' :
+                                           mostUrgent === 'info' ? 'bg-blue-100 text-blue-700 hover:bg-blue-200' :
+                                           'bg-gray-100 text-gray-700 hover:bg-gray-200'
+                            const badgeColor = mostUrgent === 'urgent' ? 'bg-red-200 text-red-800' :
+                                              mostUrgent === 'warning' ? 'bg-amber-200 text-amber-800' :
+                                              mostUrgent === 'info' ? 'bg-blue-200 text-blue-800' :
+                                              'bg-gray-200 text-gray-800'
+
+                            // Sort notes for display
+                            const sortedNotes = [...slotNotes].sort((a, b) => {
+                              const priority = { urgent: 0, warning: 1, info: 2, general: 3 }
+                              return (priority[a.note_type] || 3) - (priority[b.note_type] || 3)
+                            })
+                            const firstNote = sortedNotes[0]
+
+                            return (
+                              <HoverCard>
+                                <HoverCardTrigger asChild>
+                                  <button
+                                    onClick={() => openNotesDrawer({
+                                      type: 'slot',
+                                      id: slot.availabilityId,
+                                      label: `${row.id} ${slot.time}`,
+                                      local_date: row.id,
+                                      activity_availability_id: Number(slot.availabilityId),
+                                      slotData: slot
+                                    })}
+                                    className={`inline-flex items-center gap-1 px-2 py-0.5 rounded text-xs cursor-pointer transition-colors max-w-[100px] text-left ${bgColor}`}
+                                  >
+                                    <span className="truncate">
+                                      {firstNote.content.substring(0, 12)}{firstNote.content.length > 12 ? '...' : ''}
+                                    </span>
+                                    {sortedNotes.length > 1 && (
+                                      <span className={`flex-shrink-0 px-1 rounded text-[10px] ${badgeColor}`}>
+                                        +{sortedNotes.length - 1}
+                                      </span>
+                                    )}
+                                  </button>
+                                </HoverCardTrigger>
+                                <HoverCardContent className="w-72" side="left">
+                                  <div className="space-y-2 max-h-48 overflow-y-auto">
+                                    {sortedNotes.map((note, idx) => (
+                                      <div key={note.id} className={`text-sm ${idx > 0 ? 'border-t pt-2' : ''}`}>
+                                        <div className={`text-xs font-medium mb-1 ${
+                                          note.note_type === 'urgent' ? 'text-red-600' :
+                                          note.note_type === 'warning' ? 'text-amber-600' :
+                                          note.note_type === 'info' ? 'text-blue-600' : 'text-gray-600'
+                                        }`}>
+                                          {note.note_type.toUpperCase()}
+                                        </div>
+                                        <div className="text-gray-700">{note.content}</div>
+                                        <div className="text-[10px] text-gray-400 mt-1">
+                                          {note.created_by_email?.split('@')[0]} - {new Date(note.created_at).toLocaleDateString('it-IT')}
+                                        </div>
+                                      </div>
+                                    ))}
+                                  </div>
+                                </HoverCardContent>
+                              </HoverCard>
+                            )
+                          }
+
+                          return (
                             <button
                               onClick={() => slot.availabilityId && openNotesDrawer({
                                 type: 'slot',
