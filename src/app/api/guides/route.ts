@@ -97,7 +97,7 @@ export async function PUT(request: NextRequest) {
 
   try {
     const body = await request.json()
-    const { guide_id, first_name, last_name, email, phone_number, license_number, languages, active, paid_in_cash } = body
+    const { guide_id, first_name, last_name, email, phone_number, license_number, languages, active, paid_in_cash, uses_app } = body
 
     if (!guide_id) {
       return NextResponse.json({ error: 'guide_id is required' }, { status: 400 })
@@ -131,7 +131,8 @@ export async function PUT(request: NextRequest) {
         license_number: license_number || null,
         languages,
         active,
-        paid_in_cash: paid_in_cash ?? false
+        paid_in_cash: paid_in_cash ?? false,
+        uses_app: uses_app ?? false
       })
       .eq('guide_id', guide_id)
       .select()
