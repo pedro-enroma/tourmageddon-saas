@@ -462,13 +462,14 @@ export default function NewRecapPage() {
   const [notesContext, setNotesContext] = useState<NoteContext | null>(null)
   const [notes, setNotes] = useState<OperationNote[]>([])
   const [loadingNotes, setLoadingNotes] = useState(false)
-  const [notesCountByDate, setNotesCountByDate] = useState<Map<string, number>>(new Map())
+  const [, setNotesCountByDate] = useState<Map<string, number>>(new Map())
   const [notesCountByGuide, setNotesCountByGuide] = useState<Map<string, number>>(new Map())
   const [notesCountByEscort, setNotesCountByEscort] = useState<Map<string, number>>(new Map())
   const [notesCountBySlot, setNotesCountBySlot] = useState<Map<number, number>>(new Map())
   const [notesCountByVoucher, setNotesCountByVoucher] = useState<Map<string, number>>(new Map())
   const [notesByDate, setNotesByDate] = useState<Map<string, OperationNote[]>>(new Map())
   const [notesBySlot, setNotesBySlot] = useState<Map<number, OperationNote[]>>(new Map())
+  const [dateOnlyNotes, setDateOnlyNotes] = useState<Map<string, OperationNote[]>>(new Map()) // Notes assigned to date but not to a specific slot
 
   // Planned availability state
   const [, setPlannedAvailabilities] = useState<PlannedAvailability[]>([])
@@ -1522,6 +1523,7 @@ export default function NewRecapPage() {
         const voucherMap = new Map<string, number>()
         const notesByDateMap = new Map<string, OperationNote[]>()
         const notesBySlotMap = new Map<number, OperationNote[]>()
+        const dateOnlyNotesMap = new Map<string, OperationNote[]>() // Notes assigned to date but not to a specific slot
 
         data?.forEach((note: OperationNote) => {
           // Count ALL notes for a date (regardless of what entity they're linked to)
@@ -1530,6 +1532,12 @@ export default function NewRecapPage() {
             // Store actual notes by date
             const existingNotes = notesByDateMap.get(note.local_date) || []
             notesByDateMap.set(note.local_date, [...existingNotes, note])
+
+            // Store date-only notes (no slot, no guide, no escort, no voucher assigned)
+            if (!note.activity_availability_id && !note.guide_id && !note.escort_id && !note.voucher_id) {
+              const existingDateOnlyNotes = dateOnlyNotesMap.get(note.local_date) || []
+              dateOnlyNotesMap.set(note.local_date, [...existingDateOnlyNotes, note])
+            }
           }
           // Guide-specific notes
           if (note.guide_id) {
@@ -1559,6 +1567,7 @@ export default function NewRecapPage() {
         setNotesCountByVoucher(voucherMap)
         setNotesByDate(notesByDateMap)
         setNotesBySlot(notesBySlotMap)
+        setDateOnlyNotes(dateOnlyNotesMap)
       }
     } catch (err) {
       console.error('Error fetching notes count:', err)
@@ -1765,33 +1774,6 @@ export default function NewRecapPage() {
   useEffect(() => {
     fetchNotesCount()
   }, [fetchNotesCount])
-
-  // Helper function to calculate total notes for a slot (including its entities)
-  const getSlotNotesCount = useCallback((slot: SlotData): number => {
-    let count = 0
-
-    // Notes linked directly to this slot
-    if (slot.availabilityId) {
-      count += notesCountBySlot.get(Number(slot.availabilityId)) || 0
-    }
-
-    // Notes linked to guides in this slot
-    slot.guideData?.forEach(guide => {
-      count += notesCountByGuide.get(guide.id) || 0
-    })
-
-    // Notes linked to escorts in this slot
-    slot.escortData?.forEach(escort => {
-      count += notesCountByEscort.get(escort.id) || 0
-    })
-
-    // Notes linked to vouchers in this slot
-    slot.vouchers?.forEach(voucher => {
-      count += notesCountByVoucher.get(voucher.id) || 0
-    })
-
-    return count
-  }, [notesCountBySlot, notesCountByGuide, notesCountByEscort, notesCountByVoucher])
 
   const loadTours = async () => {
     try {
@@ -3377,13 +3359,16 @@ export default function NewRecapPage() {
                       <td className="px-4 py-2 text-center">
                         {(() => {
                           const slotId = slot.availabilityId ? Number(slot.availabilityId) : null
-                          const slotNotes = slotId ? (notesBySlot.get(slotId) || []) : []
+                          const slotSpecificNotes = slotId ? (notesBySlot.get(slotId) || []) : []
+                          // Combine slot-specific notes with date-only notes (notes assigned to entire date)
+                          const dateNotes = dateOnlyNotes.get(row.id) || []
+                          const allSlotNotes = [...slotSpecificNotes, ...dateNotes]
 
-                          if (slotNotes.length > 0) {
+                          if (allSlotNotes.length > 0) {
                             // Determine most urgent type for background color
-                            const hasUrgent = slotNotes.some(n => n.note_type === 'urgent')
-                            const hasWarning = slotNotes.some(n => n.note_type === 'warning')
-                            const hasInfo = slotNotes.some(n => n.note_type === 'info')
+                            const hasUrgent = allSlotNotes.some(n => n.note_type === 'urgent')
+                            const hasWarning = allSlotNotes.some(n => n.note_type === 'warning')
+                            const hasInfo = allSlotNotes.some(n => n.note_type === 'info')
                             const mostUrgent = hasUrgent ? 'urgent' : hasWarning ? 'warning' : hasInfo ? 'info' : 'general'
 
                             const bgColor = mostUrgent === 'urgent' ? 'bg-red-100 text-red-700 hover:bg-red-200' :
@@ -3396,7 +3381,7 @@ export default function NewRecapPage() {
                                               'bg-gray-200 text-gray-800'
 
                             // Sort notes for display
-                            const sortedNotes = [...slotNotes].sort((a, b) => {
+                            const sortedNotes = [...allSlotNotes].sort((a, b) => {
                               const priority = { urgent: 0, warning: 1, info: 2, general: 3 }
                               return (priority[a.note_type] || 3) - (priority[b.note_type] || 3)
                             })
@@ -3435,7 +3420,7 @@ export default function NewRecapPage() {
                                           note.note_type === 'warning' ? 'text-amber-600' :
                                           note.note_type === 'info' ? 'text-blue-600' : 'text-gray-600'
                                         }`}>
-                                          {note.note_type.toUpperCase()}
+                                          {note.note_type.toUpperCase()}{!note.activity_availability_id ? ' (Date)' : ''}
                                         </div>
                                         <div className="text-gray-700">{note.content}</div>
                                         <div className="text-[10px] text-gray-400 mt-1">
