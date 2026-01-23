@@ -78,6 +78,7 @@ export async function GET(request: NextRequest) {
       early_jan_activity_count: earlyJanBookings.length,
       early_jan_confirmed_count: earlyJanConfirmed.length,
       early_jan_confirmed: earlyJanConfirmed,
+      all_scheduled_booking_ids: scheduled?.map(s => s.booking_id) || [],
     })
   } catch (error) {
     console.error('Error:', error)

@@ -56,28 +56,101 @@ export async function POST(request: NextRequest) {
       return NextResponse.json({ message: 'No sellers with auto-invoice enabled', processed: 0 })
     }
 
-    // Get all confirmed bookings with their activity bookings
-    const { data: bookings, error: bookingsError } = await supabase
-      .from('bookings')
-      .select(`
-        booking_id,
-        confirmation_code,
-        status,
-        creation_date,
-        total_price,
-        currency,
-        activity_bookings(
-          activity_booking_id,
-          activity_seller,
-          start_date_time
-        )
-      `)
-      .eq('status', 'CONFIRMED')
-      .order('creation_date', { ascending: false })
+    // Separate rules by type
+    const travelDateRules = (rules as InvoiceRule[]).filter(r => r.invoice_date_type === 'travel' && r.auto_invoice_enabled)
+    const creationDateRules = (rules as InvoiceRule[]).filter(r => r.invoice_date_type === 'creation' && r.auto_invoice_enabled)
 
-    if (bookingsError) {
-      return NextResponse.json({ error: 'Failed to fetch bookings' }, { status: 500 })
+    type BookingData = {
+      booking_id: number
+      confirmation_code: string
+      status: string
+      creation_date: string
+      total_price: number
+      currency: string
+      activity_bookings: {
+        activity_booking_id: number
+        activity_seller: string
+        start_date_time: string
+      }[]
     }
+
+    let allBookings: BookingData[] = []
+
+    // For travel-date rules: query activity_bookings first by travel date
+    for (const rule of travelDateRules) {
+      if (!rule.sellers || rule.sellers.length === 0) continue
+
+      for (const seller of rule.sellers) {
+        // Get activity bookings for this seller with travel date >= invoice_start_date
+        let activityQuery = supabase
+          .from('activity_bookings')
+          .select('booking_id')
+          .eq('activity_seller', seller)
+
+        if (rule.invoice_start_date) {
+          activityQuery = activityQuery.gte('start_date_time', rule.invoice_start_date)
+        }
+
+        const { data: activities } = await activityQuery
+        const bookingIds = [...new Set(activities?.map(a => a.booking_id) || [])]
+
+        if (bookingIds.length > 0) {
+          // Fetch bookings by IDs in batches
+          const batchSize = 500
+          for (let i = 0; i < bookingIds.length; i += batchSize) {
+            const batchIds = bookingIds.slice(i, i + batchSize)
+            const { data: batchBookings } = await supabase
+              .from('bookings')
+              .select(`
+                booking_id, confirmation_code, status, creation_date, total_price, currency,
+                activity_bookings(activity_booking_id, activity_seller, start_date_time)
+              `)
+              .in('booking_id', batchIds)
+              .eq('status', 'CONFIRMED')
+
+            if (batchBookings) {
+              allBookings.push(...(batchBookings as BookingData[]))
+            }
+          }
+        }
+      }
+    }
+
+    // For creation-date rules: query bookings by creation date
+    for (const rule of creationDateRules) {
+      if (!rule.sellers || rule.sellers.length === 0) continue
+
+      let bookingsQuery = supabase
+        .from('bookings')
+        .select(`
+          booking_id, confirmation_code, status, creation_date, total_price, currency,
+          activity_bookings(activity_booking_id, activity_seller, start_date_time)
+        `)
+        .eq('status', 'CONFIRMED')
+
+      if (rule.invoice_start_date) {
+        bookingsQuery = bookingsQuery.gte('creation_date', rule.invoice_start_date)
+      }
+
+      const { data: bookingsData } = await bookingsQuery
+
+      // Filter to only bookings with matching sellers
+      const filtered = (bookingsData || []).filter(b => {
+        const activityBookings = b.activity_bookings as { activity_seller: string }[]
+        return activityBookings?.some(ab => rule.sellers.includes(ab.activity_seller))
+      })
+
+      allBookings.push(...(filtered as BookingData[]))
+    }
+
+    // Deduplicate bookings
+    const bookingMap = new Map<number, BookingData>()
+    for (const booking of allBookings) {
+      if (!bookingMap.has(booking.booking_id)) {
+        bookingMap.set(booking.booking_id, booking)
+      }
+    }
+    const bookings = Array.from(bookingMap.values())
 
     // Get existing scheduled invoices to avoid duplicates
     const { data: existingScheduled } = await supabase
