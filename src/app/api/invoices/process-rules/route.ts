@@ -91,6 +91,9 @@ export async function POST(request: NextRequest) {
           activityQuery = activityQuery.gte('start_date_time', rule.invoice_start_date)
         }
 
+        // Add limit to avoid 1000-row default
+        activityQuery = activityQuery.limit(10000)
+
         const { data: activities } = await activityQuery
         const bookingIds = [...new Set(activities?.map(a => a.booking_id) || [])]
 
@@ -131,6 +134,9 @@ export async function POST(request: NextRequest) {
       if (rule.invoice_start_date) {
         bookingsQuery = bookingsQuery.gte('creation_date', rule.invoice_start_date)
       }
+
+      // Add limit to avoid 1000-row default
+      bookingsQuery = bookingsQuery.limit(10000)
 
       const { data: bookingsData } = await bookingsQuery
 

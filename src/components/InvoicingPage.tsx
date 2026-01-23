@@ -270,6 +270,7 @@ export default function InvoicingPage() {
           .select('booking_id')
           .eq('activity_seller', sellerFilter)
           .gte('start_date_time', selectedSellerRule.invoice_start_date)
+          .limit(10000)
 
         if (activityError) throw activityError
 
@@ -307,6 +308,7 @@ export default function InvoicingPage() {
           .gte('creation_date', dateFrom)
           .lte('creation_date', dateTo + 'T23:59:59')
           .order('creation_date', { ascending: false })
+          .limit(5000)
 
         if (bookingsError) throw bookingsError
         bookings = (data || []) as BookingData[]
