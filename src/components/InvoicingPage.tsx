@@ -36,7 +36,6 @@ import {
   CheckCircle,
   XCircle,
   Clock,
-  Calendar,
   Plus,
   List,
   Pencil,
@@ -118,13 +117,6 @@ interface ScheduledInvoice {
   total_amount?: number
 }
 
-interface Stats {
-  totalInvoices: number
-  pending: number
-  sent: number
-  failed: number
-  totalAmount: number
-}
 
 interface ManualInvoiceForm {
   confirmation_code: string
@@ -147,7 +139,6 @@ export default function InvoicingPage() {
   // State
   const [uninvoicedBookings, setUninvoicedBookings] = useState<BookingForInvoicing[]>([])
   const [selectedBookings, setSelectedBookings] = useState<number[]>([])
-  const [loading, setLoading] = useState(true)
   const [sending, setSending] = useState(false)
   const [config, setConfig] = useState<Config | null>(null)
 
@@ -204,14 +195,6 @@ export default function InvoicingPage() {
   // Process rules
   const [processingRules, setProcessingRules] = useState(false)
 
-  // Stats
-  const [stats, setStats] = useState<Stats>({
-    totalInvoices: 0,
-    pending: 0,
-    sent: 0,
-    failed: 0,
-    totalAmount: 0,
-  })
 
   // Available sellers for filter
   const [availableSellers, setAvailableSellers] = useState<string[]>([])
@@ -658,7 +641,6 @@ export default function InvoicingPage() {
     fetchRules()
     fetchScheduledInvoices()
     fetchCreatedInvoices()
-    setLoading(false)
   }, [])
 
   // Refetch uninvoiced bookings when config loads or changes
@@ -810,26 +792,8 @@ export default function InvoicingPage() {
     }
   }
 
-  // Get status badge for invoice status
-  const getInvoiceStatusBadge = (status: string) => {
-    const badges: Record<string, { icon: React.ElementType; color: string; label: string }> = {
-      pending: { icon: Clock, color: 'text-yellow-600 bg-yellow-100', label: 'Pending' },
-      sent: { icon: Send, color: 'text-blue-600 bg-blue-100', label: 'Sent' },
-      failed: { icon: XCircle, color: 'text-red-600 bg-red-100', label: 'Failed' },
-    }
-
-    const badge = badges[status] || badges.pending
-    const Icon = badge.icon
-
-    return (
-      <span
-        className={`inline-flex items-center gap-1 px-2 py-1 rounded-full text-xs font-medium ${badge.color}`}
-      >
-        <Icon className="h-3 w-3" />
-        {badge.label}
-      </span>
-    )
-  }
+  // Calculate failed invoices count
+  const failedCount = createdInvoices.filter(i => i.status === 'failed').length
 
   return (
     <div className="space-y-6 p-6">
@@ -857,10 +821,10 @@ export default function InvoicingPage() {
             )}
             Apply Rules
           </Button>
-          {stats.failed > 0 && (
+          {failedCount > 0 && (
             <Button variant="outline" onClick={retryFailed} disabled={sending}>
               <RefreshCw className={`h-4 w-4 mr-2 ${sending ? 'animate-spin' : ''}`} />
-              Retry Failed ({stats.failed})
+              Retry Failed ({failedCount})
             </Button>
           )}
         </div>
