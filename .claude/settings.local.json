@@ -171,7 +171,8 @@
       "Bash(__NEW_LINE_110e40610b3a748f__ echo \"\")",
       "Bash(__NEW_LINE_6a4b81938f3c0418__ echo \"\")",
       "Bash(__NEW_LINE_e43df1c1686fe173__ echo \"\")",
-      "Bash(__NEW_LINE_4fca8707ade6f5ef__ echo \"\")"
+      "Bash(__NEW_LINE_4fca8707ade6f5ef__ echo \"\")",
+      "Bash(jq:*)"
     ],
     "deny": [],
     "ask": []

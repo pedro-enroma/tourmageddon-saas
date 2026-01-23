@@ -35,6 +35,9 @@ export async function GET(request: NextRequest) {
       query = query.gte('creation_date', startDate)
     }
 
+    // Remove default limit - fetch all bookings
+    query = query.limit(10000)
+
     const { data: bookings, error: bookingsError } = await query
 
     if (bookingsError) throw bookingsError

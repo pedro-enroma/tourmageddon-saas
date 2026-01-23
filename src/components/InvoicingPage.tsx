@@ -231,39 +231,6 @@ export default function InvoicingPage() {
       const selectedSellerRule = sellerFilter !== 'all' ? sellerRuleMap.get(sellerFilter) : null
       const isTravelDateRule = selectedSellerRule?.invoice_date_type === 'travel'
 
-      // Get bookings - if travel date rule, fetch all (no creation date filter)
-      // If creation date rule or no specific seller, use creation date filter
-      let query = supabase
-        .from('bookings')
-        .select(
-          `
-          booking_id,
-          confirmation_code,
-          total_price,
-          currency,
-          creation_date,
-          payment_type,
-          booking_customers(
-            customers(first_name, last_name)
-          ),
-          activity_bookings(activity_seller, status, start_date_time)
-        `
-        )
-        .eq('status', 'CONFIRMED')
-        .order('creation_date', { ascending: false })
-
-      // Only apply creation date filter if NOT a travel date rule
-      if (!isTravelDateRule) {
-        const effectiveStartDate = config?.invoice_start_date || dateFrom
-        query = query
-          .gte('creation_date', effectiveStartDate)
-          .lte('creation_date', dateTo + 'T23:59:59')
-      }
-
-      const { data: bookings, error: bookingsError } = await query
-
-      if (bookingsError) throw bookingsError
-
       // Get existing invoice booking IDs
       const { data: existingInvoices } = await supabase
         .from('invoices')
@@ -280,31 +247,114 @@ export default function InvoicingPage() {
 
       const scheduledBookingIds = new Set(scheduledInvoicesData?.map((s) => s.booking_id) || [])
 
+      let bookings: {
+        booking_id: number
+        confirmation_code: string
+        total_price: number
+        currency: string
+        creation_date: string
+        payment_type: string | null
+        booking_customers: { customers: unknown }[] | null
+        activity_bookings: { activity_seller: string; status: string; start_date_time: string }[] | null
+      }[] = []
+
+      if (isTravelDateRule && sellerFilter !== 'all') {
+        // For travel date rules: query activity_bookings first to find bookings with matching travel dates
+        // This avoids the 1000-row limit issue when querying bookings directly
+        let activityQuery = supabase
+          .from('activity_bookings')
+          .select('booking_id, start_date_time')
+          .eq('activity_seller', sellerFilter)
+
+        // Apply travel date filter from rule
+        if (selectedSellerRule?.invoice_start_date) {
+          activityQuery = activityQuery.gte('start_date_time', selectedSellerRule.invoice_start_date)
+        }
+
+        const { data: activities, error: activityError } = await activityQuery
+
+        if (activityError) throw activityError
+
+        // Get unique booking IDs
+        const bookingIds = [...new Set(activities?.map(a => a.booking_id) || [])]
+
+        if (bookingIds.length > 0) {
+          // Fetch bookings by IDs in batches (Supabase has a limit on IN clause)
+          const batchSize = 500
+          const allBookings: typeof bookings = []
+
+          for (let i = 0; i < bookingIds.length; i += batchSize) {
+            const batchIds = bookingIds.slice(i, i + batchSize)
+            const { data: batchBookings, error: batchError } = await supabase
+              .from('bookings')
+              .select(`
+                booking_id,
+                confirmation_code,
+                total_price,
+                currency,
+                creation_date,
+                payment_type,
+                booking_customers(
+                  customers(first_name, last_name)
+                ),
+                activity_bookings(activity_seller, status, start_date_time)
+              `)
+              .in('booking_id', batchIds)
+              .eq('status', 'CONFIRMED')
+
+            if (batchError) throw batchError
+            if (batchBookings) {
+              allBookings.push(...(batchBookings as typeof bookings))
+            }
+          }
+
+          bookings = allBookings
+        }
+      } else {
+        // For creation date rules or no specific seller: use the existing approach
+        const effectiveStartDate = config?.invoice_start_date || dateFrom
+        const { data, error: bookingsError } = await supabase
+          .from('bookings')
+          .select(`
+            booking_id,
+            confirmation_code,
+            total_price,
+            currency,
+            creation_date,
+            payment_type,
+            booking_customers(
+              customers(first_name, last_name)
+            ),
+            activity_bookings(activity_seller, status, start_date_time)
+          `)
+          .eq('status', 'CONFIRMED')
+          .gte('creation_date', effectiveStartDate)
+          .lte('creation_date', dateTo + 'T23:59:59')
+          .order('creation_date', { ascending: false })
+
+        if (bookingsError) throw bookingsError
+        bookings = (data || []) as typeof bookings
+      }
+
       // Filter bookings
-      const uninvoiced = (bookings || [])
+      const uninvoiced = bookings
         .filter((b) => !invoicedBookingIds.has(b.booking_id))
         .filter((b) => !scheduledBookingIds.has(b.booking_id)) // Exclude already scheduled
         .filter((b) => {
-          // Filter by seller
-          if (sellerFilter !== 'all') {
-            return b.activity_bookings?.some((a: { activity_seller: string }) => a.activity_seller === sellerFilter)
-          }
-          return true
-        })
-        .filter((b) => {
-          // For travel date rules, filter by travel date >= invoice_start_date
-          if (isTravelDateRule && selectedSellerRule?.invoice_start_date) {
-            const activityBookings = b.activity_bookings as { start_date_time: string }[] || []
-            const travelDate = activityBookings[0]?.start_date_time
-            if (!travelDate) return false
-            return travelDate >= selectedSellerRule.invoice_start_date
+          // Filter by seller (for non-travel-date rules)
+          if (sellerFilter !== 'all' && !isTravelDateRule) {
+            return b.activity_bookings?.some((a) => a.activity_seller === sellerFilter)
           }
           return true
         })
         .map((b) => {
-          const activityBookings = b.activity_bookings as { activity_seller: string; status: string; start_date_time: string }[] || []
+          const activityBookings = b.activity_bookings || []
           const allCancelled = activityBookings.length > 0 && activityBookings.every(a => a.status === 'CANCELLED')
-          const travelDate = activityBookings[0]?.start_date_time || null
+          // For the selected seller, find the matching activity's travel date
+          const matchingActivity = sellerFilter !== 'all'
+            ? activityBookings.find(a => a.activity_seller === sellerFilter)
+            : activityBookings[0]
+          const travelDate = matchingActivity?.start_date_time || null
 
           return {
             booking_id: b.booking_id,
@@ -324,10 +374,17 @@ export default function InvoicingPage() {
               }
               return null
             })(),
-            activity_seller: activityBookings[0]?.activity_seller || null,
+            activity_seller: matchingActivity?.activity_seller || null,
             all_activities_cancelled: allCancelled,
             travel_date: travelDate,
           }
+        })
+        // Sort by travel date for travel date rules
+        .sort((a, b) => {
+          if (isTravelDateRule && a.travel_date && b.travel_date) {
+            return a.travel_date.localeCompare(b.travel_date)
+          }
+          return 0
         })
 
       setUninvoicedBookings(uninvoiced)
