@@ -72,6 +72,7 @@ interface BookingForInvoicing {
   payment_type: string | null
   all_activities_cancelled: boolean
   travel_date: string | null
+  invoice_status: 'created' | 'scheduled' | 'filtered' | 'pending'
 }
 
 interface Config {
@@ -137,10 +138,11 @@ const INVOICE_API_KEY = process.env.NEXT_PUBLIC_INVOICE_API_KEY || ''
 
 export default function InvoicingPage() {
   // State
-  const [uninvoicedBookings, setUninvoicedBookings] = useState<BookingForInvoicing[]>([])
+  const [allBookings, setAllBookings] = useState<BookingForInvoicing[]>([])
   const [selectedBookings, setSelectedBookings] = useState<number[]>([])
   const [sending, setSending] = useState(false)
   const [config, setConfig] = useState<Config | null>(null)
+  const [loadingBookings, setLoadingBookings] = useState(false)
 
   // Rules management state
   const [rules, setRules] = useState<InvoiceRule[]>([])
@@ -216,20 +218,17 @@ export default function InvoicingPage() {
     sales_type: 'ORG',
   })
 
-  // Fetch bookings without invoices
-  const fetchUninvoicedBookings = useCallback(async () => {
+  // Fetch all bookings with their invoice status
+  const fetchAllBookings = useCallback(async () => {
+    setLoadingBookings(true)
     try {
-      // Build a map of seller -> rule for filtering
+      // Build a map of seller -> rule
       const sellerRuleMap = new Map<string, InvoiceRule>()
       for (const rule of rules) {
         for (const seller of rule.sellers || []) {
           sellerRuleMap.set(seller, rule)
         }
       }
-
-      // Check if selected seller has a "travel" date type rule
-      const selectedSellerRule = sellerFilter !== 'all' ? sellerRuleMap.get(sellerFilter) : null
-      const isTravelDateRule = selectedSellerRule?.invoice_date_type === 'travel'
 
       // Get existing invoice booking IDs
       const { data: existingInvoices } = await supabase
@@ -247,7 +246,11 @@ export default function InvoicingPage() {
 
       const scheduledBookingIds = new Set(scheduledInvoicesData?.map((s) => s.booking_id) || [])
 
-      let bookings: {
+      // Check if selected seller has a "travel" date type rule
+      const selectedSellerRule = sellerFilter !== 'all' ? sellerRuleMap.get(sellerFilter) : null
+      const isTravelDateRule = selectedSellerRule?.invoice_date_type === 'travel'
+
+      type BookingData = {
         booking_id: number
         confirmation_code: string
         total_price: number
@@ -256,93 +259,64 @@ export default function InvoicingPage() {
         payment_type: string | null
         booking_customers: { customers: unknown }[] | null
         activity_bookings: { activity_seller: string; status: string; start_date_time: string }[] | null
-      }[] = []
+      }
 
-      if (isTravelDateRule && sellerFilter !== 'all') {
-        // For travel date rules: query activity_bookings first to find bookings with matching travel dates
-        // This avoids the 1000-row limit issue when querying bookings directly
-        let activityQuery = supabase
+      let bookings: BookingData[] = []
+
+      if (isTravelDateRule && sellerFilter !== 'all' && selectedSellerRule?.invoice_start_date) {
+        // For travel date rules: query activity_bookings first by travel date
+        const { data: activities, error: activityError } = await supabase
           .from('activity_bookings')
-          .select('booking_id, start_date_time')
+          .select('booking_id')
           .eq('activity_seller', sellerFilter)
-
-        // Apply travel date filter from rule
-        if (selectedSellerRule?.invoice_start_date) {
-          activityQuery = activityQuery.gte('start_date_time', selectedSellerRule.invoice_start_date)
-        }
-
-        const { data: activities, error: activityError } = await activityQuery
+          .gte('start_date_time', selectedSellerRule.invoice_start_date)
 
         if (activityError) throw activityError
 
-        // Get unique booking IDs
         const bookingIds = [...new Set(activities?.map(a => a.booking_id) || [])]
 
         if (bookingIds.length > 0) {
-          // Fetch bookings by IDs in batches (Supabase has a limit on IN clause)
+          // Fetch bookings by IDs in batches
           const batchSize = 500
-          const allBookings: typeof bookings = []
-
           for (let i = 0; i < bookingIds.length; i += batchSize) {
             const batchIds = bookingIds.slice(i, i + batchSize)
             const { data: batchBookings, error: batchError } = await supabase
               .from('bookings')
               .select(`
-                booking_id,
-                confirmation_code,
-                total_price,
-                currency,
-                creation_date,
-                payment_type,
-                booking_customers(
-                  customers(first_name, last_name)
-                ),
+                booking_id, confirmation_code, total_price, currency, creation_date, payment_type,
+                booking_customers(customers(first_name, last_name)),
                 activity_bookings(activity_seller, status, start_date_time)
               `)
               .in('booking_id', batchIds)
               .eq('status', 'CONFIRMED')
 
             if (batchError) throw batchError
-            if (batchBookings) {
-              allBookings.push(...(batchBookings as typeof bookings))
-            }
+            if (batchBookings) bookings.push(...(batchBookings as BookingData[]))
           }
-
-          bookings = allBookings
         }
       } else {
-        // For creation date rules or no specific seller: use the existing approach
-        const effectiveStartDate = config?.invoice_start_date || dateFrom
+        // For creation date rules or all sellers: filter by creation date range
         const { data, error: bookingsError } = await supabase
           .from('bookings')
           .select(`
-            booking_id,
-            confirmation_code,
-            total_price,
-            currency,
-            creation_date,
-            payment_type,
-            booking_customers(
-              customers(first_name, last_name)
-            ),
+            booking_id, confirmation_code, total_price, currency, creation_date, payment_type,
+            booking_customers(customers(first_name, last_name)),
             activity_bookings(activity_seller, status, start_date_time)
           `)
           .eq('status', 'CONFIRMED')
-          .gte('creation_date', effectiveStartDate)
+          .gte('creation_date', dateFrom)
           .lte('creation_date', dateTo + 'T23:59:59')
           .order('creation_date', { ascending: false })
 
         if (bookingsError) throw bookingsError
-        bookings = (data || []) as typeof bookings
+        bookings = (data || []) as BookingData[]
       }
 
-      // Filter bookings
-      const uninvoiced = bookings
-        .filter((b) => !invoicedBookingIds.has(b.booking_id))
-        .filter((b) => !scheduledBookingIds.has(b.booking_id)) // Exclude already scheduled
+      // Process bookings and determine invoice status
+      const processed = bookings
         .filter((b) => {
-          // Filter by seller (for non-travel-date rules)
-          if (sellerFilter !== 'all' && !isTravelDateRule) {
+          // Filter by seller if selected
+          if (sellerFilter !== 'all') {
             return b.activity_bookings?.some((a) => a.activity_seller === sellerFilter)
           }
           return true
@@ -350,11 +324,21 @@ export default function InvoicingPage() {
         .map((b) => {
           const activityBookings = b.activity_bookings || []
           const allCancelled = activityBookings.length > 0 && activityBookings.every(a => a.status === 'CANCELLED')
-          // For the selected seller, find the matching activity's travel date
           const matchingActivity = sellerFilter !== 'all'
             ? activityBookings.find(a => a.activity_seller === sellerFilter)
             : activityBookings[0]
           const travelDate = matchingActivity?.start_date_time || null
+          const seller = matchingActivity?.activity_seller || null
+
+          // Determine invoice status
+          let invoiceStatus: 'created' | 'scheduled' | 'filtered' | 'pending' = 'pending'
+          if (invoicedBookingIds.has(b.booking_id)) {
+            invoiceStatus = 'created'
+          } else if (scheduledBookingIds.has(b.booking_id)) {
+            invoiceStatus = 'scheduled'
+          } else if (seller && !sellerRuleMap.has(seller)) {
+            invoiceStatus = 'filtered'
+          }
 
           return {
             booking_id: b.booking_id,
@@ -374,24 +358,27 @@ export default function InvoicingPage() {
               }
               return null
             })(),
-            activity_seller: matchingActivity?.activity_seller || null,
+            activity_seller: seller,
             all_activities_cancelled: allCancelled,
             travel_date: travelDate,
+            invoice_status: invoiceStatus,
           }
         })
-        // Sort by travel date for travel date rules
         .sort((a, b) => {
+          // Sort by travel date for travel date rules, otherwise by creation date desc
           if (isTravelDateRule && a.travel_date && b.travel_date) {
             return a.travel_date.localeCompare(b.travel_date)
           }
-          return 0
+          return b.creation_date.localeCompare(a.creation_date)
         })
 
-      setUninvoicedBookings(uninvoiced)
+      setAllBookings(processed)
     } catch (error) {
-      console.error('Error fetching uninvoiced bookings:', error)
+      console.error('Error fetching bookings:', error)
+    } finally {
+      setLoadingBookings(false)
     }
-  }, [dateFrom, dateTo, sellerFilter, config?.invoice_start_date, rules])
+  }, [dateFrom, dateTo, sellerFilter, rules])
 
   // Fetch available sellers
   const fetchAvailableSellers = async () => {
@@ -746,9 +733,9 @@ export default function InvoicingPage() {
   // Refetch uninvoiced bookings when config or rules load/change
   useEffect(() => {
     if (config !== null || rules.length > 0) {
-      fetchUninvoicedBookings()
+      fetchAllBookings()
     }
-  }, [config, rules, fetchUninvoicedBookings])
+  }, [config, rules, fetchAllBookings])
 
   // Create invoices for selected bookings via API
   const createInvoices = async () => {
@@ -778,7 +765,7 @@ export default function InvoicingPage() {
 
       // Refresh data
       setSelectedBookings([])
-      fetchUninvoicedBookings()
+      fetchAllBookings()
     } catch (error) {
       console.error('Error creating invoices:', error)
       alert('Error creating invoices. Check console for details.')
@@ -883,12 +870,13 @@ export default function InvoicingPage() {
     )
   }
 
-  // Select all visible bookings
+  // Select all pending bookings (only those that can be invoiced)
   const selectAllBookings = () => {
-    if (selectedBookings.length === uninvoicedBookings.length) {
+    const pendingBookings = allBookings.filter(b => b.invoice_status === 'pending' && !b.all_activities_cancelled)
+    if (selectedBookings.length === pendingBookings.length) {
       setSelectedBookings([])
     } else {
-      setSelectedBookings(uninvoicedBookings.map((b) => b.booking_id))
+      setSelectedBookings(pendingBookings.map((b) => b.booking_id))
     }
   }
 
@@ -931,10 +919,14 @@ export default function InvoicingPage() {
       </div>
 
       {/* Stats Cards */}
-      <div className="grid grid-cols-4 gap-4">
+      <div className="grid grid-cols-5 gap-4">
         <div className="bg-white rounded-lg p-4 border shadow-sm">
-          <p className="text-sm text-yellow-600">Pending Invoicing</p>
-          <p className="text-2xl font-bold text-yellow-600">{uninvoicedBookings.length}</p>
+          <p className="text-sm text-gray-600">All Reservations</p>
+          <p className="text-2xl font-bold text-gray-800">{allBookings.length}</p>
+        </div>
+        <div className="bg-white rounded-lg p-4 border shadow-sm">
+          <p className="text-sm text-yellow-600">Pending (Need Rules)</p>
+          <p className="text-2xl font-bold text-yellow-600">{allBookings.filter(b => b.invoice_status === 'pending').length}</p>
         </div>
         <div className="bg-white rounded-lg p-4 border shadow-sm">
           <p className="text-sm text-blue-600">Scheduled</p>
@@ -945,8 +937,8 @@ export default function InvoicingPage() {
           <p className="text-2xl font-bold text-green-600">{createdInvoices.length}</p>
         </div>
         <div className="bg-white rounded-lg p-4 border shadow-sm">
-          <p className="text-sm text-purple-600">Total Amount</p>
-          <p className="text-2xl font-bold text-purple-600">EUR {createdInvoices.reduce((sum, i) => sum + i.total_amount, 0).toFixed(2)}</p>
+          <p className="text-sm text-gray-500">No Rule (Filtered)</p>
+          <p className="text-2xl font-bold text-gray-500">{allBookings.filter(b => b.invoice_status === 'filtered').length}</p>
         </div>
       </div>
 
@@ -1013,7 +1005,7 @@ export default function InvoicingPage() {
           }`}
           onClick={() => setActiveTab('all-reservations')}
         >
-          All Reservations ({uninvoicedBookings.length})
+          All Reservations ({allBookings.length})
         </button>
         <button
           className={`px-4 py-2 font-medium transition-colors whitespace-nowrap ${
@@ -1074,86 +1066,101 @@ export default function InvoicingPage() {
           )}
 
           <div className="bg-white rounded-lg border shadow-sm overflow-hidden">
-            <Table>
-              <TableHeader>
-                <TableRow className="bg-gray-50">
-                  <TableHead className="w-12">
-                    <Checkbox
-                      checked={
-                        selectedBookings.length === uninvoicedBookings.length &&
-                        uninvoicedBookings.length > 0
-                      }
-                      onCheckedChange={selectAllBookings}
-                    />
-                  </TableHead>
-                  <TableHead className="font-semibold">Booking</TableHead>
-                  <TableHead className="font-semibold">Customer</TableHead>
-                  <TableHead className="font-semibold">Amount</TableHead>
-                  <TableHead className="font-semibold">Payment</TableHead>
-                  <TableHead className="font-semibold">Seller</TableHead>
-                  <TableHead className="font-semibold">Date (→ Month)</TableHead>
-                </TableRow>
-              </TableHeader>
-              <TableBody>
-                {uninvoicedBookings.length === 0 ? (
-                  <TableRow>
-                    <TableCell colSpan={7} className="text-center py-8 text-gray-500">
-                      <CheckCircle className="h-12 w-12 mx-auto text-green-300 mb-2" />
-                      All bookings have been added to monthly invoices
-                    </TableCell>
+            {loadingBookings ? (
+              <div className="text-center py-8">
+                <RefreshCw className="h-6 w-6 animate-spin mx-auto text-gray-400" />
+                <p className="mt-2 text-gray-500">Loading bookings...</p>
+              </div>
+            ) : (
+              <Table>
+                <TableHeader>
+                  <TableRow className="bg-gray-50">
+                    <TableHead className="w-12">
+                      <Checkbox
+                        checked={
+                          selectedBookings.length === allBookings.filter(b => b.invoice_status === 'pending').length &&
+                          allBookings.filter(b => b.invoice_status === 'pending').length > 0
+                        }
+                        onCheckedChange={selectAllBookings}
+                      />
+                    </TableHead>
+                    <TableHead className="font-semibold">Booking</TableHead>
+                    <TableHead className="font-semibold">Customer</TableHead>
+                    <TableHead className="font-semibold">Amount</TableHead>
+                    <TableHead className="font-semibold">Seller</TableHead>
+                    <TableHead className="font-semibold">Creation Date</TableHead>
+                    <TableHead className="font-semibold">Travel Date</TableHead>
+                    <TableHead className="font-semibold">Invoice Status</TableHead>
                   </TableRow>
-                ) : (
-                  uninvoicedBookings.map((booking) => (
-                    <TableRow
-                      key={booking.booking_id}
-                      className={`hover:bg-gray-50 ${booking.all_activities_cancelled ? 'bg-red-50 opacity-70' : ''}`}
-                    >
-                      <TableCell>
-                        <Checkbox
-                          checked={selectedBookings.includes(booking.booking_id)}
-                          onCheckedChange={() => toggleBookingSelection(booking.booking_id)}
-                          disabled={booking.all_activities_cancelled}
-                        />
-                      </TableCell>
-                      <TableCell className="font-medium">
-                        <div className="flex items-center gap-2">
-                          {booking.confirmation_code}
-                          {booking.all_activities_cancelled && (
-                            <span className="px-1.5 py-0.5 rounded text-xs font-medium bg-red-100 text-red-700">
-                              CANCELLED
-                            </span>
-                          )}
-                        </div>
-                      </TableCell>
-                      <TableCell>{booking.customer_name || '-'}</TableCell>
-                      <TableCell className={`font-medium ${booking.all_activities_cancelled ? 'line-through text-gray-400' : ''}`}>
-                        {booking.currency} {booking.total_price.toFixed(2)}
-                      </TableCell>
-                      <TableCell>
-                        <span
-                          className={`px-2 py-1 rounded text-xs font-medium ${
-                            booking.payment_type === 'PAID'
-                              ? 'bg-green-100 text-green-700'
-                              : booking.payment_type === 'PARTIAL'
-                              ? 'bg-yellow-100 text-yellow-700'
-                              : 'bg-gray-100 text-gray-700'
-                          }`}
-                        >
-                          {booking.payment_type || 'Unknown'}
-                        </span>
-                      </TableCell>
-                      <TableCell className="text-sm">{booking.activity_seller || '-'}</TableCell>
-                      <TableCell className="text-sm text-gray-500">
-                        {format(new Date(booking.creation_date), 'dd/MM/yyyy')}
-                        <span className="text-orange-500 ml-1">
-                          → {booking.creation_date.substring(0, 7)}
-                        </span>
+                </TableHeader>
+                <TableBody>
+                  {allBookings.length === 0 ? (
+                    <TableRow>
+                      <TableCell colSpan={8} className="text-center py-8 text-gray-500">
+                        No bookings found for the selected filters
                       </TableCell>
                     </TableRow>
-                  ))
-                )}
-              </TableBody>
-            </Table>
+                  ) : (
+                    allBookings.map((booking) => (
+                      <TableRow
+                        key={booking.booking_id}
+                        className={`hover:bg-gray-50 ${booking.all_activities_cancelled ? 'bg-red-50 opacity-70' : ''}`}
+                      >
+                        <TableCell>
+                          <Checkbox
+                            checked={selectedBookings.includes(booking.booking_id)}
+                            onCheckedChange={() => toggleBookingSelection(booking.booking_id)}
+                            disabled={booking.all_activities_cancelled || booking.invoice_status !== 'pending'}
+                          />
+                        </TableCell>
+                        <TableCell className="font-medium">
+                          <div className="flex items-center gap-2">
+                            {booking.confirmation_code}
+                            {booking.all_activities_cancelled && (
+                              <span className="px-1.5 py-0.5 rounded text-xs font-medium bg-red-100 text-red-700">
+                                CANCELLED
+                              </span>
+                            )}
+                          </div>
+                        </TableCell>
+                        <TableCell>{booking.customer_name || '-'}</TableCell>
+                        <TableCell className={`font-medium ${booking.all_activities_cancelled ? 'line-through text-gray-400' : ''}`}>
+                          {booking.currency} {booking.total_price.toFixed(2)}
+                        </TableCell>
+                        <TableCell className="text-sm">{booking.activity_seller || '-'}</TableCell>
+                        <TableCell className="text-sm text-gray-500">
+                          {format(new Date(booking.creation_date), 'dd/MM/yyyy')}
+                        </TableCell>
+                        <TableCell className="text-sm text-gray-500">
+                          {booking.travel_date ? format(new Date(booking.travel_date), 'dd/MM/yyyy') : '-'}
+                        </TableCell>
+                        <TableCell>
+                          <span
+                            className={`inline-flex items-center gap-1 px-2 py-1 rounded-full text-xs font-medium ${
+                              booking.invoice_status === 'created'
+                                ? 'bg-green-100 text-green-700'
+                                : booking.invoice_status === 'scheduled'
+                                ? 'bg-blue-100 text-blue-700'
+                                : booking.invoice_status === 'filtered'
+                                ? 'bg-gray-100 text-gray-500'
+                                : 'bg-yellow-100 text-yellow-700'
+                            }`}
+                          >
+                            {booking.invoice_status === 'created' && <CheckCircle className="h-3 w-3" />}
+                            {booking.invoice_status === 'scheduled' && <Clock className="h-3 w-3" />}
+                            {booking.invoice_status === 'filtered' && <XCircle className="h-3 w-3" />}
+                            {booking.invoice_status === 'pending' && <AlertCircle className="h-3 w-3" />}
+                            {booking.invoice_status === 'created' ? 'Created' :
+                             booking.invoice_status === 'scheduled' ? 'Scheduled' :
+                             booking.invoice_status === 'filtered' ? 'No Rule' : 'Pending'}
+                          </span>
+                        </TableCell>
+                      </TableRow>
+                    ))
+                  )}
+                </TableBody>
+              </Table>
+            )}
           </div>
         </div>
       )}
