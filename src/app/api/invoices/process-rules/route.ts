@@ -74,7 +74,7 @@ export async function POST(request: NextRequest) {
       }[]
     }
 
-    let allBookings: BookingData[] = []
+    const allBookings: BookingData[] = []
 
     // For travel-date rules: query activity_bookings first by travel date
     for (const rule of travelDateRules) {
@@ -163,6 +163,7 @@ export async function POST(request: NextRequest) {
       .from('scheduled_invoices')
       .select('booking_id')
       .not('status', 'eq', 'cancelled')
+      .limit(50000)
 
     const alreadyScheduledIds = new Set(existingScheduled?.map(s => s.booking_id) || [])
 
@@ -171,6 +172,7 @@ export async function POST(request: NextRequest) {
       .from('invoices')
       .select('booking_id')
       .eq('invoice_type', 'INVOICE')
+      .limit(50000)
 
     const alreadyInvoicedIds = new Set(existingInvoices?.map(i => i.booking_id) || [])
 
@@ -274,11 +276,20 @@ export async function POST(request: NextRequest) {
       })
     }
 
-    // Insert if not dry run
+    // Insert if not dry run - deduplicate toInsert by booking_id first
     if (!dryRun && toInsert.length > 0) {
+      // Ensure only one entry per booking_id
+      const uniqueInserts = Array.from(
+        new Map(toInsert.map(item => [item.booking_id, item])).values()
+      )
+
+      // Use upsert with ignoreDuplicates to handle any existing entries
       const { error: insertError } = await supabase
         .from('scheduled_invoices')
-        .insert(toInsert)
+        .upsert(uniqueInserts, {
+          onConflict: 'booking_id',
+          ignoreDuplicates: true
+        })
 
       if (insertError) {
         console.error('Error inserting scheduled invoices:', insertError)

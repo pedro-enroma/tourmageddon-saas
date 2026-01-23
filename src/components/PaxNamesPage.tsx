@@ -128,6 +128,7 @@ export default function PaxNamesPage() {
     }, 60 * 60 * 1000) // 60 minutes
 
     return () => clearInterval(intervalId)
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [dateRange, selectedActivities])
 
   // Focus search input when dropdown opens

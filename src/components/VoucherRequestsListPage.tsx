@@ -34,6 +34,7 @@ export default function VoucherRequestsListPage() {
 
   useEffect(() => {
     fetchRequests()
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [statusFilter, dateFrom, dateTo])
 
   const fetchRequests = async () => {

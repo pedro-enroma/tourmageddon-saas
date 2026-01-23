@@ -46,6 +46,7 @@ export default function BookingChangesLogPage() {
 
   useEffect(() => {
     fetchLogs()
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [page, changeTypeFilter])
 
   const fetchLogs = async () => {

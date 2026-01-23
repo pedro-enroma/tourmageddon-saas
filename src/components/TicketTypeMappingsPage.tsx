@@ -64,6 +64,7 @@ export default function TicketTypeMappingsPage() {
 
   useEffect(() => {
     fetchData()
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [])
 
   // Helper to fetch all rows from a table (handles pagination)

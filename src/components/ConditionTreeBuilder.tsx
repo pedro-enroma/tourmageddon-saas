@@ -1,6 +1,6 @@
 'use client'
 
-import React, { useCallback } from 'react'
+import React, { useCallback, useMemo } from 'react'
 import { Plus, X, ChevronDown } from 'lucide-react'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
@@ -20,7 +20,7 @@ interface ConditionTreeBuilderProps {
 }
 
 export function ConditionTreeBuilder({ trigger, conditions, onChange }: ConditionTreeBuilderProps) {
-  const fields = TRIGGER_FIELDS[trigger] || []
+  const fields = useMemo(() => TRIGGER_FIELDS[trigger] || [], [trigger])
 
   const updateNode = useCallback((path: number[], updater: (node: ConditionNode) => ConditionNode) => {
     const updateAtPath = (node: ConditionNode, pathIndex: number): ConditionNode => {

@@ -819,6 +819,7 @@ export default function VoucherUploadPage() {
     })
 
     setValidationResults(results)
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [combinedExtractedData?.tickets, participants, assignedGuides, activityBookings, typeMappings, categoryGuideRequiresTicket, categorySkipNameCheck])
 
   const handleFileChange = (e: React.ChangeEvent<HTMLInputElement>) => {

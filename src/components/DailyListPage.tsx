@@ -397,6 +397,7 @@ export default function DailyListPage() {
     fetchConsolidatedTemplates()
     fetchActivityGuideTemplates()
     fetchAllGuides()
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [])
 
   // Fetch email templates
@@ -4018,6 +4019,7 @@ export default function DailyListPage() {
     }, 60 * 60 * 1000) // 60 minutes
 
     return () => clearInterval(intervalId)
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [dateRange, selectedActivities])
 
   // Focus search input when dropdown opens
