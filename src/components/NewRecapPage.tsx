@@ -202,6 +202,7 @@ interface Availability {
   vacancy_opening?: number
   vacancy?: number
   status: string
+  visibility_locked?: boolean
   activities: {
     activity_id: string
     title: string
@@ -262,6 +263,8 @@ interface SlotData {
   // Planned availability flag
   isPlanned?: boolean
   plannedId?: string
+  // Visibility lock - status only changes when Bokun sends CLOSED
+  visibilityLocked?: boolean
 }
 
 interface PlannedAvailability {
@@ -2430,7 +2433,8 @@ export default function NewRecapPage() {
         printingCost,
         voucherCost,
         totalCost,
-        netProfit: 0 // Will be calculated after totalAmount is set
+        netProfit: 0, // Will be calculated after totalAmount is set
+        visibilityLocked: avail.visibility_locked || false
       })
     })
 
@@ -2691,7 +2695,10 @@ export default function NewRecapPage() {
     return `${days[date.getDay()]} ${date.toLocaleDateString('it-IT')}`
   }
 
-  const getStatusColor = (status: string) => {
+  const getStatusColor = (status: string, visibilityLocked?: boolean) => {
+    if (visibilityLocked) {
+      return 'text-blue-600'
+    }
     const colors: Record<string, string> = {
       'AVAILABLE': 'text-green-600',
       'LIMITED': 'text-orange-500',
@@ -2700,6 +2707,46 @@ export default function NewRecapPage() {
       'CLOSED': 'text-red-700'
     }
     return colors[status?.toUpperCase()] || 'text-gray-500'
+  }
+
+  // Toggle visibility lock for a slot
+  const handleToggleVisibilityLock = async (availabilityId: string, currentlyLocked: boolean) => {
+    if (!availabilityId) return
+
+    try {
+      const response = await fetch('/api/availability/visibility-lock', {
+        method: 'PUT',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          availability_id: availabilityId,
+          visibility_locked: !currentlyLocked
+        })
+      })
+
+      if (!response.ok) {
+        throw new Error('Failed to update visibility lock')
+      }
+
+      // Update local state
+      setData(prevData => prevData.map(row => {
+        if (row.isDateGroup && row.slots) {
+          return {
+            ...row,
+            slots: row.slots.map(slot =>
+              slot.availabilityId === availabilityId
+                ? { ...slot, visibilityLocked: !currentlyLocked }
+                : slot
+            )
+          }
+        }
+        return row.availabilityId === availabilityId
+          ? { ...row, visibilityLocked: !currentlyLocked }
+          : row
+      }))
+    } catch (error) {
+      console.error('Error toggling visibility lock:', error)
+      alert('Failed to update visibility status')
+    }
   }
 
   const exportToExcel = () => {
@@ -3171,29 +3218,51 @@ export default function NewRecapPage() {
                       </span>
                     </td>
                     <td className="px-4 py-3 text-center">
-                      {!row.isDateGroup && row.status && (
-                        (row.status === 'CLOSED' || row.status === 'SOLD_OUT' || row.status === 'SOLDOUT') && row.lastReservation ? (
-                          <HoverCard>
-                            <HoverCardTrigger asChild>
-                              <span className={`text-xs font-semibold cursor-help ${getStatusColor(row.status)}`}>
-                                {row.status}
-                              </span>
-                            </HoverCardTrigger>
-                            <HoverCardContent className="w-48" side="left">
-                              <div className="text-sm">
-                                <div className="font-medium text-gray-700">Ultima prenotazione</div>
-                                <div className="text-gray-600 mt-1">
-                                  {new Date(row.lastReservation.date).toLocaleDateString('it-IT', { day: '2-digit', month: '2-digit', year: 'numeric', hour: '2-digit', minute: '2-digit' })}
+                      {!row.isDateGroup && row.status && !row.isPlanned && (
+                        <HoverCard>
+                          <HoverCardTrigger asChild>
+                            <button
+                              onClick={() => row.availabilityId && handleToggleVisibilityLock(row.availabilityId, !!row.visibilityLocked)}
+                              className={`text-xs font-semibold cursor-pointer hover:underline ${getStatusColor(row.status, row.visibilityLocked)}`}
+                              title={row.visibilityLocked ? 'Click to unlock visibility (status will sync with Bokun)' : 'Click to lock visibility (status will only change when CLOSED)'}
+                            >
+                              {row.visibilityLocked ? 'VISIBILITY' : row.status}
+                            </button>
+                          </HoverCardTrigger>
+                          <HoverCardContent className="w-56" side="left">
+                            <div className="text-sm">
+                              {row.visibilityLocked ? (
+                                <>
+                                  <div className="font-medium text-blue-700">Visibility Locked</div>
+                                  <div className="text-gray-600 mt-1 text-xs">
+                                    Status will only change when Bokun sends CLOSED.
+                                  </div>
+                                  <div className="text-gray-500 text-xs mt-1">
+                                    Click to unlock and sync with Bokun status.
+                                  </div>
+                                </>
+                              ) : row.lastReservation ? (
+                                <>
+                                  <div className="font-medium text-gray-700">Ultima prenotazione</div>
+                                  <div className="text-gray-600 mt-1">
+                                    {new Date(row.lastReservation.date).toLocaleDateString('it-IT', { day: '2-digit', month: '2-digit', year: 'numeric', hour: '2-digit', minute: '2-digit' })}
+                                  </div>
+                                  <div className="text-gray-500 text-xs mt-0.5">#{row.lastReservation.bookingId}</div>
+                                  <div className="text-gray-500 text-xs mt-2">
+                                    Click to lock visibility status.
+                                  </div>
+                                </>
+                              ) : (
+                                <div className="text-gray-500 text-xs">
+                                  Click to lock visibility status.
                                 </div>
-                                <div className="text-gray-500 text-xs mt-0.5">#{row.lastReservation.bookingId}</div>
-                              </div>
-                            </HoverCardContent>
-                          </HoverCard>
-                        ) : (
-                          <span className={`text-xs font-semibold ${getStatusColor(row.status)}`}>
-                            {row.status}
-                          </span>
-                        )
+                              )}
+                            </div>
+                          </HoverCardContent>
+                        </HoverCard>
+                      )}
+                      {!row.isDateGroup && row.isPlanned && (
+                        <span className="text-xs font-semibold text-amber-600">PLANNED</span>
                       )}
                     </td>
                     <td className="px-4 py-3 text-center">
@@ -3350,10 +3419,12 @@ export default function NewRecapPage() {
                     <React.Fragment key={`${row.id}-slot-${idx}`}>
                     <tr className={`border-t ${
                       slot.isPlanned
-                        ? 'bg-blue-50 border-l-4 border-l-blue-400'
-                        : slot.status === 'CLOSED' && !slot.bookingCount
-                          ? 'bg-red-50 text-gray-400'
-                          : 'bg-gray-50'
+                        ? 'bg-amber-50 border-l-4 border-l-amber-400'
+                        : slot.visibilityLocked
+                          ? 'bg-blue-50 border-l-4 border-l-blue-400'
+                          : slot.status === 'CLOSED' && !slot.bookingCount
+                            ? 'bg-red-50 text-gray-400'
+                            : 'bg-gray-50'
                     }`}>
                       <td className="px-4 py-2 pl-12">
                         <div className="flex items-center gap-2">
@@ -3520,29 +3591,51 @@ export default function NewRecapPage() {
                       ))}
                       <td className="px-4 py-2 text-center text-sm">{slot.availabilityLeft || 0}</td>
                       <td className="px-4 py-2 text-center">
-                        {slot.status && (
-                          (slot.status === 'CLOSED' || slot.status === 'SOLD_OUT' || slot.status === 'SOLDOUT') && slot.lastReservation ? (
-                            <HoverCard>
-                              <HoverCardTrigger asChild>
-                                <span className={`text-xs font-semibold cursor-help ${getStatusColor(slot.status)}`}>
-                                  {slot.status}
-                                </span>
-                              </HoverCardTrigger>
-                              <HoverCardContent className="w-48" side="left">
-                                <div className="text-sm">
-                                  <div className="font-medium text-gray-700">Ultima prenotazione</div>
-                                  <div className="text-gray-600 mt-1">
-                                    {new Date(slot.lastReservation.date).toLocaleDateString('it-IT', { day: '2-digit', month: '2-digit', year: 'numeric', hour: '2-digit', minute: '2-digit' })}
+                        {slot.status && !slot.isPlanned && (
+                          <HoverCard>
+                            <HoverCardTrigger asChild>
+                              <button
+                                onClick={() => slot.availabilityId && handleToggleVisibilityLock(slot.availabilityId, !!slot.visibilityLocked)}
+                                className={`text-xs font-semibold cursor-pointer hover:underline ${getStatusColor(slot.status, slot.visibilityLocked)}`}
+                                title={slot.visibilityLocked ? 'Click to unlock visibility (status will sync with Bokun)' : 'Click to lock visibility (status will only change when CLOSED)'}
+                              >
+                                {slot.visibilityLocked ? 'VISIBILITY' : slot.status}
+                              </button>
+                            </HoverCardTrigger>
+                            <HoverCardContent className="w-56" side="left">
+                              <div className="text-sm">
+                                {slot.visibilityLocked ? (
+                                  <>
+                                    <div className="font-medium text-blue-700">Visibility Locked</div>
+                                    <div className="text-gray-600 mt-1 text-xs">
+                                      Status will only change when Bokun sends CLOSED.
+                                    </div>
+                                    <div className="text-gray-500 text-xs mt-1">
+                                      Click to unlock and sync with Bokun status.
+                                    </div>
+                                  </>
+                                ) : slot.lastReservation ? (
+                                  <>
+                                    <div className="font-medium text-gray-700">Ultima prenotazione</div>
+                                    <div className="text-gray-600 mt-1">
+                                      {new Date(slot.lastReservation.date).toLocaleDateString('it-IT', { day: '2-digit', month: '2-digit', year: 'numeric', hour: '2-digit', minute: '2-digit' })}
+                                    </div>
+                                    <div className="text-gray-500 text-xs mt-0.5">#{slot.lastReservation.bookingId}</div>
+                                    <div className="text-gray-500 text-xs mt-2">
+                                      Click to lock visibility status.
+                                    </div>
+                                  </>
+                                ) : (
+                                  <div className="text-gray-500 text-xs">
+                                    Click to lock visibility status.
                                   </div>
-                                  <div className="text-gray-500 text-xs mt-0.5">#{slot.lastReservation.bookingId}</div>
-                                </div>
-                              </HoverCardContent>
-                            </HoverCard>
-                          ) : (
-                            <span className={`text-xs font-semibold ${getStatusColor(slot.status)}`}>
-                              {slot.status}
-                            </span>
-                          )
+                                )}
+                              </div>
+                            </HoverCardContent>
+                          </HoverCard>
+                        )}
+                        {slot.isPlanned && (
+                          <span className="text-xs font-semibold text-amber-600">PLANNED</span>
                         )}
                       </td>
                       <td className="px-4 py-2 text-center text-sm">
@@ -4327,7 +4420,7 @@ export default function NewRecapPage() {
           <DialogHeader>
             <DialogTitle>Add Planned Slot</DialogTitle>
             <DialogDescription>
-              Create a planned availability slot for {addPlannedDate ? new Date(addPlannedDate + 'T00:00:00').toLocaleDateString('it-IT', { weekday: 'short', day: '2-digit', month: '2-digit', year: 'numeric' }) : ''}. This slot will have a blue background until the real availability is created in Bokun.
+              Create a planned availability slot for {addPlannedDate ? new Date(addPlannedDate + 'T00:00:00').toLocaleDateString('it-IT', { weekday: 'short', day: '2-digit', month: '2-digit', year: 'numeric' }) : ''}. This slot will have a yellow background until the real availability is created in Bokun.
             </DialogDescription>
           </DialogHeader>
           <div className="space-y-4 py-4">
