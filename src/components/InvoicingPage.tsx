@@ -219,11 +219,21 @@ export default function InvoicingPage() {
   // Fetch bookings without invoices
   const fetchUninvoicedBookings = useCallback(async () => {
     try {
-      // Use invoice_start_date from config if set, otherwise use dateFrom
-      const effectiveStartDate = config?.invoice_start_date || dateFrom
+      // Build a map of seller -> rule for filtering
+      const sellerRuleMap = new Map<string, InvoiceRule>()
+      for (const rule of rules) {
+        for (const seller of rule.sellers || []) {
+          sellerRuleMap.set(seller, rule)
+        }
+      }
 
-      // Get bookings with their invoice status
-      const { data: bookings, error: bookingsError } = await supabase
+      // Check if selected seller has a "travel" date type rule
+      const selectedSellerRule = sellerFilter !== 'all' ? sellerRuleMap.get(sellerFilter) : null
+      const isTravelDateRule = selectedSellerRule?.invoice_date_type === 'travel'
+
+      // Get bookings - if travel date rule, fetch all (no creation date filter)
+      // If creation date rule or no specific seller, use creation date filter
+      let query = supabase
         .from('bookings')
         .select(
           `
@@ -239,10 +249,18 @@ export default function InvoicingPage() {
           activity_bookings(activity_seller, status, start_date_time)
         `
         )
-        .gte('creation_date', effectiveStartDate)
-        .lte('creation_date', dateTo + 'T23:59:59')
         .eq('status', 'CONFIRMED')
         .order('creation_date', { ascending: false })
+
+      // Only apply creation date filter if NOT a travel date rule
+      if (!isTravelDateRule) {
+        const effectiveStartDate = config?.invoice_start_date || dateFrom
+        query = query
+          .gte('creation_date', effectiveStartDate)
+          .lte('creation_date', dateTo + 'T23:59:59')
+      }
+
+      const { data: bookings, error: bookingsError } = await query
 
       if (bookingsError) throw bookingsError
 
@@ -254,10 +272,35 @@ export default function InvoicingPage() {
 
       const invoicedBookingIds = new Set(existingInvoices?.map((i) => i.booking_id) || [])
 
-      // Filter to only uninvoiced bookings
+      // Get scheduled invoice booking IDs
+      const { data: scheduledInvoicesData } = await supabase
+        .from('scheduled_invoices')
+        .select('booking_id')
+        .not('status', 'eq', 'cancelled')
+
+      const scheduledBookingIds = new Set(scheduledInvoicesData?.map((s) => s.booking_id) || [])
+
+      // Filter bookings
       const uninvoiced = (bookings || [])
         .filter((b) => !invoicedBookingIds.has(b.booking_id))
-        .filter((b) => sellerFilter === 'all' || b.activity_bookings?.some((a: { activity_seller: string }) => a.activity_seller === sellerFilter))
+        .filter((b) => !scheduledBookingIds.has(b.booking_id)) // Exclude already scheduled
+        .filter((b) => {
+          // Filter by seller
+          if (sellerFilter !== 'all') {
+            return b.activity_bookings?.some((a: { activity_seller: string }) => a.activity_seller === sellerFilter)
+          }
+          return true
+        })
+        .filter((b) => {
+          // For travel date rules, filter by travel date >= invoice_start_date
+          if (isTravelDateRule && selectedSellerRule?.invoice_start_date) {
+            const activityBookings = b.activity_bookings as { start_date_time: string }[] || []
+            const travelDate = activityBookings[0]?.start_date_time
+            if (!travelDate) return false
+            return travelDate >= selectedSellerRule.invoice_start_date
+          }
+          return true
+        })
         .map((b) => {
           const activityBookings = b.activity_bookings as { activity_seller: string; status: string; start_date_time: string }[] || []
           const allCancelled = activityBookings.length > 0 && activityBookings.every(a => a.status === 'CANCELLED')
@@ -291,7 +334,7 @@ export default function InvoicingPage() {
     } catch (error) {
       console.error('Error fetching uninvoiced bookings:', error)
     }
-  }, [dateFrom, dateTo, sellerFilter, config?.invoice_start_date])
+  }, [dateFrom, dateTo, sellerFilter, config?.invoice_start_date, rules])
 
   // Fetch available sellers
   const fetchAvailableSellers = async () => {
@@ -643,12 +686,12 @@ export default function InvoicingPage() {
     fetchCreatedInvoices()
   }, [])
 
-  // Refetch uninvoiced bookings when config loads or changes
+  // Refetch uninvoiced bookings when config or rules load/change
   useEffect(() => {
-    if (config !== null) {
+    if (config !== null || rules.length > 0) {
       fetchUninvoicedBookings()
     }
-  }, [config, fetchUninvoicedBookings])
+  }, [config, rules, fetchUninvoicedBookings])
 
   // Create invoices for selected bookings via API
   const createInvoices = async () => {
