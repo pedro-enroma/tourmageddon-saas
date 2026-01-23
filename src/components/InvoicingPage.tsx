@@ -1,6 +1,6 @@
 'use client'
 
-import { useState, useEffect, useCallback } from 'react'
+import React, { useState, useEffect, useCallback } from 'react'
 import { supabase } from '@/lib/supabase'
 import { format, subDays } from 'date-fns'
 import { Button } from '@/components/ui/button'
@@ -1203,9 +1203,8 @@ export default function InvoicingPage() {
                 </TableRow>
               ) : (
                 monthlyPraticas.map((pratica) => (
-                  <>
+                  <React.Fragment key={pratica.id}>
                     <TableRow
-                      key={pratica.id}
                       className="hover:bg-gray-50 cursor-pointer"
                       onClick={() => toggleMonthExpansion(pratica.year_month)}
                     >
@@ -1303,7 +1302,7 @@ export default function InvoicingPage() {
                         </TableCell>
                       </TableRow>
                     )}
-                  </>
+                  </React.Fragment>
                 ))
               )}
             </TableBody>
