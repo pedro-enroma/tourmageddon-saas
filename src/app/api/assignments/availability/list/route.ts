@@ -31,6 +31,7 @@ export async function GET(request: NextRequest) {
         .select(`
           assignment_id,
           activity_availability_id,
+          status,
           guide:guides (
             guide_id,
             first_name,

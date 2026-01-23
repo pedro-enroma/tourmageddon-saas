@@ -213,6 +213,8 @@ interface GuideInfo {
   id: string
   name: string
   is_placeholder?: boolean
+  status?: 'confirmed' | 'extra' | 'to_be_confirmed'
+  assignment_id?: number
 }
 
 interface EscortInfo {
@@ -395,6 +397,7 @@ export default function NewRecapPage() {
   const [selectedGuideToChange, setSelectedGuideToChange] = useState<GuideInfo | null>(null)
   const [availableGuides, setAvailableGuides] = useState<AvailableGuide[]>([])
   const [newGuideId, setNewGuideId] = useState<string>('')
+  const [newGuideStatus, setNewGuideStatus] = useState<'confirmed' | 'extra' | 'to_be_confirmed'>('confirmed')
   const [changingGuide, setChangingGuide] = useState(false)
   const [guideSearchTerm, setGuideSearchTerm] = useState('')
   const [busyGuides, setBusyGuides] = useState<BusyGuideInfo[]>([])
@@ -579,6 +582,7 @@ export default function NewRecapPage() {
         activity_availability_id,
         planned_availability_id,
         guide_id,
+        status,
         guide:guides (
           guide_id,
           first_name,
@@ -612,9 +616,15 @@ export default function NewRecapPage() {
           const existingNames = guideNamesMap.get(availId) || []
           guideNamesMap.set(availId, [...existingNames, guideName])
 
-          // Store guide data with ID and placeholder flag
+          // Store guide data with ID, placeholder flag, status, and assignment_id
           const existingData = guideDataMap.get(availId) || []
-          guideDataMap.set(availId, [...existingData, { id: assignment.guide_id, name: guideName, is_placeholder: isPlaceholder }])
+          guideDataMap.set(availId, [...existingData, {
+            id: assignment.guide_id,
+            name: guideName,
+            is_placeholder: isPlaceholder,
+            status: assignment.status || 'confirmed',
+            assignment_id: assignment.assignment_id
+          }])
         }
       }
 
@@ -627,9 +637,15 @@ export default function NewRecapPage() {
           const existingNames = plannedGuideNamesMap.get(plannedId) || []
           plannedGuideNamesMap.set(plannedId, [...existingNames, guideName])
 
-          // Store guide data with ID and placeholder flag
+          // Store guide data with ID, placeholder flag, status, and assignment_id
           const existingData = plannedGuideDataMap.get(plannedId) || []
-          plannedGuideDataMap.set(plannedId, [...existingData, { id: assignment.guide_id, name: guideName, is_placeholder: isPlaceholder }])
+          plannedGuideDataMap.set(plannedId, [...existingData, {
+            id: assignment.guide_id,
+            name: guideName,
+            is_placeholder: isPlaceholder,
+            status: assignment.status || 'confirmed',
+            assignment_id: assignment.assignment_id
+          }])
         }
       }
     })
@@ -1945,6 +1961,7 @@ export default function NewRecapPage() {
     setSelectedSlot(slot)
     setSelectedGuideToChange(guide)
     setNewGuideId('')
+    setNewGuideStatus(guide?.status || 'confirmed')
     setGuideSearchTerm('')
     setBusyGuides([])
     loadAvailableGuides()
@@ -1953,8 +1970,6 @@ export default function NewRecapPage() {
   }
 
   const handleGuideChange = async () => {
-    if (!newGuideId) return
-
     // Check if it's a planned slot or a real availability
     const isPlanned = selectedSlot?.isPlanned && selectedSlot?.plannedId
     const hasRealAvailability = selectedSlot?.availabilityId
@@ -1963,6 +1978,40 @@ export default function NewRecapPage() {
       console.error('No availability ID or planned ID')
       return
     }
+
+    // If updating status only (existing guide, no new guide selected, status changed)
+    if (selectedGuideToChange && !newGuideId && selectedGuideToChange.assignment_id) {
+      // Just update the status
+      setChangingGuide(true)
+      try {
+        const updateRes = await fetch('/api/assignments/guides/status', {
+          method: 'PUT',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            assignment_id: selectedGuideToChange.assignment_id,
+            status: newGuideStatus
+          })
+        })
+
+        if (!updateRes.ok) {
+          const errorText = await updateRes.text()
+          console.error('Failed to update guide status:', errorText)
+          return
+        }
+
+        // Refresh data
+        setGuideDialogOpen(false)
+        loadData()
+      } catch (error) {
+        console.error('Error updating guide status:', error)
+      } finally {
+        setChangingGuide(false)
+      }
+      return
+    }
+
+    // Otherwise, need a new guide selected
+    if (!newGuideId) return
 
     setChangingGuide(true)
     try {
@@ -1984,10 +2033,10 @@ export default function NewRecapPage() {
         }
       }
 
-      // Create new guide assignment
+      // Create new guide assignment with status
       const createBody = isPlanned
-        ? { planned_availability_id: selectedSlot.plannedId, guide_ids: [newGuideId] }
-        : { activity_availability_id: Number(selectedSlot.availabilityId), guide_ids: [newGuideId] }
+        ? { planned_availability_id: selectedSlot.plannedId, guide_ids: [newGuideId], guide_status: newGuideStatus }
+        : { activity_availability_id: Number(selectedSlot.availabilityId), guide_ids: [newGuideId], guide_status: newGuideStatus }
 
       const createRes = await fetch('/api/assignments/availability', {
         method: 'POST',
@@ -3640,20 +3689,33 @@ export default function NewRecapPage() {
                       </td>
                       <td className="px-4 py-2 text-center text-sm">
                         <div className="flex flex-wrap gap-1 justify-center items-center">
-                          {slot.guideData && slot.guideData.length > 0 && slot.guideData.map((guide, gIdx) => (
-                            <button
-                              key={gIdx}
-                              onClick={() => openGuideDialog(slot, guide)}
-                              className={`px-2 py-0.5 rounded text-xs cursor-pointer transition-colors ${
-                                guide.is_placeholder
-                                  ? 'bg-amber-100 hover:bg-amber-200 text-amber-800 border border-amber-300'
-                                  : 'bg-green-100 hover:bg-green-200 text-green-800'
-                              }`}
-                              title={guide.name}
-                            >
-                              {guide.is_placeholder ? '🔍' : ''}{guide.name.split(' ')[0]}
-                            </button>
-                          ))}
+                          {slot.guideData && slot.guideData.length > 0 && slot.guideData.map((guide, gIdx) => {
+                            // Determine background color based on status
+                            const getGuideStatusStyle = () => {
+                              if (guide.is_placeholder) {
+                                return 'bg-amber-100 hover:bg-amber-200 text-amber-800 border border-amber-300'
+                              }
+                              switch (guide.status) {
+                                case 'extra':
+                                  return 'bg-blue-100 hover:bg-blue-200 text-blue-800'
+                                case 'to_be_confirmed':
+                                  return 'bg-yellow-100 hover:bg-yellow-200 text-yellow-800 border border-yellow-300'
+                                case 'confirmed':
+                                default:
+                                  return 'bg-green-100 hover:bg-green-200 text-green-800'
+                              }
+                            }
+                            return (
+                              <button
+                                key={gIdx}
+                                onClick={() => openGuideDialog(slot, guide)}
+                                className={`px-2 py-0.5 rounded text-xs cursor-pointer transition-colors ${getGuideStatusStyle()}`}
+                                title={`${guide.name}${guide.status && guide.status !== 'confirmed' ? ` (${guide.status.replace('_', ' ')})` : ''}`}
+                              >
+                                {guide.is_placeholder ? '🔍' : ''}{guide.name.split(' ')[0]}
+                              </button>
+                            )
+                          })}
                           <button
                             onClick={() => openGuideDialog(slot, null)}
                             className="px-2 py-0.5 bg-gray-100 hover:bg-gray-200 text-gray-600 rounded text-xs cursor-pointer transition-colors"
@@ -3919,6 +3981,47 @@ export default function NewRecapPage() {
                   )}
               </div>
             </div>
+            {/* Status selection */}
+            <div>
+              <label className="block text-sm font-medium text-gray-700 mb-2">
+                Stato assegnazione
+              </label>
+              <div className="flex gap-2">
+                <button
+                  type="button"
+                  onClick={() => setNewGuideStatus('confirmed')}
+                  className={`flex-1 px-3 py-2 text-sm rounded-md border transition-colors ${
+                    newGuideStatus === 'confirmed'
+                      ? 'bg-green-100 border-green-400 text-green-800'
+                      : 'bg-white border-gray-300 text-gray-600 hover:bg-gray-50'
+                  }`}
+                >
+                  Confermato
+                </button>
+                <button
+                  type="button"
+                  onClick={() => setNewGuideStatus('extra')}
+                  className={`flex-1 px-3 py-2 text-sm rounded-md border transition-colors ${
+                    newGuideStatus === 'extra'
+                      ? 'bg-blue-100 border-blue-400 text-blue-800'
+                      : 'bg-white border-gray-300 text-gray-600 hover:bg-gray-50'
+                  }`}
+                >
+                  Extra
+                </button>
+                <button
+                  type="button"
+                  onClick={() => setNewGuideStatus('to_be_confirmed')}
+                  className={`flex-1 px-3 py-2 text-sm rounded-md border transition-colors ${
+                    newGuideStatus === 'to_be_confirmed'
+                      ? 'bg-yellow-100 border-yellow-400 text-yellow-800'
+                      : 'bg-white border-gray-300 text-gray-600 hover:bg-gray-50'
+                  }`}
+                >
+                  Da confermare
+                </button>
+              </div>
+            </div>
           </div>
           <DialogFooter className="flex justify-between sm:justify-between">
             <div>
@@ -3941,10 +4044,10 @@ export default function NewRecapPage() {
               </button>
               <button
                 onClick={handleGuideChange}
-                disabled={!newGuideId || changingGuide}
+                disabled={changingGuide || (!newGuideId && !selectedGuideToChange)}
                 className="px-4 py-2 bg-brand-orange text-white rounded-md hover:bg-brand-orange-dark disabled:bg-gray-300 disabled:cursor-not-allowed"
               >
-                {changingGuide ? 'Salvando...' : 'Conferma'}
+                {changingGuide ? 'Salvando...' : selectedGuideToChange && !newGuideId ? 'Aggiorna stato' : 'Conferma'}
               </button>
             </div>
           </DialogFooter>

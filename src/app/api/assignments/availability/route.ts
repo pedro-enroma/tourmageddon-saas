@@ -11,7 +11,7 @@ export async function POST(request: NextRequest) {
 
   try {
     const body = await request.json()
-    const { activity_availability_id, planned_availability_id, guide_ids, escort_ids, headphone_ids, printing_ids } = body
+    const { activity_availability_id, planned_availability_id, guide_ids, guide_status, escort_ids, headphone_ids, printing_ids } = body
 
     if (!activity_availability_id && !planned_availability_id) {
       return NextResponse.json({ error: 'activity_availability_id or planned_availability_id is required' }, { status: 400 })
@@ -27,7 +27,8 @@ export async function POST(request: NextRequest) {
       if (planned_availability_id) {
         const guideAssignments = guide_ids.map((guide_id: string) => ({
           guide_id,
-          planned_availability_id
+          planned_availability_id,
+          status: guide_status || 'confirmed'
         }))
 
         const { data: guideData, error: guideError } = await supabase
@@ -73,12 +74,13 @@ export async function POST(request: NextRequest) {
         }
 
         // Create assignments for all availability IDs (original + group members)
-        const guideAssignments: { guide_id: string; activity_availability_id: number }[] = []
+        const guideAssignments: { guide_id: string; activity_availability_id: number; status: string }[] = []
         for (const availId of allAvailabilityIds) {
           for (const guide_id of guide_ids) {
             guideAssignments.push({
               guide_id,
-              activity_availability_id: availId
+              activity_availability_id: availId,
+              status: guide_status || 'confirmed'
             })
           }
         }

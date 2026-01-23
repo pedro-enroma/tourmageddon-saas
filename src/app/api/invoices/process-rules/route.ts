@@ -17,6 +17,7 @@ interface InvoiceRule {
   default_sales_type: string
   invoice_date_type: 'creation' | 'travel'
   travel_date_delay_days: number
+  execution_time: string // HH:MM format
   invoice_start_date: string | null
 }
 
@@ -101,6 +102,7 @@ export async function POST(request: NextRequest) {
       seller: string
       action: string
       scheduled_date?: string
+      scheduled_time?: string
       reason?: string
     }[] = []
 
@@ -108,6 +110,7 @@ export async function POST(request: NextRequest) {
       booking_id: number
       rule_id: string
       scheduled_send_date: string
+      scheduled_send_time: string
       status: string
     }[] = []
 
@@ -172,10 +175,13 @@ export async function POST(request: NextRequest) {
 
       const scheduledDateStr = format(scheduledSendDate, 'yyyy-MM-dd')
 
+      const executionTime = rule.execution_time || '08:00'
+
       toInsert.push({
         booking_id: booking.booking_id,
         rule_id: rule.id,
         scheduled_send_date: scheduledDateStr,
+        scheduled_send_time: executionTime,
         status: 'pending',
       })
 
@@ -185,6 +191,7 @@ export async function POST(request: NextRequest) {
         seller,
         action: dryRun ? 'would_schedule' : 'scheduled',
         scheduled_date: scheduledDateStr,
+        scheduled_time: executionTime,
       })
     }
 

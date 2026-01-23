@@ -111,6 +111,7 @@ interface InvoiceRule {
   default_sales_type: 'ORG' | 'INT'
   invoice_date_type: 'creation' | 'travel'
   travel_date_delay_days: number
+  execution_time: string // HH:MM format, e.g., '08:00'
   invoice_start_date: string | null
   created_at: string
   updated_at: string
@@ -121,6 +122,7 @@ interface ScheduledInvoice {
   booking_id: number
   rule_id: string | null
   scheduled_send_date: string
+  scheduled_send_time: string // HH:MM format
   status: 'pending' | 'sent' | 'failed' | 'cancelled'
   created_at: string
   sent_at: string | null
@@ -192,6 +194,7 @@ export default function InvoicingPage() {
     default_sales_type: 'ORG' | 'INT'
     invoice_date_type: 'creation' | 'travel'
     travel_date_delay_days: number
+    execution_time: string
     invoice_start_date: string
   }>({
     name: '',
@@ -203,6 +206,7 @@ export default function InvoicingPage() {
     default_sales_type: 'ORG',
     invoice_date_type: 'creation',
     travel_date_delay_days: 1,
+    execution_time: '08:00',
     invoice_start_date: '',
   })
 
@@ -629,6 +633,7 @@ export default function InvoicingPage() {
       default_sales_type: 'ORG',
       invoice_date_type: 'creation',
       travel_date_delay_days: 1,
+      execution_time: '08:00',
       invoice_start_date: '',
     })
     setEditingRule(null)
@@ -653,6 +658,7 @@ export default function InvoicingPage() {
       default_sales_type: rule.default_sales_type,
       invoice_date_type: rule.invoice_date_type,
       travel_date_delay_days: rule.travel_date_delay_days,
+      execution_time: rule.execution_time || '08:00',
       invoice_start_date: rule.invoice_start_date || '',
     })
     setShowRuleForm(true)
@@ -682,6 +688,7 @@ export default function InvoicingPage() {
         default_sales_type: ruleForm.default_sales_type,
         invoice_date_type: ruleForm.invoice_date_type,
         travel_date_delay_days: ruleForm.travel_date_delay_days,
+        execution_time: ruleForm.execution_time || '08:00',
         invoice_start_date: ruleForm.invoice_start_date || null,
         updated_at: new Date().toISOString(),
       }
@@ -1689,7 +1696,7 @@ export default function InvoicingPage() {
                             {rule.invoice_date_type === 'creation' ? 'Creation' : 'Travel'}
                             {rule.invoice_date_type === 'travel' && (
                               <span className="text-xs text-gray-500 ml-1">
-                                +{rule.travel_date_delay_days}d
+                                +{rule.travel_date_delay_days}d @ {rule.execution_time || '08:00'}
                               </span>
                             )}
                           </span>
@@ -1987,24 +1994,43 @@ export default function InvoicingPage() {
                     </div>
                   </div>
                   {ruleForm.invoice_date_type === 'travel' && (
-                    <div className="mt-3 ml-6 flex items-center gap-2">
-                      <Label className="text-sm whitespace-nowrap">Delay (days):</Label>
-                      <Input
-                        type="number"
-                        min="0"
-                        max="30"
-                        value={ruleForm.travel_date_delay_days}
-                        onChange={(e) =>
-                          setRuleForm({
-                            ...ruleForm,
-                            travel_date_delay_days: parseInt(e.target.value) || 0,
-                          })
-                        }
-                        className="w-20"
-                      />
-                      <span className="text-xs text-gray-500">
-                        days after travel date
-                      </span>
+                    <div className="mt-3 ml-6 space-y-3">
+                      <div className="flex items-center gap-2">
+                        <Label className="text-sm whitespace-nowrap">Delay (days):</Label>
+                        <Input
+                          type="number"
+                          min="0"
+                          max="30"
+                          value={ruleForm.travel_date_delay_days}
+                          onChange={(e) =>
+                            setRuleForm({
+                              ...ruleForm,
+                              travel_date_delay_days: parseInt(e.target.value) || 0,
+                            })
+                          }
+                          className="w-20"
+                        />
+                        <span className="text-xs text-gray-500">
+                          days after travel date
+                        </span>
+                      </div>
+                      <div className="flex items-center gap-2">
+                        <Label className="text-sm whitespace-nowrap">Execution time:</Label>
+                        <Input
+                          type="time"
+                          value={ruleForm.execution_time}
+                          onChange={(e) =>
+                            setRuleForm({
+                              ...ruleForm,
+                              execution_time: e.target.value,
+                            })
+                          }
+                          className="w-28"
+                        />
+                        <span className="text-xs text-gray-500">
+                          time of day to send
+                        </span>
+                      </div>
                     </div>
                   )}
                 </div>

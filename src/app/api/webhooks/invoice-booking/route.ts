@@ -17,6 +17,7 @@ interface InvoiceRule {
   default_sales_type: string
   invoice_date_type: 'creation' | 'travel'
   travel_date_delay_days: number
+  execution_time: string // HH:MM format
   invoice_start_date: string | null
 }
 
@@ -201,12 +202,14 @@ export async function POST(request: NextRequest) {
       }
 
       // Create scheduled invoice entry
+      const executionTime = rule.execution_time || '08:00'
       const { error: insertError } = await supabase
         .from('scheduled_invoices')
         .insert({
           booking_id: bookingRecord.booking_id,
           rule_id: rule.id,
           scheduled_send_date: format(scheduledSendDate, 'yyyy-MM-dd'),
+          scheduled_send_time: executionTime,
           status: 'pending',
         })
 
