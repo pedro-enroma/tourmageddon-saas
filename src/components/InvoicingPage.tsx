@@ -37,10 +37,6 @@ import {
   XCircle,
   Clock,
   Calendar,
-  Lock,
-  Unlock,
-  ChevronDown,
-  ChevronRight,
   Plus,
   List,
   Pencil,
@@ -48,18 +44,6 @@ import {
   AlertCircle,
 } from 'lucide-react'
 import { Textarea } from '@/components/ui/textarea'
-
-interface MonthlyPratica {
-  id: string
-  year_month: string
-  partner_pratica_id: string | null
-  partner_pratica_number: string | null
-  ps_status: 'WP' | 'INS'
-  total_amount: number
-  booking_count: number
-  created_at: string
-  finalized_at: string | null
-}
 
 interface Invoice {
   id: string
@@ -140,11 +124,6 @@ interface Stats {
   sent: number
   failed: number
   totalAmount: number
-  monthlyPraticas: {
-    total: number
-    open: number
-    finalized: number
-  }
 }
 
 interface ManualInvoiceForm {
@@ -166,15 +145,10 @@ const INVOICE_API_KEY = process.env.NEXT_PUBLIC_INVOICE_API_KEY || ''
 
 export default function InvoicingPage() {
   // State
-  const [monthlyPraticas, setMonthlyPraticas] = useState<MonthlyPratica[]>([])
-  const [expandedMonth, setExpandedMonth] = useState<string | null>(null)
-  const [monthInvoices, setMonthInvoices] = useState<Invoice[]>([])
   const [uninvoicedBookings, setUninvoicedBookings] = useState<BookingForInvoicing[]>([])
   const [selectedBookings, setSelectedBookings] = useState<number[]>([])
   const [loading, setLoading] = useState(true)
-  const [loadingInvoices, setLoadingInvoices] = useState(false)
   const [sending, setSending] = useState(false)
-  const [finalizing, setFinalizing] = useState<string | null>(null)
   const [config, setConfig] = useState<Config | null>(null)
 
   // Rules management state
@@ -215,7 +189,7 @@ export default function InvoicingPage() {
   const [dateTo, setDateTo] = useState<string>(format(new Date(), 'yyyy-MM-dd'))
   const [statusFilter, setStatusFilter] = useState<string>('all')
   const [sellerFilter, setSellerFilter] = useState<string>('all')
-  const [activeTab, setActiveTab] = useState<'monthly' | 'all-reservations' | 'pending-invoicing' | 'invoices-created' | 'credit-notes'>('monthly')
+  const [activeTab, setActiveTab] = useState<'all-reservations' | 'pending-invoicing' | 'invoices-created' | 'credit-notes'>('pending-invoicing')
   const [creditNotes, setCreditNotes] = useState<Invoice[]>([])
   const [loadingCreditNotes, setLoadingCreditNotes] = useState(false)
 
@@ -237,11 +211,6 @@ export default function InvoicingPage() {
     sent: 0,
     failed: 0,
     totalAmount: 0,
-    monthlyPraticas: {
-      total: 0,
-      open: 0,
-      finalized: 0,
-    },
   })
 
   // Available sellers for filter
@@ -263,77 +232,6 @@ export default function InvoicingPage() {
     regime: '74T',
     sales_type: 'ORG',
   })
-
-  // Fetch monthly praticas from database
-  const fetchMonthlyPraticas = useCallback(async () => {
-    setLoading(true)
-    try {
-      const startMonth = dateFrom.substring(0, 7)
-      const endMonth = dateTo.substring(0, 7)
-
-      let query = supabase
-        .from('monthly_praticas')
-        .select('*')
-        .gte('year_month', startMonth)
-        .lte('year_month', endMonth)
-        .order('year_month', { ascending: false })
-
-      if (statusFilter !== 'all') {
-        query = query.eq('ps_status', statusFilter)
-      }
-
-      const { data, error } = await query
-
-      if (error) throw error
-      setMonthlyPraticas(data || [])
-
-      // Calculate stats
-      const praticas = data || []
-      const newStats: Stats = {
-        totalInvoices: praticas.reduce((sum, p) => sum + p.booking_count, 0),
-        pending: 0,
-        sent: praticas.reduce((sum, p) => sum + p.booking_count, 0),
-        failed: 0,
-        totalAmount: praticas.reduce((sum, p) => sum + Number(p.total_amount), 0),
-        monthlyPraticas: {
-          total: praticas.length,
-          open: praticas.filter((p) => p.ps_status === 'WP').length,
-          finalized: praticas.filter((p) => p.ps_status === 'INS').length,
-        },
-      }
-      setStats(newStats)
-    } catch (error) {
-      console.error('Error fetching monthly praticas:', error)
-    } finally {
-      setLoading(false)
-    }
-  }, [dateFrom, dateTo, statusFilter])
-
-  // Fetch invoices for a specific month
-  const fetchMonthInvoices = async (yearMonth: string) => {
-    setLoadingInvoices(true)
-    try {
-      const { data: pratica } = await supabase
-        .from('monthly_praticas')
-        .select('id')
-        .eq('year_month', yearMonth)
-        .single()
-
-      if (pratica) {
-        const { data: invoices } = await supabase
-          .from('invoices')
-          .select('*')
-          .eq('monthly_pratica_id', pratica.id)
-          .order('created_at', { ascending: false })
-
-        setMonthInvoices(invoices || [])
-      }
-    } catch (error) {
-      console.error('Error fetching month invoices:', error)
-    } finally {
-      setLoadingInvoices(false)
-    }
-  }
 
   // Fetch bookings without invoices
   const fetchUninvoicedBookings = useCallback(async () => {
@@ -754,14 +652,14 @@ export default function InvoicingPage() {
   }
 
   useEffect(() => {
-    fetchMonthlyPraticas()
     fetchAvailableSellers()
     fetchConfig()
     fetchCreditNotes()
     fetchRules()
     fetchScheduledInvoices()
     fetchCreatedInvoices()
-  }, [fetchMonthlyPraticas])
+    setLoading(false)
+  }, [])
 
   // Refetch uninvoiced bookings when config loads or changes
   useEffect(() => {
@@ -769,48 +667,6 @@ export default function InvoicingPage() {
       fetchUninvoicedBookings()
     }
   }, [config, fetchUninvoicedBookings])
-
-  // Toggle month expansion
-  const toggleMonthExpansion = async (yearMonth: string) => {
-    if (expandedMonth === yearMonth) {
-      setExpandedMonth(null)
-      setMonthInvoices([])
-    } else {
-      setExpandedMonth(yearMonth)
-      await fetchMonthInvoices(yearMonth)
-    }
-  }
-
-  // Finalize a monthly pratica
-  const finalizePratica = async (yearMonth: string) => {
-    if (!confirm(`Are you sure you want to finalize the invoice for ${yearMonth}? This cannot be undone.`)) {
-      return
-    }
-
-    setFinalizing(yearMonth)
-    try {
-      const response = await fetch(`${WEBHOOK_API_URL}/api/invoices/monthly-praticas/${yearMonth}/finalize`, {
-        method: 'POST',
-        headers: {
-          'x-api-key': INVOICE_API_KEY,
-        },
-      })
-
-      const result = await response.json()
-
-      if (result.success) {
-        alert(`Monthly invoice for ${yearMonth} has been finalized.`)
-        fetchMonthlyPraticas()
-      } else {
-        alert(`Error: ${result.error}`)
-      }
-    } catch (error) {
-      console.error('Error finalizing pratica:', error)
-      alert('Error finalizing invoice. Check console for details.')
-    } finally {
-      setFinalizing(null)
-    }
-  }
 
   // Create invoices for selected bookings via API
   const createInvoices = async () => {
@@ -840,7 +696,6 @@ export default function InvoicingPage() {
 
       // Refresh data
       setSelectedBookings([])
-      fetchMonthlyPraticas()
       fetchUninvoicedBookings()
     } catch (error) {
       console.error('Error creating invoices:', error)
@@ -861,7 +716,7 @@ export default function InvoicingPage() {
         },
       })
 
-      fetchMonthlyPraticas()
+      fetchCreatedInvoices()
     } catch (error) {
       console.error('Error retrying invoices:', error)
     } finally {
@@ -925,7 +780,7 @@ export default function InvoicingPage() {
           regime: '74T',
           sales_type: 'ORG',
         })
-        fetchMonthlyPraticas()
+        fetchCreatedInvoices()
       } else {
         alert(`Error: ${result.error}`)
       }
@@ -955,24 +810,6 @@ export default function InvoicingPage() {
     }
   }
 
-  // Get status badge for PS status
-  const getPSStatusBadge = (status: 'WP' | 'INS') => {
-    if (status === 'INS') {
-      return (
-        <span className="inline-flex items-center gap-1 px-2 py-1 rounded-full text-xs font-medium bg-green-100 text-green-700">
-          <Lock className="h-3 w-3" />
-          Finalized
-        </span>
-      )
-    }
-    return (
-      <span className="inline-flex items-center gap-1 px-2 py-1 rounded-full text-xs font-medium bg-yellow-100 text-yellow-700">
-        <Unlock className="h-3 w-3" />
-        Open
-      </span>
-    )
-  }
-
   // Get status badge for invoice status
   const getInvoiceStatusBadge = (status: string) => {
     const badges: Record<string, { icon: React.ElementType; color: string; label: string }> = {
@@ -992,13 +829,6 @@ export default function InvoicingPage() {
         {badge.label}
       </span>
     )
-  }
-
-  // Format month display
-  const formatMonth = (yearMonth: string) => {
-    const [year, month] = yearMonth.split('-')
-    const date = new Date(parseInt(year), parseInt(month) - 1)
-    return format(date, 'MMMM yyyy')
   }
 
   return (
@@ -1037,26 +867,22 @@ export default function InvoicingPage() {
       </div>
 
       {/* Stats Cards */}
-      <div className="grid grid-cols-5 gap-4">
+      <div className="grid grid-cols-4 gap-4">
         <div className="bg-white rounded-lg p-4 border shadow-sm">
-          <p className="text-sm text-gray-500">Monthly Invoices</p>
-          <p className="text-2xl font-bold text-gray-900">{stats.monthlyPraticas.total}</p>
+          <p className="text-sm text-yellow-600">Pending Invoicing</p>
+          <p className="text-2xl font-bold text-yellow-600">{uninvoicedBookings.length}</p>
         </div>
         <div className="bg-white rounded-lg p-4 border shadow-sm">
-          <p className="text-sm text-yellow-600">Open (WP)</p>
-          <p className="text-2xl font-bold text-yellow-600">{stats.monthlyPraticas.open}</p>
+          <p className="text-sm text-blue-600">Scheduled</p>
+          <p className="text-2xl font-bold text-blue-600">{scheduledInvoices.length}</p>
         </div>
         <div className="bg-white rounded-lg p-4 border shadow-sm">
-          <p className="text-sm text-green-600">Finalized (INS)</p>
-          <p className="text-2xl font-bold text-green-600">{stats.monthlyPraticas.finalized}</p>
-        </div>
-        <div className="bg-white rounded-lg p-4 border shadow-sm">
-          <p className="text-sm text-blue-600">Total Bookings</p>
-          <p className="text-2xl font-bold text-blue-600">{stats.totalInvoices}</p>
+          <p className="text-sm text-green-600">Invoices Created</p>
+          <p className="text-2xl font-bold text-green-600">{createdInvoices.length}</p>
         </div>
         <div className="bg-white rounded-lg p-4 border shadow-sm">
           <p className="text-sm text-purple-600">Total Amount</p>
-          <p className="text-2xl font-bold text-purple-600">EUR {stats.totalAmount.toFixed(2)}</p>
+          <p className="text-2xl font-bold text-purple-600">EUR {createdInvoices.reduce((sum, i) => sum + i.total_amount, 0).toFixed(2)}</p>
         </div>
       </div>
 
@@ -1117,17 +943,6 @@ export default function InvoicingPage() {
       <div className="flex gap-2 border-b overflow-x-auto">
         <button
           className={`px-4 py-2 font-medium transition-colors whitespace-nowrap ${
-            activeTab === 'monthly'
-              ? 'border-b-2 border-orange-500 text-orange-600'
-              : 'text-gray-500 hover:text-gray-700'
-          }`}
-          onClick={() => setActiveTab('monthly')}
-        >
-          <Calendar className="h-4 w-4 inline mr-2" />
-          Monthly Invoices ({monthlyPraticas.length})
-        </button>
-        <button
-          className={`px-4 py-2 font-medium transition-colors whitespace-nowrap ${
             activeTab === 'all-reservations'
               ? 'border-b-2 border-orange-500 text-orange-600'
               : 'text-gray-500 hover:text-gray-700'
@@ -1170,145 +985,6 @@ export default function InvoicingPage() {
           Credit Notes ({creditNotes.length})
         </button>
       </div>
-
-      {/* Monthly Invoices Tab */}
-      {activeTab === 'monthly' && (
-        <div className="bg-white rounded-lg border shadow-sm overflow-hidden">
-          <Table>
-            <TableHeader>
-              <TableRow className="bg-gray-50">
-                <TableHead className="w-12"></TableHead>
-                <TableHead className="font-semibold">Month</TableHead>
-                <TableHead className="font-semibold">PS Number</TableHead>
-                <TableHead className="font-semibold">Bookings</TableHead>
-                <TableHead className="font-semibold">Total Amount</TableHead>
-                <TableHead className="font-semibold">Status</TableHead>
-                <TableHead className="font-semibold">Actions</TableHead>
-              </TableRow>
-            </TableHeader>
-            <TableBody>
-              {loading ? (
-                <TableRow>
-                  <TableCell colSpan={7} className="text-center py-8">
-                    <RefreshCw className="h-6 w-6 animate-spin mx-auto text-gray-400" />
-                    <p className="mt-2 text-gray-500">Loading...</p>
-                  </TableCell>
-                </TableRow>
-              ) : monthlyPraticas.length === 0 ? (
-                <TableRow>
-                  <TableCell colSpan={7} className="text-center py-8 text-gray-500">
-                    <Calendar className="h-12 w-12 mx-auto text-gray-300 mb-2" />
-                    No monthly invoices found
-                  </TableCell>
-                </TableRow>
-              ) : (
-                monthlyPraticas.map((pratica) => (
-                  <React.Fragment key={pratica.id}>
-                    <TableRow
-                      className="hover:bg-gray-50 cursor-pointer"
-                      onClick={() => toggleMonthExpansion(pratica.year_month)}
-                    >
-                      <TableCell>
-                        {expandedMonth === pratica.year_month ? (
-                          <ChevronDown className="h-4 w-4 text-gray-500" />
-                        ) : (
-                          <ChevronRight className="h-4 w-4 text-gray-500" />
-                        )}
-                      </TableCell>
-                      <TableCell className="font-medium">
-                        {formatMonth(pratica.year_month)}
-                      </TableCell>
-                      <TableCell className="font-mono text-sm">
-                        {pratica.partner_pratica_number || '-'}
-                      </TableCell>
-                      <TableCell>{pratica.booking_count}</TableCell>
-                      <TableCell className="font-medium">
-                        EUR {Number(pratica.total_amount).toFixed(2)}
-                      </TableCell>
-                      <TableCell>{getPSStatusBadge(pratica.ps_status)}</TableCell>
-                      <TableCell onClick={(e) => e.stopPropagation()}>
-                        {pratica.ps_status === 'WP' && (
-                          <Button
-                            size="sm"
-                            variant="outline"
-                            onClick={() => finalizePratica(pratica.year_month)}
-                            disabled={finalizing === pratica.year_month}
-                          >
-                            {finalizing === pratica.year_month ? (
-                              <RefreshCw className="h-3 w-3 mr-1 animate-spin" />
-                            ) : (
-                              <Lock className="h-3 w-3 mr-1" />
-                            )}
-                            Finalize
-                          </Button>
-                        )}
-                        {pratica.ps_status === 'INS' && pratica.finalized_at && (
-                          <span className="text-xs text-gray-500">
-                            Finalized {format(new Date(pratica.finalized_at), 'dd/MM/yyyy')}
-                          </span>
-                        )}
-                      </TableCell>
-                    </TableRow>
-                    {expandedMonth === pratica.year_month && (
-                      <TableRow>
-                        <TableCell colSpan={7} className="bg-gray-50 p-0">
-                          <div className="p-4">
-                            <h4 className="font-medium text-gray-700 mb-3">
-                              Bookings in {formatMonth(pratica.year_month)}
-                            </h4>
-                            {loadingInvoices ? (
-                              <div className="text-center py-4">
-                                <RefreshCw className="h-5 w-5 animate-spin mx-auto text-gray-400" />
-                              </div>
-                            ) : monthInvoices.length === 0 ? (
-                              <p className="text-gray-500 text-sm">No bookings found</p>
-                            ) : (
-                              <Table>
-                                <TableHeader>
-                                  <TableRow>
-                                    <TableHead className="text-xs">Booking</TableHead>
-                                    <TableHead className="text-xs">Customer</TableHead>
-                                    <TableHead className="text-xs">Seller</TableHead>
-                                    <TableHead className="text-xs">Amount</TableHead>
-                                    <TableHead className="text-xs">Status</TableHead>
-                                    <TableHead className="text-xs">Added</TableHead>
-                                  </TableRow>
-                                </TableHeader>
-                                <TableBody>
-                                  {monthInvoices.map((invoice) => (
-                                    <TableRow key={invoice.id}>
-                                      <TableCell className="font-medium text-sm">
-                                        {invoice.confirmation_code}
-                                      </TableCell>
-                                      <TableCell className="text-sm">
-                                        {invoice.customer_name || '-'}
-                                      </TableCell>
-                                      <TableCell className="text-sm">
-                                        {invoice.seller_name || '-'}
-                                      </TableCell>
-                                      <TableCell className="text-sm font-medium">
-                                        {invoice.currency} {invoice.total_amount.toFixed(2)}
-                                      </TableCell>
-                                      <TableCell>{getInvoiceStatusBadge(invoice.status)}</TableCell>
-                                      <TableCell className="text-sm text-gray-500">
-                                        {format(new Date(invoice.created_at), 'dd/MM/yyyy HH:mm')}
-                                      </TableCell>
-                                    </TableRow>
-                                  ))}
-                                </TableBody>
-                              </Table>
-                            )}
-                          </div>
-                        </TableCell>
-                      </TableRow>
-                    )}
-                  </React.Fragment>
-                ))
-              )}
-            </TableBody>
-          </Table>
-        </div>
-      )}
 
       {/* All Reservations Tab */}
       {activeTab === 'all-reservations' && (
