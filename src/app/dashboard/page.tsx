@@ -2,7 +2,7 @@
 'use client'
 
 import React, { useState, useEffect, useRef } from 'react'
-import { Menu, ChevronRight, Users, FileBarChart, LayoutDashboard, FileText, FileSpreadsheet, BarChart3, DollarSign, TrendingUp, RefreshCw, Percent, UserCog, Calendar, UserCheck, FolderOpen, MapPin, Ticket, Upload, List, Tags, Link2, Bell, Settings, Shield, ClipboardList, Headphones, Printer, Activity, Landmark, Receipt, Search, X, Loader2, Building2, Send, Handshake } from 'lucide-react'
+import { Menu, ChevronRight, Users, FileBarChart, LayoutDashboard, FileText, FileSpreadsheet, BarChart3, DollarSign, TrendingUp, RefreshCw, Percent, UserCog, Calendar, UserCheck, FolderOpen, MapPin, Ticket, Upload, List, Tags, Link2, Bell, Settings, Shield, ClipboardList, Headphones, Printer, Activity, Landmark, Search, X, Loader2, Building2, Send, Handshake, Receipt } from 'lucide-react'
 import { SidebarProvider, SidebarTrigger } from "@/components/ui/sidebar"
 import { Sidebar, SidebarContent, SidebarGroup, SidebarHeader, SidebarMenu, SidebarMenuButton, SidebarMenuItem, SidebarMenuSub, SidebarMenuSubButton, SidebarMenuSubItem } from "@/components/ui/sidebar"
 import RecapPage from '@/components/RecapPage'
@@ -37,7 +37,6 @@ import ColosseumMonitoringPage from '@/components/ColosseumMonitoringPage'
 import TrainMonitoringPage from '@/components/TrainMonitoringPage'
 import VaticanMonitoringPage from '@/components/VaticanMonitoringPage'
 import CivitatisMonitoringPage from '@/components/CivitatisMonitoringPage'
-import InvoicingPage from '@/components/InvoicingPage'
 import ResourceCostsConfigPage from '@/components/ResourceCostsConfigPage'
 import ServiceGroupsPage from '@/components/ServiceGroupsPage'
 import FinanceCostReportsPage from '@/components/FinanceCostReportsPage'
@@ -46,6 +45,9 @@ import PartnersListPage from '@/components/PartnersListPage'
 import VoucherRequestsListPage from '@/components/VoucherRequestsListPage'
 import ActivityPartnerMappingsPage from '@/components/ActivityPartnerMappingsPage'
 import NotificationRulesPage from '@/components/NotificationRulesPage'
+import InvoiceRulesPage from '@/components/InvoiceRulesPage'
+import InvoicePendingPage from '@/components/InvoicePendingPage'
+import InvoicesCreatedPage from '@/components/InvoicesCreatedPage'
 import { PushNotificationToggle } from '@/components/PushNotificationToggle'
 import { setNotificationNavigator } from '@/components/NotificationToastProvider'
 import { LucideIcon } from 'lucide-react'
@@ -300,9 +302,19 @@ function AppSidebar({ currentView, onNavigate }: {
           view: "affiliates",
         },
         {
-          title: "Invoicing",
+          title: "Invoice Rules",
           icon: Receipt,
-          view: "invoicing",
+          view: "invoice-rules",
+        },
+        {
+          title: "Pending Invoices",
+          icon: Receipt,
+          view: "invoice-pending",
+        },
+        {
+          title: "Invoices Created",
+          icon: Receipt,
+          view: "invoices-created",
         },
         {
           title: "Cost Reports",
@@ -1119,8 +1131,12 @@ export default function DashboardLayout() {
         return <CancellationRatePage />
       case 'affiliates':
         return <AffiliatesPage />
-      case 'invoicing':
-        return <InvoicingPage />
+      case 'invoice-rules':
+        return <InvoiceRulesPage />
+      case 'invoice-pending':
+        return <InvoicePendingPage />
+      case 'invoices-created':
+        return <InvoicesCreatedPage />
       case 'content':
         return <ContentPage />
       case 'voucher-upload':
@@ -1206,8 +1222,12 @@ export default function DashboardLayout() {
         return 'Cancellation Rate'
       case 'affiliates':
         return 'Affiliate Commissions'
-      case 'invoicing':
-        return 'Invoicing'
+      case 'invoice-rules':
+        return 'Invoice Rules'
+      case 'invoice-pending':
+        return 'Pending Invoices'
+      case 'invoices-created':
+        return 'Invoices Created'
       case 'content':
         return 'Templates & Meeting Points'
       case 'voucher-upload':
@@ -1268,7 +1288,7 @@ export default function DashboardLayout() {
     if (['marketing-export', 'staff-reports'].includes(currentView)) {
       return 'Reports'
     }
-    if (['finance-overview', 'cancellation-rate', 'affiliates', 'invoicing', 'cost-reports'].includes(currentView)) {
+    if (['finance-overview', 'cancellation-rate', 'affiliates', 'invoice-rules', 'invoice-pending', 'invoices-created', 'cost-reports'].includes(currentView)) {
       return 'Finance'
     }
     if (currentView === 'content') {
