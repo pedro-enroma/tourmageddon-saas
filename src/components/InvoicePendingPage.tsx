@@ -1,9 +1,8 @@
 'use client'
 
 import React, { useState, useEffect, useCallback } from 'react'
-import { RefreshCw, Loader2, Receipt, AlertCircle, X, Send, Calendar, Clock, User, DollarSign, CheckCircle2, XCircle, Filter, Plane } from 'lucide-react'
+import { RefreshCw, Loader2, Receipt, AlertCircle, X, Send, Calendar, User, DollarSign, CheckCircle2, XCircle, Filter, Plane } from 'lucide-react'
 import { Button } from '@/components/ui/button'
-import { Input } from '@/components/ui/input'
 
 interface PendingBooking {
   booking_id: number

@@ -1,7 +1,7 @@
 'use client'
 
 import React, { useState, useEffect, useCallback } from 'react'
-import { RefreshCw, Loader2, Receipt, AlertCircle, X, Search, Calendar, User, DollarSign, CheckCircle2, XCircle, Clock, ExternalLink, Filter, Plane } from 'lucide-react'
+import { RefreshCw, Loader2, Receipt, AlertCircle, X, Search, User, DollarSign, CheckCircle2, XCircle, Clock, Filter, Plane } from 'lucide-react'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
 

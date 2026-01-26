@@ -17,23 +17,7 @@ export async function POST(
       )
     }
 
-    // Use the process-booking endpoint which fetches data and sends to Partner Solution
-    // But we need to bypass the rule check for manual sends
-    // So we'll use send-to-partner with force flag or create a manual endpoint
-
-    // First fetch the booking data
-    const bookingResponse = await fetch(
-      `${WEBHOOK_SYSTEM_URL}/api/invoices/pending-bookings?bookingId=${bookingIdNum}`,
-      {
-        method: 'GET',
-        headers: { 'Content-Type': 'application/json' },
-      }
-    )
-
-    // Actually, let's call a simpler endpoint that handles everything
-    // We'll use the send-to-partner endpoint with minimal required data
-    // The webhook system will fetch the rest
-
+    // Call the send-booking endpoint which handles everything
     const response = await fetch(
       `${WEBHOOK_SYSTEM_URL}/api/invoices/send-booking/${bookingIdNum}`,
       {
