@@ -34,9 +34,16 @@ export async function GET(request: NextRequest) {
 
     return NextResponse.json({ data: data.data || data })
   } catch (error) {
-    console.error('Error fetching pending bookings:', error)
+    const errorMessage = error instanceof Error ? error.message : 'Unknown error'
+    console.error('Error fetching pending bookings:', errorMessage, 'URL:', WEBHOOK_SYSTEM_URL)
     return NextResponse.json(
-      { error: 'Failed to connect to webhook system' },
+      {
+        error: 'Failed to connect to webhook system',
+        debug: {
+          webhookUrl: WEBHOOK_SYSTEM_URL,
+          errorMessage,
+        }
+      },
       { status: 500 }
     )
   }
