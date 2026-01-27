@@ -35,7 +35,8 @@ export async function GET(request: NextRequest) {
     }
 
     // Map ps_pratica_iri to ps_pratica_id for frontend compatibility
-    const mappedData = (data.data || []).map((invoice: any) => ({
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    const mappedData = (data.data || []).map((invoice: Record<string, unknown>) => ({
       ...invoice,
       ps_pratica_id: invoice.ps_pratica_iri || invoice.ps_pratica_id || null,
     }))
