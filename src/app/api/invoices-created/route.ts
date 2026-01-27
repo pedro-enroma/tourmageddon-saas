@@ -34,7 +34,13 @@ export async function GET(request: NextRequest) {
       )
     }
 
-    return NextResponse.json({ data: data.data || [], count: data.count || 0 })
+    // Map ps_pratica_iri to ps_pratica_id for frontend compatibility
+    const mappedData = (data.data || []).map((invoice: any) => ({
+      ...invoice,
+      ps_pratica_id: invoice.ps_pratica_iri || invoice.ps_pratica_id || null,
+    }))
+
+    return NextResponse.json({ data: mappedData, count: data.count || 0 })
   } catch (error) {
     console.error('Error fetching invoices:', error)
     return NextResponse.json(

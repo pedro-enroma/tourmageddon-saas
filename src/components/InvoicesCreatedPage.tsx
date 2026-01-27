@@ -131,8 +131,8 @@ export default function InvoicesCreatedPage() {
   // Stats
   const stats = {
     total: invoices.length,
-    sent: invoices.filter(i => i.ps_status === 'INS').length,
-    pending: invoices.filter(i => i.ps_status === 'PENDING' || i.status === 'PENDING').length,
+    sent: invoices.filter(i => i.status === 'sent' && i.ps_pratica_id).length,
+    pending: invoices.filter(i => i.status === 'pending').length,
     failed: invoices.filter(i => i.ps_status === 'ERROR' || i.status === 'FAILED').length,
     totalAmount: invoices.reduce((sum, i) => sum + (i.total_amount || 0), 0),
   }
