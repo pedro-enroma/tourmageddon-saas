@@ -436,8 +436,8 @@ export async function GET(request: NextRequest) {
             }
           }
 
-          // Use group's calculated_cost if set, otherwise use highest computed cost
-          const finalCost = groupInfo.calculated_cost ?? highestCost
+          // Use group's calculated_cost if explicitly set (> 0), otherwise use highest computed cost
+          const finalCost = (groupInfo.calculated_cost && groupInfo.calculated_cost > 0) ? groupInfo.calculated_cost : highestCost
 
           costItems.push({
             resource_type: 'guide',
