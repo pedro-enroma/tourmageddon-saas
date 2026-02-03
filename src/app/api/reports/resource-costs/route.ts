@@ -385,8 +385,9 @@ export async function GET(request: NextRequest) {
       all_availability_ids: number[]
     }>()
 
-    // Track which groups we've already processed (to avoid counting multiple times)
-    const processedGroups = new Set<string>()
+    // Track which groups we've already processed PER GUIDE (to avoid counting multiple times)
+    // Key: guide_id:group_id - so each guide gets their own cost item for a shared service group
+    const processedGuideGroups = new Set<string>()
 
     serviceGroupsResult.data?.forEach(g => {
       const availabilityIds = g.guide_service_group_members?.map((m: { activity_availability_id: number }) => m.activity_availability_id) || []
@@ -415,9 +416,10 @@ export async function GET(request: NextRequest) {
 
         // If this assignment is part of a service group
         if (groupInfo) {
-          // Skip if we've already processed this group
-          if (processedGroups.has(groupInfo.group_id)) return
-          processedGroups.add(groupInfo.group_id)
+          // Skip if we've already processed this group FOR THIS GUIDE
+          const guideGroupKey = `${assignment.guide_id}:${groupInfo.group_id}`
+          if (processedGuideGroups.has(guideGroupKey)) return
+          processedGuideGroups.add(guideGroupKey)
 
           // For service groups, find the HIGHEST cost among all activities in the group
           let highestCost = 0
