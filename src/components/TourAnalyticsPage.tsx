@@ -230,23 +230,6 @@ export default function TourAnalyticsPage() {
     XLSX.writeFile(wb, fileName)
   }
 
-  // Custom tooltip for charts
-  const CustomTooltip = ({ active, payload, label }: { active?: boolean; payload?: Array<{ value: number; name: string; color: string }>; label?: string }) => {
-    if (active && payload && payload.length) {
-      return (
-        <div className="bg-background border rounded-lg shadow-lg p-3">
-          <p className="font-medium">{label}</p>
-          {payload.map((entry, index) => (
-            <p key={index} style={{ color: entry.color }}>
-              {entry.name}: {entry.name.includes('Revenue') ? formatCurrency(entry.value) : formatNumber(entry.value)}
-            </p>
-          ))}
-        </div>
-      )
-    }
-    return null
-  }
-
   if (loading) {
     return (
       <div className="flex items-center justify-center h-96">
