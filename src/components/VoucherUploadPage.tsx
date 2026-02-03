@@ -6,6 +6,14 @@ import { vouchersApi } from '@/lib/api-client'
 import { Upload, FileText, Check, AlertTriangle, X, ChevronDown, Search, Loader2, Plus, FileEdit, Clock } from 'lucide-react'
 import { Button } from '@/components/ui/button'
 import { Label } from '@/components/ui/label'
+import {
+  Dialog,
+  DialogContent,
+  DialogDescription,
+  DialogFooter,
+  DialogHeader,
+  DialogTitle,
+} from '@/components/ui/dialog'
 
 interface ExtractedTicket {
   ticket_code: string
@@ -111,6 +119,17 @@ interface MultiDateAvailabilityStatus {
   isPlanned: boolean
 }
 
+interface PlaceholderVoucher {
+  id: string
+  booking_number: string
+  product_name: string
+  placeholder_ticket_count: number
+  notes: string | null
+  voucher_source: string
+  name_deadline_at: string | null
+  deadline_status: string
+}
+
 export default function VoucherUploadPage() {
   // Upload mode: 'pdf' or 'manual'
   const [uploadMode, setUploadMode] = useState<'pdf' | 'manual'>('pdf')
@@ -208,6 +227,10 @@ export default function VoucherUploadPage() {
   const [selectedMultiDateTime, setSelectedMultiDateTime] = useState<string>('')
   const [multiDateAvailabilityStatus, setMultiDateAvailabilityStatus] = useState<MultiDateAvailabilityStatus[]>([])
   const [checkingAvailability, setCheckingAvailability] = useState(false)
+
+  // Placeholder replacement dialog state
+  const [placeholderDialogOpen, setPlaceholderDialogOpen] = useState(false)
+  const [foundPlaceholders, setFoundPlaceholders] = useState<PlaceholderVoucher[]>([])
 
   // Combined extracted data from all PDFs - memoized to prevent infinite loops
   const combinedExtractedData: ExtractedVoucher | null = useMemo(() => {
@@ -991,7 +1014,39 @@ export default function VoucherUploadPage() {
     return 'other'
   }
 
-  const handleSave = async () => {
+  // Check for existing placeholder vouchers before saving
+  const checkForPlaceholders = async (): Promise<PlaceholderVoucher[]> => {
+    if (!combinedExtractedData || !selectedCategoryId) return []
+
+    // Get the planned_availability_id if selected slot is planned
+    const selectedAvail = availabilities.find(a => a.id === selectedAvailabilityId)
+    const plannedAvailabilityId = selectedAvail?.is_planned ? selectedAvail.planned_availability_id : null
+    const realAvailabilityId = selectedAvail?.is_planned ? null : selectedAvailabilityId
+
+    try {
+      const response = await fetch('/api/vouchers/check-placeholder', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          category_id: selectedCategoryId,
+          visit_date: combinedExtractedData.visit_date,
+          activity_availability_id: realAvailabilityId,
+          planned_availability_id: plannedAvailabilityId
+        })
+      })
+
+      if (!response.ok) return []
+
+      const data = await response.json()
+      return data.placeholders || []
+    } catch (err) {
+      console.error('Error checking placeholders:', err)
+      return []
+    }
+  }
+
+  // Actually save the vouchers (with optional replacement)
+  const saveVouchers = async (replacesVoucherId?: string) => {
     if (extractedPDFs.length === 0 || !selectedCategoryId) return
 
     setSaving(true)
@@ -1026,7 +1081,8 @@ export default function VoucherUploadPage() {
           product_name: extracted.data.product_name,
           activity_availability_id: selectedAvailabilityId,
           ticket_class: getTicketClass(extracted.pdfType),
-          tickets: ticketsWithParticipants
+          tickets: ticketsWithParticipants,
+          replaces_voucher_id: replacesVoucherId || null
         }))
 
         const result = await vouchersApi.create(formData)
@@ -1041,12 +1097,55 @@ export default function VoucherUploadPage() {
       setSelectedCategoryId('')
       setSelectedAvailabilityId(null)
       setMismatchWarning(null)
+      setFoundPlaceholders([])
     } catch (err) {
       console.error('Save error:', err)
       setError(err instanceof Error ? err.message : 'Failed to save vouchers')
     } finally {
       setSaving(false)
     }
+  }
+
+  const handleSave = async () => {
+    if (extractedPDFs.length === 0 || !selectedCategoryId) return
+
+    setSaving(true)
+    setError(null)
+
+    try {
+      // Check for existing placeholders first
+      const placeholders = await checkForPlaceholders()
+
+      if (placeholders.length > 0) {
+        // Found placeholders - show dialog
+        setFoundPlaceholders(placeholders)
+        setPlaceholderDialogOpen(true)
+        setSaving(false)
+        return
+      }
+
+      // No placeholders found - save directly
+      await saveVouchers()
+    } catch (err) {
+      console.error('Save error:', err)
+      setError(err instanceof Error ? err.message : 'Failed to save vouchers')
+      setSaving(false)
+    }
+  }
+
+  // Handle placeholder dialog choice
+  const handlePlaceholderChoice = async (replace: boolean) => {
+    setPlaceholderDialogOpen(false)
+
+    if (replace && foundPlaceholders.length > 0) {
+      // Replace the first placeholder (typically there should only be one)
+      await saveVouchers(foundPlaceholders[0].id)
+    } else {
+      // Keep both - save without replacement
+      await saveVouchers()
+    }
+
+    setFoundPlaceholders([])
   }
 
   // Calculate deadline date for manual placeholder vouchers
@@ -2355,6 +2454,69 @@ export default function VoucherUploadPage() {
           )}
         </div>
       )}
+
+      {/* Placeholder Replacement Dialog */}
+      <Dialog open={placeholderDialogOpen} onOpenChange={setPlaceholderDialogOpen}>
+        <DialogContent>
+          <DialogHeader>
+            <DialogTitle>Placeholder Voucher Found</DialogTitle>
+            <DialogDescription>
+              A placeholder voucher already exists for this slot. What would you like to do?
+            </DialogDescription>
+          </DialogHeader>
+
+          {foundPlaceholders.length > 0 && (
+            <div className="bg-muted p-4 rounded-lg space-y-2">
+              <div className="text-sm">
+                <span className="font-medium">Booking:</span> {foundPlaceholders[0].booking_number}
+              </div>
+              <div className="text-sm">
+                <span className="font-medium">Product:</span> {foundPlaceholders[0].product_name}
+              </div>
+              <div className="text-sm">
+                <span className="font-medium">Tickets:</span> {foundPlaceholders[0].placeholder_ticket_count}
+              </div>
+              <div className="text-sm">
+                <span className="font-medium">Source:</span> {foundPlaceholders[0].voucher_source?.toUpperCase()}
+              </div>
+              {foundPlaceholders[0].notes && (
+                <div className="text-sm">
+                  <span className="font-medium">Notes:</span> {foundPlaceholders[0].notes}
+                </div>
+              )}
+              {foundPlaceholders[0].name_deadline_at && (
+                <div className="text-sm">
+                  <span className="font-medium">Name Deadline:</span>{' '}
+                  {new Date(foundPlaceholders[0].name_deadline_at).toLocaleDateString()}
+                </div>
+              )}
+            </div>
+          )}
+
+          <DialogFooter className="flex gap-2 sm:gap-0">
+            <Button
+              variant="outline"
+              onClick={() => handlePlaceholderChoice(false)}
+              disabled={saving}
+            >
+              Keep Both
+            </Button>
+            <Button
+              onClick={() => handlePlaceholderChoice(true)}
+              disabled={saving}
+            >
+              {saving ? (
+                <>
+                  <Loader2 className="w-4 h-4 mr-2 animate-spin" />
+                  Replacing...
+                </>
+              ) : (
+                'Replace Placeholder'
+              )}
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
     </div>
   )
 }

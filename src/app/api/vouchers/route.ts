@@ -48,7 +48,9 @@ export async function POST(request: NextRequest) {
       is_placeholder,
       placeholder_ticket_count,
       voucher_source,
-      notes
+      notes,
+      // Placeholder replacement
+      replaces_voucher_id
     } = voucherData
 
     console.log('[Voucher API] Creating voucher:', {
@@ -150,7 +152,9 @@ export async function POST(request: NextRequest) {
         voucher_source: voucher_source || 'b2b',
         name_deadline_at: nameDeadlineAt,
         deadline_status: deadlineStatus,
-        notes: notes || null
+        notes: notes || null,
+        // Replacement tracking
+        replaces_voucher_id: replaces_voucher_id || null
       })
       .select()
       .single()
@@ -177,6 +181,26 @@ export async function POST(request: NextRequest) {
     }
 
     await auditCreate(user.id, user.email, 'voucher', voucher.id, voucher, ip, userAgent)
+
+    // 2b. If replacing a placeholder, update the placeholder voucher
+    if (replaces_voucher_id) {
+      const { error: updateError } = await supabase
+        .from('vouchers')
+        .update({
+          replaced_by_voucher_id: voucher.id,
+          deadline_status: 'resolved',
+          resolved_at: new Date().toISOString()
+        })
+        .eq('id', replaces_voucher_id)
+        .eq('is_placeholder', true) // Safety check - only update placeholders
+
+      if (updateError) {
+        console.error('Error updating replaced placeholder:', updateError)
+        // Don't fail the whole operation, just log
+      } else {
+        console.log(`[Voucher API] Placeholder ${replaces_voucher_id} marked as replaced by ${voucher.id}`)
+      }
+    }
 
     // 3. Create ticket records with participant links
     if (tickets && tickets.length > 0) {

@@ -1168,7 +1168,9 @@ export default function DailyListPage() {
           pdf_path,
           entry_time,
           activity_availability_id,
-          ticket_categories (id, name)
+          ticket_categories (id, name),
+          is_placeholder,
+          deadline_status
         `)
         .eq('visit_date', dateStr)
         .not('activity_availability_id', 'is', null)
@@ -1179,8 +1181,13 @@ export default function DailyListPage() {
       }
 
       // Group vouchers by activity_availability_id
+      // Filter out resolved placeholders (placeholders that have been replaced by real vouchers)
       const vouchersMap = new Map<number, VoucherInfo[]>()
       vouchers?.forEach(v => {
+        // Skip resolved placeholders - they've been replaced by real vouchers
+        if (v.is_placeholder && v.deadline_status === 'resolved') {
+          return
+        }
         if (v.activity_availability_id) {
           const existingVouchers = vouchersMap.get(v.activity_availability_id) || []
           existingVouchers.push({

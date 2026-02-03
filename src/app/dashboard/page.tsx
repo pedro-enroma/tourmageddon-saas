@@ -48,6 +48,7 @@ import NotificationRulesPage from '@/components/NotificationRulesPage'
 import InvoiceRulesPage from '@/components/InvoiceRulesPage'
 import InvoicePendingPage from '@/components/InvoicePendingPage'
 import InvoicesCreatedPage from '@/components/InvoicesCreatedPage'
+import TourAnalyticsPage from '@/components/TourAnalyticsPage'
 import { PushNotificationToggle } from '@/components/PushNotificationToggle'
 import { setNotificationNavigator } from '@/components/NotificationToastProvider'
 import { LucideIcon } from 'lucide-react'
@@ -290,6 +291,11 @@ function AppSidebar({ currentView, onNavigate }: {
           title: "Overview",
           icon: TrendingUp,
           view: "finance-overview",
+        },
+        {
+          title: "Tour Analytics",
+          icon: BarChart3,
+          view: "tour-analytics",
         },
         {
           title: "Cancellation Rate",
@@ -1125,6 +1131,8 @@ export default function DashboardLayout() {
         return <NewRecapPage />
       case 'finance-overview':
         return <FinanceOverviewPageV2 />
+      case 'tour-analytics':
+        return <TourAnalyticsPage />
       case 'availability-sync':
         return <AvailabilitySyncPage />
       case 'cancellation-rate':
@@ -1216,6 +1224,8 @@ export default function DashboardLayout() {
         return 'Marketing Export'
       case 'finance-overview':
         return 'Finance Overview'
+      case 'tour-analytics':
+        return 'Tour Analytics'
       case 'availability-sync':
         return 'Sync Now'
       case 'cancellation-rate':

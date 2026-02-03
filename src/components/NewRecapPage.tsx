@@ -666,6 +666,7 @@ export default function NewRecapPage() {
         is_placeholder,
         placeholder_ticket_count,
         voucher_source,
+        deadline_status,
         ticket_categories (id, name),
         tickets (id, price, ticket_type, pax_count)
       `)
@@ -703,6 +704,11 @@ export default function NewRecapPage() {
     const plannedVoucherCostMap = new Map<string, number>()
 
     vouchers?.forEach((voucher) => {
+      // Skip resolved placeholders - they've been replaced by real vouchers
+      if (voucher.is_placeholder && voucher.deadline_status === 'resolved') {
+        return
+      }
+
       // For placeholder vouchers, use placeholder_ticket_count directly
       // For regular vouchers, count non-guide tickets from tickets table
       let nonGuideTicketCount = 0
