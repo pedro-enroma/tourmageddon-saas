@@ -297,11 +297,11 @@ function AppSidebar({ currentView, onNavigate }: {
           icon: BarChart3,
           view: "tour-analytics",
         },
-        {
-          title: "Cancellation Rate",
-          icon: FileBarChart,
-          view: "cancellation-rate",
-        },
+        // {
+        //   title: "Cancellation Rate",
+        //   icon: FileBarChart,
+        //   view: "cancellation-rate",
+        // },
         {
           title: "Affiliates",
           icon: Percent,
