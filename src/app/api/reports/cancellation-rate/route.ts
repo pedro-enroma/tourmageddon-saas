@@ -73,7 +73,7 @@ export async function GET(request: NextRequest) {
       }
 
       if (bookingsPage && bookingsPage.length > 0) {
-        allBookings = [...allBookings, ...bookingsPage]
+        allBookings = [...allBookings, ...(bookingsPage as unknown as BookingRecord[])]
         hasMore = bookingsPage.length === PAGE_SIZE
         page++
       } else {
