@@ -1,8 +1,7 @@
 "use client"
 
 import * as React from "react"
-import { Label, Pie, PieChart } from "recharts"
-import { supabase } from '@/lib/supabase'
+import { BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer, Legend } from "recharts"
 import { Calendar, ChevronDown, Download, FileSpreadsheet, FileText } from "lucide-react"
 import { DatePicker } from "@/components/ui/date-picker"
 
@@ -13,40 +12,48 @@ import {
   CardHeader,
   CardTitle,
 } from "@/components/ui/card"
-import {
-  ChartConfig,
-  ChartContainer,
-  ChartTooltip,
-  ChartTooltipContent,
-} from "@/components/ui/chart"
+import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs"
 
 type DateRangeType = 'last7days' | 'last30days' | 'lastMonth' | 'yearToDate' | 'custom'
 
-interface MonthData {
-  month: string
-  cancelled: number
-  others: number
-  total: number
-  cancellationRate: number
-  fill: string
+interface SummaryData {
+  total_bookings: number
+  total_confirmed: number
+  total_cancelled: number
+  cancellation_rate: number
+  cancelled_pax: number
+  confirmed_pax: number
+  cancelled_revenue: number
 }
 
-const chartConfig = {
-  cancelled: {
-    label: "Cancellate",
-    color: "hsl(0, 84%, 60%)",  // Red
-  },
-  others: {
-    label: "Confermate",
-    color: "hsl(142, 76%, 36%)", // Green
-  },
-} satisfies ChartConfig
+interface MonthData {
+  month: string
+  month_label: string
+  confirmed: number
+  cancelled: number
+  total: number
+  cancellation_rate: number
+  cancelled_pax: number
+  confirmed_pax: number
+  cancelled_revenue: number
+}
+
+interface TourData {
+  activity_id: string
+  title: string
+  confirmed: number
+  cancelled: number
+  total: number
+  cancellation_rate: number
+  cancelled_revenue: number
+}
 
 export default function CancellationRatePage() {
+  const [summary, setSummary] = React.useState<SummaryData | null>(null)
   const [monthlyData, setMonthlyData] = React.useState<MonthData[]>([])
-  const [selectedMonth, setSelectedMonth] = React.useState<string>('')
+  const [tourData, setTourData] = React.useState<TourData[]>([])
   const [loading, setLoading] = React.useState(true)
-  const [dateRange, setDateRange] = React.useState<DateRangeType>('last30days')
+  const [dateRange, setDateRange] = React.useState<DateRangeType>('lastMonth')
   const [customStartDate, setCustomStartDate] = React.useState<Date>()
   const [customEndDate, setCustomEndDate] = React.useState<Date>()
   const [isDateDropdownOpen, setIsDateDropdownOpen] = React.useState(false)
@@ -83,7 +90,6 @@ export default function CancellationRatePage() {
         startDate.setDate(startDate.getDate() - 29)
     }
 
-    // Format dates without timezone conversion
     const formatDate = (d: Date) => {
       const year = d.getFullYear()
       const month = String(d.getMonth() + 1).padStart(2, '0')
@@ -92,98 +98,24 @@ export default function CancellationRatePage() {
     }
 
     return {
-      startDate: `${formatDate(startDate)}T00:00:00`,
-      endDate: `${formatDate(endDate)}T23:59:59`
+      startDate: formatDate(startDate),
+      endDate: formatDate(endDate)
     }
   }, [dateRange, customStartDate, customEndDate])
 
-  const loadCancellationData = React.useCallback(async () => {
+  const loadData = React.useCallback(async () => {
     try {
       setLoading(true)
       const range = getDateRange()
       if (!range) return
 
-      // Get bookings in the date range - fetch all with pagination
-      let allData: { activity_booking_id: string; start_date_time: string; status: string }[] = []
-      let page = 0
-      const pageSize = 1000
-      let hasMore = true
+      const response = await fetch(`/api/reports/cancellation-rate?start_date=${range.startDate}&end_date=${range.endDate}`)
+      if (!response.ok) throw new Error('Failed to fetch data')
 
-      console.log('Fetching data for range:', range.startDate, 'to', range.endDate)
-
-      while (hasMore) {
-        const { data, error: fetchError } = await supabase
-          .from('activity_bookings')
-          .select('activity_booking_id, start_date_time, status')
-          .gte('start_date_time', range.startDate)
-          .lte('start_date_time', range.endDate)
-          .range(page * pageSize, (page + 1) * pageSize - 1)
-
-        if (fetchError) {
-          console.error('Error loading data:', fetchError)
-          return
-        }
-
-        console.log(`Page ${page}: fetched ${data?.length || 0} records`)
-
-        if (data && data.length > 0) {
-          allData = [...allData, ...data]
-          page++
-          hasMore = data.length === pageSize
-        } else {
-          hasMore = false
-        }
-      }
-
-      console.log('Total records fetched:', allData.length)
-      const data = allData
-
-      // Group by month and count unique activity_booking_ids
-      const monthlyStats: { [key: string]: { cancelledIds: Set<string>, otherIds: Set<string> } } = {}
-
-      // Process data - count unique activity_booking_ids
-      data?.forEach(booking => {
-        if (booking.start_date_time && booking.activity_booking_id) {
-          const monthKey = booking.start_date_time.substring(0, 7) // YYYY-MM
-
-          if (!monthlyStats[monthKey]) {
-            monthlyStats[monthKey] = { cancelledIds: new Set(), otherIds: new Set() }
-          }
-
-          // Only CANCELLED goes to cancelled, all others (CONFIRMED, etc.) go to others
-          if (booking.status === 'CANCELLED') {
-            monthlyStats[monthKey].cancelledIds.add(booking.activity_booking_id)
-          } else {
-            monthlyStats[monthKey].otherIds.add(booking.activity_booking_id)
-          }
-        }
-      })
-
-      // Convert to array format for chart
-      const formattedData: MonthData[] = Object.entries(monthlyStats)
-        .sort((a, b) => a[0].localeCompare(b[0]))
-        .map(([monthKey, stats]) => {
-          const cancelled = stats.cancelledIds.size
-          const others = stats.otherIds.size
-          const total = cancelled + others
-          const date = new Date(monthKey + '-01')
-          const monthName = date.toLocaleDateString('it-IT', { month: 'long', year: 'numeric' })
-
-          return {
-            month: monthName,
-            cancelled: cancelled,
-            others: others,
-            total: total,
-            cancellationRate: total > 0 ? (cancelled / total) * 100 : 0,
-            fill: `var(--chart-1)`
-          }
-        })
-        .filter(month => month.total > 0) // Only show months with data
-
-      setMonthlyData(formattedData)
-      if (formattedData.length > 0) {
-        setSelectedMonth(formattedData[formattedData.length - 1].month) // Select last month with data
-      }
+      const data = await response.json()
+      setSummary(data.summary)
+      setMonthlyData(data.by_month)
+      setTourData(data.by_tour)
     } catch (error) {
       console.error('Error:', error)
     } finally {
@@ -193,51 +125,9 @@ export default function CancellationRatePage() {
 
   React.useEffect(() => {
     if (dateRange !== 'custom' || (customStartDate && customEndDate)) {
-      loadCancellationData()
+      loadData()
     }
-  }, [dateRange, customStartDate, customEndDate, loadCancellationData])
-
-
-  const activeIndex = React.useMemo(
-    () => monthlyData.findIndex((item) => item.month === selectedMonth),
-    [selectedMonth, monthlyData]
-  )
-
-  const selectedData = React.useMemo(() => {
-    const month = monthlyData.find(m => m.month === selectedMonth)
-    if (!month) return []
-    return [
-      {
-        name: "Confermate",
-        value: month.others,
-        fill: "hsl(142, 76%, 36%)" // Green
-      },
-      {
-        name: "Cancellate",
-        value: month.cancelled,
-        fill: "hsl(0, 84%, 60%)" // Red
-      }
-    ]
-  }, [selectedMonth, monthlyData])
-
-  const totalBookings = selectedData.reduce((sum, item) => sum + item.value, 0)
-  const cancellationRate = monthlyData[activeIndex]?.cancellationRate || 0
-
-  if (loading) {
-    return (
-      <div className="flex items-center justify-center h-96">
-        <div className="text-gray-500">Caricamento dati...</div>
-      </div>
-    )
-  }
-
-  if (monthlyData.length === 0) {
-    return (
-      <div className="flex items-center justify-center h-96">
-        <div className="text-gray-500">Nessun dato disponibile</div>
-      </div>
-    )
-  }
+  }, [dateRange, customStartDate, customEndDate, loadData])
 
   const getDateRangeLabel = () => {
     switch (dateRange) {
@@ -254,24 +144,27 @@ export default function CancellationRatePage() {
     }
   }
 
+  const formatCurrency = (value: number) => {
+    return new Intl.NumberFormat('it-IT', { style: 'currency', currency: 'EUR' }).format(value)
+  }
+
   const exportToCSV = () => {
-    // Prepare CSV data
-    const headers = ['Mese', 'Confermate', 'Cancellate', 'Totale', 'Tasso Cancellazione (%)']
+    const headers = ['Mese', 'Confermate', 'Cancellate', 'Totale', 'Tasso Cancellazione (%)', 'Pax Cancellati', 'Revenue Perso']
     const rows = monthlyData.map(month => [
-      month.month,
-      month.others,
+      month.month_label,
+      month.confirmed,
       month.cancelled,
       month.total,
-      month.cancellationRate.toFixed(2)
+      month.cancellation_rate.toFixed(2),
+      month.cancelled_pax,
+      month.cancelled_revenue.toFixed(2)
     ])
 
-    // Create CSV content
     const csvContent = [
       headers.join(','),
       ...rows.map(row => row.join(','))
     ].join('\n')
 
-    // Download CSV
     const blob = new Blob([csvContent], { type: 'text/csv;charset=utf-8;' })
     const link = document.createElement('a')
     const url = URL.createObjectURL(blob)
@@ -286,48 +179,73 @@ export default function CancellationRatePage() {
 
   const exportToExcel = async () => {
     try {
-      // Dynamically import xlsx
       const XLSX = (await import('xlsx')).default
-
-      // Prepare Excel data
       const wsData = [
         ['Report Tasso di Cancellazione'],
         ['Periodo: ' + getDateRangeLabel()],
         [],
-        ['Mese', 'Confermate', 'Cancellate', 'Totale', 'Tasso Cancellazione (%)'],
+        ['Mese', 'Confermate', 'Cancellate', 'Totale', 'Tasso Cancellazione (%)', 'Pax Cancellati', 'Revenue Perso'],
         ...monthlyData.map(month => [
-          month.month,
-          month.others,
+          month.month_label,
+          month.confirmed,
           month.cancelled,
           month.total,
-          month.cancellationRate.toFixed(2) + '%'
+          month.cancellation_rate.toFixed(2) + '%',
+          month.cancelled_pax,
+          formatCurrency(month.cancelled_revenue)
         ])
       ]
 
-      // Create workbook and worksheet
       const wb = XLSX.utils.book_new()
       const ws = XLSX.utils.aoa_to_sheet(wsData)
-
-      // Auto-size columns
-      const colWidths = [
-        { wch: 20 }, // Mese
-        { wch: 12 }, // Confermate
-        { wch: 12 }, // Cancellate
-        { wch: 12 }, // Totale
-        { wch: 20 }  // Tasso Cancellazione
+      ws['!cols'] = [
+        { wch: 20 },
+        { wch: 12 },
+        { wch: 12 },
+        { wch: 12 },
+        { wch: 20 },
+        { wch: 15 },
+        { wch: 15 }
       ]
-      ws['!cols'] = colWidths
-
-      // Add worksheet to workbook
       XLSX.utils.book_append_sheet(wb, ws, 'Tasso Cancellazione')
-
-      // Write file
       XLSX.writeFile(wb, `cancellation_rate_${new Date().toISOString().split('T')[0]}.xlsx`)
       setIsExportDropdownOpen(false)
     } catch (error) {
       console.error('Error exporting to Excel:', error)
-      alert('Errore durante l\'esportazione in Excel. Assicurati che xlsx sia installato.')
     }
+  }
+
+  if (loading) {
+    return (
+      <div className="flex items-center justify-center h-96">
+        <div className="text-gray-500">Caricamento dati...</div>
+      </div>
+    )
+  }
+
+  if (!summary) {
+    return (
+      <div className="flex items-center justify-center h-96">
+        <div className="text-gray-500">Nessun dato disponibile</div>
+      </div>
+    )
+  }
+
+  // Totals for tables
+  const monthlyTotals = {
+    confirmed: monthlyData.reduce((sum, m) => sum + m.confirmed, 0),
+    cancelled: monthlyData.reduce((sum, m) => sum + m.cancelled, 0),
+    total: monthlyData.reduce((sum, m) => sum + m.total, 0),
+    cancelled_pax: monthlyData.reduce((sum, m) => sum + m.cancelled_pax, 0),
+    confirmed_pax: monthlyData.reduce((sum, m) => sum + m.confirmed_pax, 0),
+    cancelled_revenue: monthlyData.reduce((sum, m) => sum + m.cancelled_revenue, 0)
+  }
+
+  const tourTotals = {
+    confirmed: tourData.reduce((sum, t) => sum + t.confirmed, 0),
+    cancelled: tourData.reduce((sum, t) => sum + t.cancelled, 0),
+    total: tourData.reduce((sum, t) => sum + t.total, 0),
+    cancelled_revenue: tourData.reduce((sum, t) => sum + t.cancelled_revenue, 0)
   }
 
   return (
@@ -338,7 +256,6 @@ export default function CancellationRatePage() {
           <p className="text-gray-600">Analisi delle prenotazioni cancellate vs confermate</p>
         </div>
 
-        {/* Date Range Filter and Export */}
         <div className="flex gap-2">
           <div className="relative">
             <button
@@ -352,46 +269,19 @@ export default function CancellationRatePage() {
 
             {isDateDropdownOpen && (
               <div className="absolute right-0 z-10 mt-1 w-48 bg-white border rounded-md shadow-lg">
-                <button
-                  onClick={() => { setDateRange('last7days'); setIsDateDropdownOpen(false) }}
-                  className="w-full text-left px-3 py-2 text-sm hover:bg-gray-100"
-                >
-                  Ultimi 7 giorni
-                </button>
-                <button
-                  onClick={() => { setDateRange('last30days'); setIsDateDropdownOpen(false) }}
-                  className="w-full text-left px-3 py-2 text-sm hover:bg-gray-100"
-                >
-                  Ultimi 30 giorni
-                </button>
-                <button
-                  onClick={() => { setDateRange('lastMonth'); setIsDateDropdownOpen(false) }}
-                  className="w-full text-left px-3 py-2 text-sm hover:bg-gray-100"
-                >
-                  Ultimo mese
-                </button>
-                <button
-                  onClick={() => { setDateRange('yearToDate'); setIsDateDropdownOpen(false) }}
-                  className="w-full text-left px-3 py-2 text-sm hover:bg-gray-100"
-                >
-                  Anno corrente
-                </button>
-                <button
-                  onClick={() => { setDateRange('custom'); setIsDateDropdownOpen(false) }}
-                  className="w-full text-left px-3 py-2 text-sm hover:bg-gray-100"
-                >
-                  Personalizzato
-                </button>
+                <button onClick={() => { setDateRange('last7days'); setIsDateDropdownOpen(false) }} className="w-full text-left px-3 py-2 text-sm hover:bg-gray-100">Ultimi 7 giorni</button>
+                <button onClick={() => { setDateRange('last30days'); setIsDateDropdownOpen(false) }} className="w-full text-left px-3 py-2 text-sm hover:bg-gray-100">Ultimi 30 giorni</button>
+                <button onClick={() => { setDateRange('lastMonth'); setIsDateDropdownOpen(false) }} className="w-full text-left px-3 py-2 text-sm hover:bg-gray-100">Ultimo mese</button>
+                <button onClick={() => { setDateRange('yearToDate'); setIsDateDropdownOpen(false) }} className="w-full text-left px-3 py-2 text-sm hover:bg-gray-100">Anno corrente</button>
+                <button onClick={() => { setDateRange('custom'); setIsDateDropdownOpen(false) }} className="w-full text-left px-3 py-2 text-sm hover:bg-gray-100">Personalizzato</button>
               </div>
             )}
           </div>
 
-          {/* Export Dropdown */}
           <div className="relative">
             <button
               onClick={() => setIsExportDropdownOpen(!isExportDropdownOpen)}
               className="flex items-center gap-2 px-4 py-2 text-sm border rounded-md bg-white hover:bg-gray-50"
-              disabled={monthlyData.length === 0}
             >
               <Download className="h-4 w-4" />
               <span>Esporta</span>
@@ -400,19 +290,11 @@ export default function CancellationRatePage() {
 
             {isExportDropdownOpen && (
               <div className="absolute right-0 z-10 mt-1 w-48 bg-white border rounded-md shadow-lg">
-                <button
-                  onClick={exportToCSV}
-                  className="w-full text-left px-3 py-2 text-sm hover:bg-gray-100 flex items-center gap-2"
-                >
-                  <FileText className="h-4 w-4" />
-                  Esporta CSV
+                <button onClick={exportToCSV} className="w-full text-left px-3 py-2 text-sm hover:bg-gray-100 flex items-center gap-2">
+                  <FileText className="h-4 w-4" />Esporta CSV
                 </button>
-                <button
-                  onClick={exportToExcel}
-                  className="w-full text-left px-3 py-2 text-sm hover:bg-gray-100 flex items-center gap-2"
-                >
-                  <FileSpreadsheet className="h-4 w-4" />
-                  Esporta Excel
+                <button onClick={exportToExcel} className="w-full text-left px-3 py-2 text-sm hover:bg-gray-100 flex items-center gap-2">
+                  <FileSpreadsheet className="h-4 w-4" />Esporta Excel
                 </button>
               </div>
             )}
@@ -420,179 +302,225 @@ export default function CancellationRatePage() {
 
           {dateRange === 'custom' && (
             <>
-              <DatePicker
-                date={customStartDate}
-                onDateChange={setCustomStartDate}
-                placeholder="Data inizio"
-              />
-              <DatePicker
-                date={customEndDate}
-                onDateChange={setCustomEndDate}
-                placeholder="Data fine"
-              />
+              <DatePicker date={customStartDate} onDateChange={setCustomStartDate} placeholder="Data inizio" />
+              <DatePicker date={customEndDate} onDateChange={setCustomEndDate} placeholder="Data fine" />
             </>
           )}
         </div>
       </div>
 
-      <Card className="flex flex-col">
-        <CardHeader className="pb-0">
-          <div className="grid gap-1">
-            <CardTitle>Tasso di Cancellazione</CardTitle>
-            <CardDescription>Periodo: {getDateRangeLabel()}</CardDescription>
-          </div>
-        </CardHeader>
-        <CardContent className="flex flex-1 justify-center pb-6">
-          <ChartContainer
-            config={chartConfig}
-            className="mx-auto aspect-square w-full max-w-[400px]"
-          >
-            <PieChart>
-              <ChartTooltip
-                cursor={false}
-                content={<ChartTooltipContent />}
-              />
-              <Pie
-                data={selectedData}
-                dataKey="value"
-                nameKey="name"
-                innerRadius={60}
-                strokeWidth={5}
-                startAngle={90}
-                endAngle={-270}
-              >
-                <Label
-                  content={({ viewBox }) => {
-                    if (viewBox && "cx" in viewBox && "cy" in viewBox) {
-                      return (
-                        <text
-                          x={viewBox.cx}
-                          y={viewBox.cy}
-                          textAnchor="middle"
-                          dominantBaseline="middle"
-                        >
-                          <tspan
-                            x={viewBox.cx}
-                            y={viewBox.cy}
-                            className="fill-foreground text-3xl font-bold"
-                          >
-                            {cancellationRate.toFixed(1)}%
-                          </tspan>
-                          <tspan
-                            x={viewBox.cx}
-                            y={(viewBox.cy || 0) + 24}
-                            className="fill-muted-foreground"
-                          >
-                            Cancellazioni
-                          </tspan>
-                        </text>
-                      )
-                    }
-                  }}
-                />
-              </Pie>
-            </PieChart>
-          </ChartContainer>
-        </CardContent>
-      </Card>
-
-      {/* Summary Stats */}
-      <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+      {/* Summary Cards */}
+      <div className="grid grid-cols-1 md:grid-cols-4 gap-4">
         <Card>
-          <CardHeader className="pb-3">
-            <CardTitle className="text-base">Totale Prenotazioni</CardTitle>
+          <CardHeader className="pb-2">
+            <CardTitle className="text-sm font-medium text-gray-500">Tasso Cancellazione</CardTitle>
           </CardHeader>
           <CardContent>
-            <div className="text-2xl font-bold">{totalBookings.toLocaleString('it-IT')}</div>
-            <p className="text-xs text-muted-foreground mt-1">
-              {selectedMonth}
+            <div className={`text-3xl font-bold ${summary.cancellation_rate > 15 ? 'text-red-600' : summary.cancellation_rate > 10 ? 'text-yellow-600' : 'text-green-600'}`}>
+              {summary.cancellation_rate.toFixed(1)}%
+            </div>
+            <p className="text-xs text-gray-500 mt-1">
+              {summary.total_cancelled} su {summary.total_bookings} prenotazioni
             </p>
           </CardContent>
         </Card>
 
         <Card>
-          <CardHeader className="pb-3">
-            <CardTitle className="text-base">Confermate</CardTitle>
+          <CardHeader className="pb-2">
+            <CardTitle className="text-sm font-medium text-gray-500">Confermate</CardTitle>
           </CardHeader>
           <CardContent>
-            <div className="text-2xl font-bold text-green-600">
-              {selectedData[0]?.value.toLocaleString('it-IT') || 0}
-            </div>
-            <p className="text-xs text-muted-foreground mt-1">
-              {((selectedData[0]?.value || 0) / totalBookings * 100).toFixed(1)}% del totale
-            </p>
+            <div className="text-3xl font-bold text-green-600">{summary.total_confirmed.toLocaleString('it-IT')}</div>
+            <p className="text-xs text-gray-500 mt-1">{summary.confirmed_pax.toLocaleString('it-IT')} pax</p>
           </CardContent>
         </Card>
 
         <Card>
-          <CardHeader className="pb-3">
-            <CardTitle className="text-base">Cancellate</CardTitle>
+          <CardHeader className="pb-2">
+            <CardTitle className="text-sm font-medium text-gray-500">Cancellate</CardTitle>
           </CardHeader>
           <CardContent>
-            <div className="text-2xl font-bold text-red-600">
-              {selectedData[1]?.value.toLocaleString('it-IT') || 0}
-            </div>
-            <p className="text-xs text-muted-foreground mt-1">
-              {cancellationRate.toFixed(1)}% del totale
-            </p>
+            <div className="text-3xl font-bold text-red-600">{summary.total_cancelled.toLocaleString('it-IT')}</div>
+            <p className="text-xs text-gray-500 mt-1">{summary.cancelled_pax.toLocaleString('it-IT')} pax</p>
+          </CardContent>
+        </Card>
+
+        <Card>
+          <CardHeader className="pb-2">
+            <CardTitle className="text-sm font-medium text-gray-500">Revenue Perso</CardTitle>
+          </CardHeader>
+          <CardContent>
+            <div className="text-3xl font-bold text-red-600">{formatCurrency(summary.cancelled_revenue)}</div>
+            <p className="text-xs text-gray-500 mt-1">Da cancellazioni</p>
           </CardContent>
         </Card>
       </div>
 
-      {/* Monthly Overview Table */}
-      <Card>
-        <CardHeader>
-          <CardTitle>Riepilogo Mensile</CardTitle>
-        </CardHeader>
-        <CardContent>
-          <div className="overflow-x-auto">
-            <table className="w-full text-sm">
-              <thead>
-                <tr className="border-b">
-                  <th className="text-left py-2">Mese</th>
-                  <th className="text-right py-2">Confermate</th>
-                  <th className="text-right py-2">Cancellate</th>
-                  <th className="text-right py-2">Totale</th>
-                  <th className="text-right py-2">Tasso Cancellazione</th>
-                </tr>
-              </thead>
-              <tbody>
-                {monthlyData.map((month) => (
-                  <tr
-                    key={month.month}
-                    className={`border-b hover:bg-gray-50 cursor-pointer ${
-                      month.month === selectedMonth ? 'bg-blue-50' : ''
-                    }`}
-                    onClick={() => setSelectedMonth(month.month)}
-                  >
-                    <td className="py-2 font-medium">{month.month}</td>
-                    <td className="text-right py-2 text-green-600">
-                      {month.others.toLocaleString('it-IT')}
-                    </td>
-                    <td className="text-right py-2 text-red-600">
-                      {month.cancelled.toLocaleString('it-IT')}
-                    </td>
-                    <td className="text-right py-2 font-semibold">
-                      {month.total.toLocaleString('it-IT')}
-                    </td>
-                    <td className="text-right py-2">
-                      <span className={`inline-flex items-center px-2 py-1 rounded-full text-xs font-medium ${
-                        month.cancellationRate > 20
-                          ? 'bg-red-100 text-red-800'
-                          : month.cancellationRate > 10
-                          ? 'bg-yellow-100 text-yellow-800'
-                          : 'bg-green-100 text-green-800'
-                      }`}>
-                        {month.cancellationRate.toFixed(1)}%
-                      </span>
-                    </td>
-                  </tr>
-                ))}
-              </tbody>
-            </table>
-          </div>
-        </CardContent>
-      </Card>
+      <Tabs defaultValue="monthly" className="space-y-4">
+        <TabsList>
+          <TabsTrigger value="monthly">Per Mese</TabsTrigger>
+          <TabsTrigger value="tours">Per Tour</TabsTrigger>
+        </TabsList>
+
+        <TabsContent value="monthly" className="space-y-4">
+          {/* Monthly Chart */}
+          {monthlyData.length > 1 && (
+            <Card>
+              <CardHeader>
+                <CardTitle>Andamento Mensile</CardTitle>
+                <CardDescription>Prenotazioni confermate vs cancellate per mese</CardDescription>
+              </CardHeader>
+              <CardContent>
+                <div className="h-80">
+                  <ResponsiveContainer width="100%" height="100%">
+                    <BarChart data={monthlyData} margin={{ top: 20, right: 30, left: 20, bottom: 5 }}>
+                      <CartesianGrid strokeDasharray="3 3" />
+                      <XAxis dataKey="month_label" tick={{ fontSize: 12 }} />
+                      <YAxis />
+                      <Tooltip
+                        formatter={(value: number, name: string) => [
+                          value.toLocaleString('it-IT'),
+                          name === 'confirmed' ? 'Confermate' : 'Cancellate'
+                        ]}
+                      />
+                      <Legend formatter={(value) => value === 'confirmed' ? 'Confermate' : 'Cancellate'} />
+                      <Bar dataKey="confirmed" fill="#22c55e" name="confirmed" />
+                      <Bar dataKey="cancelled" fill="#ef4444" name="cancelled" />
+                    </BarChart>
+                  </ResponsiveContainer>
+                </div>
+              </CardContent>
+            </Card>
+          )}
+
+          {/* Monthly Table */}
+          <Card>
+            <CardHeader>
+              <CardTitle>Riepilogo Mensile</CardTitle>
+            </CardHeader>
+            <CardContent>
+              <div className="overflow-x-auto">
+                <table className="w-full text-sm">
+                  <thead>
+                    <tr className="border-b">
+                      <th className="text-left py-2">Mese</th>
+                      <th className="text-right py-2">Confermate</th>
+                      <th className="text-right py-2">Cancellate</th>
+                      <th className="text-right py-2">Totale</th>
+                      <th className="text-right py-2">Tasso</th>
+                      <th className="text-right py-2">Pax Persi</th>
+                      <th className="text-right py-2">Revenue Perso</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {monthlyData.map((month) => (
+                      <tr key={month.month} className="border-b hover:bg-gray-50">
+                        <td className="py-2 font-medium">{month.month_label}</td>
+                        <td className="text-right py-2 text-green-600">{month.confirmed.toLocaleString('it-IT')}</td>
+                        <td className="text-right py-2 text-red-600">{month.cancelled.toLocaleString('it-IT')}</td>
+                        <td className="text-right py-2">{month.total.toLocaleString('it-IT')}</td>
+                        <td className="text-right py-2">
+                          <span className={`inline-flex items-center px-2 py-1 rounded-full text-xs font-medium ${
+                            month.cancellation_rate > 15 ? 'bg-red-100 text-red-800' :
+                            month.cancellation_rate > 10 ? 'bg-yellow-100 text-yellow-800' :
+                            'bg-green-100 text-green-800'
+                          }`}>
+                            {month.cancellation_rate.toFixed(1)}%
+                          </span>
+                        </td>
+                        <td className="text-right py-2 text-red-600">{month.cancelled_pax.toLocaleString('it-IT')}</td>
+                        <td className="text-right py-2 text-red-600">{formatCurrency(month.cancelled_revenue)}</td>
+                      </tr>
+                    ))}
+                  </tbody>
+                  <tfoot>
+                    <tr className="border-t-2 font-semibold bg-gray-50">
+                      <td className="py-2">Totale</td>
+                      <td className="text-right py-2 text-green-600">{monthlyTotals.confirmed.toLocaleString('it-IT')}</td>
+                      <td className="text-right py-2 text-red-600">{monthlyTotals.cancelled.toLocaleString('it-IT')}</td>
+                      <td className="text-right py-2">{monthlyTotals.total.toLocaleString('it-IT')}</td>
+                      <td className="text-right py-2">
+                        <span className={`inline-flex items-center px-2 py-1 rounded-full text-xs font-medium ${
+                          summary.cancellation_rate > 15 ? 'bg-red-100 text-red-800' :
+                          summary.cancellation_rate > 10 ? 'bg-yellow-100 text-yellow-800' :
+                          'bg-green-100 text-green-800'
+                        }`}>
+                          {summary.cancellation_rate.toFixed(1)}%
+                        </span>
+                      </td>
+                      <td className="text-right py-2 text-red-600">{monthlyTotals.cancelled_pax.toLocaleString('it-IT')}</td>
+                      <td className="text-right py-2 text-red-600">{formatCurrency(monthlyTotals.cancelled_revenue)}</td>
+                    </tr>
+                  </tfoot>
+                </table>
+              </div>
+            </CardContent>
+          </Card>
+        </TabsContent>
+
+        <TabsContent value="tours" className="space-y-4">
+          <Card>
+            <CardHeader>
+              <CardTitle>Cancellazioni per Tour</CardTitle>
+              <CardDescription>Tour con almeno 5 prenotazioni, ordinati per tasso di cancellazione</CardDescription>
+            </CardHeader>
+            <CardContent>
+              <div className="overflow-x-auto">
+                <table className="w-full text-sm">
+                  <thead>
+                    <tr className="border-b">
+                      <th className="text-left py-2">Tour</th>
+                      <th className="text-right py-2">Confermate</th>
+                      <th className="text-right py-2">Cancellate</th>
+                      <th className="text-right py-2">Totale</th>
+                      <th className="text-right py-2">Tasso</th>
+                      <th className="text-right py-2">Revenue Perso</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {tourData.map((tour) => (
+                      <tr key={tour.activity_id} className="border-b hover:bg-gray-50">
+                        <td className="py-2 font-medium max-w-xs truncate" title={tour.title}>{tour.title}</td>
+                        <td className="text-right py-2 text-green-600">{tour.confirmed.toLocaleString('it-IT')}</td>
+                        <td className="text-right py-2 text-red-600">{tour.cancelled.toLocaleString('it-IT')}</td>
+                        <td className="text-right py-2">{tour.total.toLocaleString('it-IT')}</td>
+                        <td className="text-right py-2">
+                          <span className={`inline-flex items-center px-2 py-1 rounded-full text-xs font-medium ${
+                            tour.cancellation_rate > 15 ? 'bg-red-100 text-red-800' :
+                            tour.cancellation_rate > 10 ? 'bg-yellow-100 text-yellow-800' :
+                            'bg-green-100 text-green-800'
+                          }`}>
+                            {tour.cancellation_rate.toFixed(1)}%
+                          </span>
+                        </td>
+                        <td className="text-right py-2 text-red-600">{formatCurrency(tour.cancelled_revenue)}</td>
+                      </tr>
+                    ))}
+                  </tbody>
+                  <tfoot>
+                    <tr className="border-t-2 font-semibold bg-gray-50">
+                      <td className="py-2">Totale</td>
+                      <td className="text-right py-2 text-green-600">{tourTotals.confirmed.toLocaleString('it-IT')}</td>
+                      <td className="text-right py-2 text-red-600">{tourTotals.cancelled.toLocaleString('it-IT')}</td>
+                      <td className="text-right py-2">{tourTotals.total.toLocaleString('it-IT')}</td>
+                      <td className="text-right py-2">
+                        <span className={`inline-flex items-center px-2 py-1 rounded-full text-xs font-medium ${
+                          (tourTotals.total > 0 ? (tourTotals.cancelled / tourTotals.total) * 100 : 0) > 15 ? 'bg-red-100 text-red-800' :
+                          (tourTotals.total > 0 ? (tourTotals.cancelled / tourTotals.total) * 100 : 0) > 10 ? 'bg-yellow-100 text-yellow-800' :
+                          'bg-green-100 text-green-800'
+                        }`}>
+                          {tourTotals.total > 0 ? ((tourTotals.cancelled / tourTotals.total) * 100).toFixed(1) : 0}%
+                        </span>
+                      </td>
+                      <td className="text-right py-2 text-red-600">{formatCurrency(tourTotals.cancelled_revenue)}</td>
+                    </tr>
+                  </tfoot>
+                </table>
+              </div>
+            </CardContent>
+          </Card>
+        </TabsContent>
+      </Tabs>
     </div>
   )
 }

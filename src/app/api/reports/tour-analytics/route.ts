@@ -24,37 +24,72 @@ export async function GET(request: NextRequest) {
     const startDateTime = `${startDate}T00:00:00`
     const endDateTime = `${endDate}T23:59:59`
 
-    // Fetch all bookings in the date range with activity info and participant counts
-    const { data: bookings, error } = await supabase
-      .from('activity_bookings')
-      .select(`
-        activity_booking_id,
-        booking_id,
-        activity_id,
-        start_date_time,
-        created_at,
-        status,
-        total_price,
-        net_price,
-        activity_seller,
-        affiliate_id,
-        product_title,
-        activities (
-          activity_id,
-          title
-        ),
-        pricing_category_bookings (
-          pricing_category_booking_id
-        )
-      `)
-      .gte(dateField, startDateTime)
-      .lte(dateField, endDateTime)
-      .in('status', ['CONFIRMED', 'COMPLETED'])
-
-    if (error) {
-      console.error('Error fetching bookings:', error)
-      return NextResponse.json({ error: 'Failed to fetch bookings' }, { status: 500 })
+    // Fetch all bookings in the date range with pagination (Supabase limits to 1000 per request)
+    type BookingRecord = {
+      activity_booking_id: number
+      booking_id: number
+      activity_id: string | null
+      start_date_time: string
+      created_at: string
+      status: string
+      total_price: number | null
+      net_price: number | null
+      activity_seller: string | null
+      affiliate_id: string | null
+      product_title: string | null
+      activities: { activity_id: string; title: string } | null
+      pricing_category_bookings: { pricing_category_booking_id: number }[] | null
     }
+
+    const PAGE_SIZE = 1000
+    let allBookings: BookingRecord[] = []
+    let page = 0
+    let hasMore = true
+
+    while (hasMore) {
+      const { data: bookingsPage, error } = await supabase
+        .from('activity_bookings')
+        .select(`
+          activity_booking_id,
+          booking_id,
+          activity_id,
+          start_date_time,
+          created_at,
+          status,
+          total_price,
+          net_price,
+          activity_seller,
+          affiliate_id,
+          product_title,
+          activities (
+            activity_id,
+            title
+          ),
+          pricing_category_bookings (
+            pricing_category_booking_id
+          )
+        `)
+        .gte(dateField, startDateTime)
+        .lte(dateField, endDateTime)
+        .in('status', ['CONFIRMED', 'COMPLETED'])
+        .range(page * PAGE_SIZE, (page + 1) * PAGE_SIZE - 1)
+        .order('activity_booking_id', { ascending: true })
+
+      if (error) {
+        console.error('Error fetching bookings:', error)
+        return NextResponse.json({ error: 'Failed to fetch bookings' }, { status: 500 })
+      }
+
+      if (bookingsPage && bookingsPage.length > 0) {
+        allBookings = [...allBookings, ...bookingsPage]
+        hasMore = bookingsPage.length === PAGE_SIZE
+        page++
+      } else {
+        hasMore = false
+      }
+    }
+
+    const bookings = allBookings
 
     // Fetch promotions used in the date range (using view with offer titles)
     const activityBookingIds = bookings?.map(b => b.activity_booking_id) || []
@@ -214,6 +249,7 @@ export async function GET(request: NextRequest) {
       .not('affiliate_id', 'is', null)
       .gte('start_date_time', startDateTime)
       .lte('start_date_time', endDateTime)
+      .limit(50000)
 
     // Aggregate affiliate stats from materialized view
     const affiliateStats = new Map<string, { affiliate_id: string; booking_count: number; pax_sum: number; total_revenue: number; commission: number }>()
