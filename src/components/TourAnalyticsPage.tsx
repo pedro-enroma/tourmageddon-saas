@@ -203,27 +203,27 @@ export default function TourAnalyticsPage() {
     XLSX.utils.book_append_sheet(wb, summarySheet, 'Summary')
 
     // By Date sheet
-    const dateSheet = XLSX.utils.json_to_sheet(sanitizeDataForExcel(data.by_date))
+    const dateSheet = XLSX.utils.json_to_sheet(sanitizeDataForExcel(data.by_date as Record<string, unknown>[]))
     XLSX.utils.book_append_sheet(wb, dateSheet, 'By Date')
 
     // By Tour sheet
-    const tourSheet = XLSX.utils.json_to_sheet(sanitizeDataForExcel(data.by_tour))
+    const tourSheet = XLSX.utils.json_to_sheet(sanitizeDataForExcel(data.by_tour as Record<string, unknown>[]))
     XLSX.utils.book_append_sheet(wb, tourSheet, 'By Tour')
 
     // By Seller sheet
-    const sellerSheet = XLSX.utils.json_to_sheet(sanitizeDataForExcel(data.by_seller))
+    const sellerSheet = XLSX.utils.json_to_sheet(sanitizeDataForExcel(data.by_seller as Record<string, unknown>[]))
     XLSX.utils.book_append_sheet(wb, sellerSheet, 'By Seller')
 
     // By Affiliate sheet
-    const affiliateSheet = XLSX.utils.json_to_sheet(sanitizeDataForExcel(data.by_affiliate))
+    const affiliateSheet = XLSX.utils.json_to_sheet(sanitizeDataForExcel(data.by_affiliate as Record<string, unknown>[]))
     XLSX.utils.book_append_sheet(wb, affiliateSheet, 'By Affiliate')
 
     // By Product sheet
-    const productSheet = XLSX.utils.json_to_sheet(sanitizeDataForExcel(data.by_product))
+    const productSheet = XLSX.utils.json_to_sheet(sanitizeDataForExcel(data.by_product as Record<string, unknown>[]))
     XLSX.utils.book_append_sheet(wb, productSheet, 'By Product')
 
     // By Promo Code sheet
-    const promoCodeSheet = XLSX.utils.json_to_sheet(sanitizeDataForExcel(data.by_promo_code))
+    const promoCodeSheet = XLSX.utils.json_to_sheet(sanitizeDataForExcel(data.by_promo_code as Record<string, unknown>[]))
     XLSX.utils.book_append_sheet(wb, promoCodeSheet, 'By Promo Code')
 
     const fileName = `tour-analytics-${getDateRange(dateRangeType).start}-to-${getDateRange(dateRangeType).end}.xlsx`
