@@ -34,10 +34,14 @@ export async function GET(request: NextRequest) {
       )
     }
 
-    // Map ps_pratica_iri to ps_pratica_id for frontend compatibility
+    // Map webhook field names to frontend field names
     const mappedData = (data.data || []).map((invoice: Record<string, unknown>) => ({
       ...invoice,
       ps_pratica_id: invoice.ps_pratica_iri || invoice.ps_pratica_id || null,
+      activity_seller: invoice.seller_name || invoice.activity_seller || null,
+      sent_to_ps_at: invoice.sent_at || invoice.sent_to_ps_at || null,
+      travel_date: invoice.travel_date || null,
+      booking_creation_date: invoice.booking_creation_date || null,
     }))
 
     return NextResponse.json({ data: mappedData, count: data.count || 0 })
