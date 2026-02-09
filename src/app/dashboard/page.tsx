@@ -49,6 +49,9 @@ import InvoiceRulesPage from '@/components/InvoiceRulesPage'
 import InvoicePendingPage from '@/components/InvoicePendingPage'
 import InvoicesCreatedPage from '@/components/InvoicesCreatedPage'
 import TourAnalyticsPage from '@/components/TourAnalyticsPage'
+import SellerActivitiesPage from '@/components/SellerActivitiesPage'
+import SellerCommissionRulesPage from '@/components/SellerCommissionRulesPage'
+import SellerCommissionReportPage from '@/components/SellerCommissionReportPage'
 import { PushNotificationToggle } from '@/components/PushNotificationToggle'
 import { setNotificationNavigator } from '@/components/NotificationToastProvider'
 import { LucideIcon } from 'lucide-react'
@@ -326,6 +329,21 @@ function AppSidebar({ currentView, onNavigate }: {
           title: "Cost Reports",
           icon: FileBarChart,
           view: "cost-reports",
+        },
+        {
+          title: "Seller Activities",
+          icon: Handshake,
+          view: "seller-activities",
+        },
+        {
+          title: "Commission Rules",
+          icon: Percent,
+          view: "seller-commission-rules",
+        },
+        {
+          title: "Commission Report",
+          icon: FileBarChart,
+          view: "seller-commission-report",
         },
       ],
     },
@@ -1187,6 +1205,12 @@ export default function DashboardLayout() {
         return <ServiceGroupsPage />
       case 'cost-reports':
         return <FinanceCostReportsPage />
+      case 'seller-activities':
+        return <SellerActivitiesPage />
+      case 'seller-commission-rules':
+        return <SellerCommissionRulesPage />
+      case 'seller-commission-report':
+        return <SellerCommissionReportPage />
       default:
         return <RecapPage />
     }
@@ -1280,6 +1304,12 @@ export default function DashboardLayout() {
         return 'Service Groups'
       case 'cost-reports':
         return 'Cost Reports'
+      case 'seller-activities':
+        return 'Seller Activities'
+      case 'seller-commission-rules':
+        return 'Commission Rules'
+      case 'seller-commission-report':
+        return 'Commission Report'
       default:
         return 'Dashboard'
     }
@@ -1298,7 +1328,7 @@ export default function DashboardLayout() {
     if (['marketing-export', 'staff-reports'].includes(currentView)) {
       return 'Reports'
     }
-    if (['finance-overview', 'cancellation-rate', 'affiliates', 'invoice-rules', 'invoice-pending', 'invoices-created', 'cost-reports'].includes(currentView)) {
+    if (['finance-overview', 'cancellation-rate', 'affiliates', 'invoice-rules', 'invoice-pending', 'invoices-created', 'cost-reports', 'tour-analytics', 'seller-activities', 'seller-commission-rules', 'seller-commission-report'].includes(currentView)) {
       return 'Finance'
     }
     if (currentView === 'content') {
