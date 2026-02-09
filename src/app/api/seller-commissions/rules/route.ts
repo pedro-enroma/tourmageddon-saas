@@ -42,7 +42,7 @@ export async function GET() {
 
     // Get activity details
     const activityIds = [...new Set((data || []).filter(d => d.activity_id).map(d => d.activity_id))]
-    let activitiesMap = new Map<number, { id: number; activity_id: string; title: string }>()
+    const activitiesMap = new Map<number, { id: number; activity_id: string; title: string }>()
 
     if (activityIds.length > 0) {
       const { data: activitiesData } = await supabase
