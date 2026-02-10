@@ -10,7 +10,7 @@ import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, D
 import { Label } from '@/components/ui/label'
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select'
 import { Checkbox } from '@/components/ui/checkbox'
-import { useToast } from '@/hooks/use-toast'
+import { toast } from 'sonner'
 import { Pencil, Trash2, Plus, Building2, Loader2, Search, FolderPlus, Layers } from 'lucide-react'
 
 interface SellerActivity {
@@ -55,8 +55,6 @@ export default function SellerActivitiesPage() {
   const [newGroupName, setNewGroupName] = useState('')
   const [savingGroup, setSavingGroup] = useState(false)
   const [editingGroup, setEditingGroup] = useState<ActivityGroup | null>(null)
-
-  const { toast } = useToast()
 
   useEffect(() => {
     loadData()
@@ -113,10 +111,8 @@ export default function SellerActivitiesPage() {
 
       setSellerSummaries(summaries)
     } catch (error) {
-      toast({
-        title: 'Error',
+      toast.error('Error', {
         description: error instanceof Error ? error.message : 'Failed to load data',
-        variant: 'destructive'
       })
     } finally {
       setLoading(false)
@@ -150,10 +146,8 @@ export default function SellerActivitiesPage() {
 
   const handleSave = async () => {
     if (!selectedSeller) {
-      toast({
-        title: 'Error',
+      toast.error('Error', {
         description: 'Please select a seller',
-        variant: 'destructive'
       })
       return
     }
@@ -174,18 +168,13 @@ export default function SellerActivitiesPage() {
         throw new Error(error.error || 'Failed to save')
       }
 
-      toast({
-        title: 'Success',
-        description: `Activities ${isEditing ? 'updated' : 'assigned'} for ${selectedSeller}`
-      })
+      toast.success(`Activities ${isEditing ? 'updated' : 'assigned'} for ${selectedSeller}`)
 
       setDialogOpen(false)
       loadData()
     } catch (error) {
-      toast({
-        title: 'Error',
+      toast.error('Error', {
         description: error instanceof Error ? error.message : 'Failed to save',
-        variant: 'destructive'
       })
     } finally {
       setSaving(false)
@@ -205,17 +194,12 @@ export default function SellerActivitiesPage() {
         throw new Error(error.error || 'Failed to delete')
       }
 
-      toast({
-        title: 'Success',
-        description: `Removed all assignments for ${sellerName}`
-      })
+      toast.success(`Removed all assignments for ${sellerName}`)
 
       loadData()
     } catch (error) {
-      toast({
-        title: 'Error',
+      toast.error('Error', {
         description: error instanceof Error ? error.message : 'Failed to delete',
-        variant: 'destructive'
       })
     }
   }
@@ -247,15 +231,12 @@ export default function SellerActivitiesPage() {
     setSelectedActivities(Array.from(newSelection))
 
     if (validActivityIds.length === 0) {
-      toast({
-        title: 'No Activities Added',
+      toast.error('No Activities Added', {
         description: `The activities in "${group.name}" could not be found. The group may need to be updated.`,
-        variant: 'destructive'
       })
     } else {
-      toast({
-        title: 'Group Applied',
-        description: `Added ${validActivityIds.length} activities from "${group.name}"`
+      toast.success('Group Applied', {
+        description: `Added ${validActivityIds.length} activities from "${group.name}"`,
       })
     }
   }
@@ -276,19 +257,15 @@ export default function SellerActivitiesPage() {
 
   const handleSaveGroup = async () => {
     if (!newGroupName.trim()) {
-      toast({
-        title: 'Error',
+      toast.error('Error', {
         description: 'Please enter a group name',
-        variant: 'destructive'
       })
       return
     }
 
     if (selectedActivities.length === 0) {
-      toast({
-        title: 'Error',
+      toast.error('Error', {
         description: 'Please select at least one activity for the group',
-        variant: 'destructive'
       })
       return
     }
@@ -311,20 +288,15 @@ export default function SellerActivitiesPage() {
         throw new Error(error.error || `Failed to ${isEditing ? 'update' : 'create'} group`)
       }
 
-      toast({
-        title: 'Success',
-        description: `Group "${newGroupName}" ${isEditing ? 'updated' : 'created'} with ${selectedActivities.length} activities`
-      })
+      toast.success(`Group "${newGroupName}" ${isEditing ? 'updated' : 'created'} with ${selectedActivities.length} activities`)
 
       setGroupDialogOpen(false)
       setNewGroupName('')
       setEditingGroup(null)
       loadData()
     } catch (error) {
-      toast({
-        title: 'Error',
+      toast.error('Error', {
         description: error instanceof Error ? error.message : 'Failed to save group',
-        variant: 'destructive'
       })
     } finally {
       setSavingGroup(false)
@@ -344,17 +316,12 @@ export default function SellerActivitiesPage() {
         throw new Error(error.error || 'Failed to delete')
       }
 
-      toast({
-        title: 'Success',
-        description: `Group "${groupName}" deleted`
-      })
+      toast.success(`Group "${groupName}" deleted`)
 
       loadData()
     } catch (error) {
-      toast({
-        title: 'Error',
+      toast.error('Error', {
         description: error instanceof Error ? error.message : 'Failed to delete',
-        variant: 'destructive'
       })
     }
   }

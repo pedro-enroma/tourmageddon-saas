@@ -12,7 +12,7 @@ import { Textarea } from '@/components/ui/textarea'
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select'
 import { Tabs, TabsList, TabsTrigger } from '@/components/ui/tabs'
 import { Tooltip, TooltipContent, TooltipTrigger } from '@/components/ui/tooltip'
-import { useToast } from '@/hooks/use-toast'
+import { toast } from 'sonner'
 import { Pencil, Trash2, Plus, Percent, Loader2 } from 'lucide-react'
 
 interface CommissionRule {
@@ -61,8 +61,6 @@ export default function SellerCommissionRulesPage() {
     end_date: '',
     notes: ''
   })
-
-  const { toast } = useToast()
 
   const activityTitleMap = useMemo(() => {
     return new Map(activities.map(activity => [activity.activity_id, activity.title]))
@@ -139,10 +137,8 @@ export default function SellerCommissionRulesPage() {
         setSellerActivities(sellerActivitiesData.data || [])
       }
     } catch (error) {
-      toast({
-        title: 'Error',
+      toast.error('Error', {
         description: error instanceof Error ? error.message : 'Failed to load data',
-        variant: 'destructive'
       })
     } finally {
       setLoading(false)
@@ -183,19 +179,15 @@ export default function SellerCommissionRulesPage() {
 
     const percentage = parseFloat(formData.commission_percentage)
     if (isNaN(percentage) || percentage < 0 || percentage > 100) {
-      toast({
-        title: 'Invalid percentage',
+      toast.error('Invalid percentage', {
         description: 'Commission percentage must be between 0 and 100',
-        variant: 'destructive'
       })
       return
     }
 
     if (!formData.seller_name) {
-      toast({
-        title: 'Error',
+      toast.error('Error', {
         description: 'Please select a seller',
-        variant: 'destructive'
       })
       return
     }
@@ -225,18 +217,13 @@ export default function SellerCommissionRulesPage() {
         throw new Error(error.error || 'Failed to save')
       }
 
-      toast({
-        title: 'Success',
-        description: `Commission rule ${editingId ? 'updated' : 'created'} successfully`
-      })
+      toast.success(`Commission rule ${editingId ? 'updated' : 'created'} successfully`)
 
       setDialogOpen(false)
       loadData()
     } catch (error) {
-      toast({
-        title: 'Error',
+      toast.error('Error', {
         description: error instanceof Error ? error.message : 'Failed to save',
-        variant: 'destructive'
       })
     } finally {
       setSaving(false)
@@ -256,17 +243,12 @@ export default function SellerCommissionRulesPage() {
         throw new Error(error.error || 'Failed to delete')
       }
 
-      toast({
-        title: 'Success',
-        description: 'Commission rule deleted successfully'
-      })
+      toast.success('Commission rule deleted successfully')
 
       loadData()
     } catch (error) {
-      toast({
-        title: 'Error',
+      toast.error('Error', {
         description: error instanceof Error ? error.message : 'Failed to delete',
-        variant: 'destructive'
       })
     }
   }

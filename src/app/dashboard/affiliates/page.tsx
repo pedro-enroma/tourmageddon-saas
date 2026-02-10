@@ -10,7 +10,7 @@ import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, D
 import { Label } from '@/components/ui/label';
 import { Textarea } from '@/components/ui/textarea';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
-import { useToast } from '@/hooks/use-toast';
+import { toast } from 'sonner';
 import { Pencil, Trash2, Plus, TrendingUp, DollarSign } from 'lucide-react';
 
 interface AffiliateCommission {
@@ -45,8 +45,6 @@ export default function AffiliatesPage() {
     commission_percentage: '',
     notes: ''
   });
-
-  const { toast } = useToast();
 
   useEffect(() => {
     loadData();
@@ -110,10 +108,8 @@ export default function AffiliatesPage() {
         setStats(Object.values(aggregated));
       }
     } catch (error) {
-      toast({
-        title: 'Error',
+      toast.error('Error', {
         description: error instanceof Error ? error.message : 'An error occurred',
-        variant: 'destructive'
       });
     } finally {
       setLoading(false);
@@ -146,10 +142,8 @@ export default function AffiliatesPage() {
       const percentage = parseFloat(formData.commission_percentage);
 
       if (isNaN(percentage) || percentage < 0 || percentage > 100) {
-        toast({
-          title: 'Invalid percentage',
+        toast.error('Invalid percentage', {
           description: 'Commission percentage must be between 0 and 100',
-          variant: 'destructive'
         });
         return;
       }
@@ -170,10 +164,7 @@ export default function AffiliatesPage() {
 
         if (error) throw error;
 
-        toast({
-          title: 'Success',
-          description: 'Commission updated successfully'
-        });
+        toast.success('Commission updated successfully');
       } else {
         // Insert new
         const { error } = await supabase
@@ -182,19 +173,14 @@ export default function AffiliatesPage() {
 
         if (error) throw error;
 
-        toast({
-          title: 'Success',
-          description: 'Commission added successfully'
-        });
+        toast.success('Commission added successfully');
       }
 
       setDialogOpen(false);
       loadData();
     } catch (error) {
-      toast({
-        title: 'Error',
+      toast.error('Error', {
         description: error instanceof Error ? error.message : 'An error occurred',
-        variant: 'destructive'
       });
     }
   };
@@ -210,17 +196,12 @@ export default function AffiliatesPage() {
 
       if (error) throw error;
 
-      toast({
-        title: 'Success',
-        description: 'Commission deleted successfully'
-      });
+      toast.success('Commission deleted successfully');
 
       loadData();
     } catch (error) {
-      toast({
-        title: 'Error',
+      toast.error('Error', {
         description: error instanceof Error ? error.message : 'An error occurred',
-        variant: 'destructive'
       });
     }
   };

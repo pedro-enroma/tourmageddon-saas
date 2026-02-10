@@ -7,7 +7,7 @@ import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/com
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@/components/ui/table'
 import { Label } from '@/components/ui/label'
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select'
-import { useToast } from '@/hooks/use-toast'
+import { toast } from 'sonner'
 import { Download, RefreshCw, DollarSign, TrendingUp, Loader2 } from 'lucide-react'
 import * as XLSX from 'xlsx'
 import { sanitizeDataForExcel } from '@/lib/security/sanitize'
@@ -28,8 +28,6 @@ export default function SellerCommissionReportPage() {
     end: new Date().toISOString().split('T')[0]
   })
   const [selectedSeller, setSelectedSeller] = useState<string>('__all__')
-
-  const { toast } = useToast()
 
   useEffect(() => {
     loadSellers()
@@ -72,10 +70,8 @@ export default function SellerCommissionReportPage() {
 
       setReportData(data.data || [])
     } catch (error) {
-      toast({
-        title: 'Error',
+      toast.error('Error', {
         description: error instanceof Error ? error.message : 'Failed to load report',
-        variant: 'destructive'
       })
     } finally {
       setLoading(false)
@@ -100,10 +96,8 @@ export default function SellerCommissionReportPage() {
 
   const exportToExcel = () => {
     if (reportData.length === 0) {
-      toast({
-        title: 'No data',
+      toast.error('No data', {
         description: 'No data to export',
-        variant: 'destructive'
       })
       return
     }
@@ -134,10 +128,7 @@ export default function SellerCommissionReportPage() {
     XLSX.utils.book_append_sheet(wb, ws, 'Commission Report')
     XLSX.writeFile(wb, `commission-report-${dateRange.start}-${dateRange.end}.xlsx`)
 
-    toast({
-      title: 'Success',
-      description: 'Report exported successfully'
-    })
+    toast.success('Report exported successfully')
   }
 
   return (
