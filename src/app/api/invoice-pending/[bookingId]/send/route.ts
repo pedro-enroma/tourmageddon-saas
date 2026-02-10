@@ -1,12 +1,12 @@
 import { NextRequest, NextResponse } from 'next/server'
 
-const WEBHOOK_SYSTEM_URL = process.env.WEBHOOK_SYSTEM_URL || 'http://localhost:3000'
-
 export async function POST(
   request: NextRequest,
   { params }: { params: Promise<{ bookingId: string }> }
 ) {
   try {
+    const webhookUrl = process.env.WEBHOOK_SYSTEM_URL || 'http://localhost:3000'
+    const apiKey = process.env.INVOICE_API_KEY || ''
     const { bookingId } = await params
     const bookingIdNum = parseInt(bookingId)
 
@@ -19,10 +19,13 @@ export async function POST(
 
     // Call the send-booking endpoint which handles everything
     const response = await fetch(
-      `${WEBHOOK_SYSTEM_URL}/api/invoices/send-booking/${bookingIdNum}`,
+      `${webhookUrl}/api/invoices/send-booking/${bookingIdNum}`,
       {
         method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
+        headers: {
+          'Content-Type': 'application/json',
+          ...(apiKey && { 'x-api-key': apiKey }),
+        },
       }
     )
 

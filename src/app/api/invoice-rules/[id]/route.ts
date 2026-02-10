@@ -1,18 +1,19 @@
 import { NextRequest, NextResponse } from 'next/server'
 
-const WEBHOOK_SYSTEM_URL = process.env.WEBHOOK_SYSTEM_URL || 'http://localhost:3000'
-
 export async function GET(
   request: NextRequest,
   { params }: { params: Promise<{ id: string }> }
 ) {
   try {
+    const webhookUrl = process.env.WEBHOOK_SYSTEM_URL || 'http://localhost:3000'
+    const apiKey = process.env.INVOICE_API_KEY || ''
     const { id } = await params
 
-    const response = await fetch(`${WEBHOOK_SYSTEM_URL}/api/invoices/rules/${id}`, {
+    const response = await fetch(`${webhookUrl}/api/invoices/rules/${id}`, {
       method: 'GET',
       headers: {
         'Content-Type': 'application/json',
+        ...(apiKey && { 'x-api-key': apiKey }),
       },
     })
 
@@ -40,13 +41,16 @@ export async function PUT(
   { params }: { params: Promise<{ id: string }> }
 ) {
   try {
+    const webhookUrl = process.env.WEBHOOK_SYSTEM_URL || 'http://localhost:3000'
+    const apiKey = process.env.INVOICE_API_KEY || ''
     const { id } = await params
     const body = await request.json()
 
-    const response = await fetch(`${WEBHOOK_SYSTEM_URL}/api/invoices/rules/${id}`, {
+    const response = await fetch(`${webhookUrl}/api/invoices/rules/${id}`, {
       method: 'PUT',
       headers: {
         'Content-Type': 'application/json',
+        ...(apiKey && { 'x-api-key': apiKey }),
       },
       body: JSON.stringify(body),
     })
@@ -75,12 +79,15 @@ export async function DELETE(
   { params }: { params: Promise<{ id: string }> }
 ) {
   try {
+    const webhookUrl = process.env.WEBHOOK_SYSTEM_URL || 'http://localhost:3000'
+    const apiKey = process.env.INVOICE_API_KEY || ''
     const { id } = await params
 
-    const response = await fetch(`${WEBHOOK_SYSTEM_URL}/api/invoices/rules/${id}`, {
+    const response = await fetch(`${webhookUrl}/api/invoices/rules/${id}`, {
       method: 'DELETE',
       headers: {
         'Content-Type': 'application/json',
+        ...(apiKey && { 'x-api-key': apiKey }),
       },
     })
 

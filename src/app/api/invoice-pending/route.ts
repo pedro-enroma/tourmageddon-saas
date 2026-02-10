@@ -1,9 +1,10 @@
 import { NextRequest, NextResponse } from 'next/server'
 
-const WEBHOOK_SYSTEM_URL = process.env.WEBHOOK_SYSTEM_URL || 'http://localhost:3000'
-
 export async function GET(request: NextRequest) {
   try {
+    const webhookUrl = process.env.WEBHOOK_SYSTEM_URL || 'http://localhost:3000'
+    const apiKey = process.env.INVOICE_API_KEY || ''
+
     const searchParams = request.nextUrl.searchParams
     const startDate = searchParams.get('startDate') || ''
     const endDate = searchParams.get('endDate') || ''
@@ -14,12 +15,13 @@ export async function GET(request: NextRequest) {
     if (endDate) params.append('endDate', endDate)
     if (seller) params.append('seller', seller)
 
-    const url = `${WEBHOOK_SYSTEM_URL}/api/invoices/pending-bookings${params.toString() ? '?' + params.toString() : ''}`
+    const url = `${webhookUrl}/api/invoices/pending-bookings${params.toString() ? '?' + params.toString() : ''}`
 
     const response = await fetch(url, {
       method: 'GET',
       headers: {
         'Content-Type': 'application/json',
+        ...(apiKey && { 'x-api-key': apiKey }),
       },
     })
 

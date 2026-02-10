@@ -1,13 +1,15 @@
 import { NextRequest, NextResponse } from 'next/server'
 
-const WEBHOOK_SYSTEM_URL = process.env.WEBHOOK_SYSTEM_URL || 'http://localhost:3000'
-
 export async function GET() {
   try {
-    const response = await fetch(`${WEBHOOK_SYSTEM_URL}/api/invoices/rules`, {
+    const webhookUrl = process.env.WEBHOOK_SYSTEM_URL || 'http://localhost:3000'
+    const apiKey = process.env.INVOICE_API_KEY || ''
+
+    const response = await fetch(`${webhookUrl}/api/invoices/rules`, {
       method: 'GET',
       headers: {
         'Content-Type': 'application/json',
+        ...(apiKey && { 'x-api-key': apiKey }),
       },
     })
 
@@ -43,12 +45,15 @@ export async function GET() {
 
 export async function POST(request: NextRequest) {
   try {
+    const webhookUrl = process.env.WEBHOOK_SYSTEM_URL || 'http://localhost:3000'
+    const apiKey = process.env.INVOICE_API_KEY || ''
     const body = await request.json()
 
-    const response = await fetch(`${WEBHOOK_SYSTEM_URL}/api/invoices/rules`, {
+    const response = await fetch(`${webhookUrl}/api/invoices/rules`, {
       method: 'POST',
       headers: {
         'Content-Type': 'application/json',
+        ...(apiKey && { 'x-api-key': apiKey }),
       },
       body: JSON.stringify(body),
     })
