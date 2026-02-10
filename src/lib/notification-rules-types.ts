@@ -89,6 +89,7 @@ export const TRIGGER_FIELDS: Record<string, { field: string; label: string; type
     { field: 'confirmation_code', label: 'Confirmation Code', type: 'string' },
     { field: 'customer_name', label: 'Customer Name', type: 'string' },
     { field: 'customer_email', label: 'Customer Email', type: 'string' },
+    { field: 'seller_name', label: 'Seller Name', type: 'string' },
     { field: 'pax_count', label: 'Pax Count', type: 'number' },
     { field: 'ticket_count', label: 'Ticket Count', type: 'number' },
     { field: 'travel_date', label: 'Travel Date', type: 'string' },
