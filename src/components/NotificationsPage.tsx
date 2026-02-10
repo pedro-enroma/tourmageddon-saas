@@ -1,7 +1,7 @@
 // src/components/NotificationsPage.tsx
 'use client'
 import React, { useState, useEffect, useCallback } from 'react'
-import { Bell, AlertTriangle, CheckCircle, Info, RefreshCw, Check, ChevronDown, ChevronUp, Calendar, User, Clock, Send } from 'lucide-react'
+import { Bell, CheckCircle, Info, RefreshCw, Check, ChevronDown, ChevronUp, Calendar, User, Clock, Send } from 'lucide-react'
 import { notificationsApi } from '@/lib/api-client'
 import { Button } from "@/components/ui/button"
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter } from "@/components/ui/dialog"
@@ -240,13 +240,13 @@ export default function NotificationsPage() {
   const getSeverityIcon = (severity: string) => {
     switch (severity) {
       case 'error':
-        return <AlertTriangle className="w-5 h-5 text-red-500" />
+        return <span className="inline-block w-3 h-3 rounded-full bg-red-500 ring-2 ring-red-200 mt-1" />
       case 'warning':
-        return <AlertTriangle className="w-5 h-5 text-yellow-500" />
+        return <span className="inline-block w-3 h-3 rounded-full bg-amber-500 ring-2 ring-amber-200 mt-1" />
       case 'info':
-        return <Info className="w-5 h-5 text-blue-500" />
+        return <span className="inline-block w-3 h-3 rounded-full bg-blue-500 ring-2 ring-blue-200 mt-1" />
       default:
-        return <Bell className="w-5 h-5 text-gray-500" />
+        return <span className="inline-block w-3 h-3 rounded-full bg-gray-400 ring-2 ring-gray-200 mt-1" />
     }
   }
 
@@ -298,7 +298,7 @@ export default function NotificationsPage() {
           onClick={() => setActiveTab('notifications')}
         >
           <div className="flex items-center gap-2">
-            <AlertTriangle className="w-4 h-4" />
+            <Bell className="w-4 h-4" />
             Alerts
             {notifications.filter(n => !n.is_resolved && (n.notification_type === 'age_mismatch' || n.notification_type === 'rule_triggered')).length > 0 && (
               <span className="bg-red-100 text-red-600 text-xs px-1.5 py-0.5 rounded">
