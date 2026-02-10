@@ -1,9 +1,12 @@
 import { NextRequest, NextResponse } from 'next/server'
 
-const WEBHOOK_SYSTEM_URL = process.env.WEBHOOK_SYSTEM_URL || 'http://localhost:3000'
-
 export async function GET(request: NextRequest) {
   try {
+    const apiKey = process.env.INVOICE_API_KEY || ''
+    const webhookUrl = process.env.WEBHOOK_SYSTEM_URL || 'http://localhost:3000'
+    console.log('[invoices-created] WEBHOOK_SYSTEM_URL:', webhookUrl)
+    console.log('[invoices-created] INVOICE_API_KEY set:', !!apiKey, 'length:', apiKey.length)
+
     const searchParams = request.nextUrl.searchParams
     const startDate = searchParams.get('startDate') || ''
     const endDate = searchParams.get('endDate') || ''
@@ -16,18 +19,21 @@ export async function GET(request: NextRequest) {
     if (status) params.append('status', status)
     if (confirmationCode) params.append('confirmationCode', confirmationCode)
 
-    const url = `${WEBHOOK_SYSTEM_URL}/api/invoices${params.toString() ? '?' + params.toString() : ''}`
+    const url = `${webhookUrl}/api/invoices${params.toString() ? '?' + params.toString() : ''}`
+    console.log('[invoices-created] Fetching:', url)
 
     const response = await fetch(url, {
       method: 'GET',
       headers: {
         'Content-Type': 'application/json',
+        ...(apiKey && { 'x-api-key': apiKey }),
       },
     })
 
     const data = await response.json()
 
     if (!response.ok) {
+      console.error('[invoices-created] Error response:', response.status, JSON.stringify(data))
       return NextResponse.json(
         { error: data.error || 'Failed to fetch invoices' },
         { status: response.status }
