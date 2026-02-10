@@ -25,6 +25,7 @@ interface Invoice {
   invoice_type: 'INVOICE' | 'CREDIT_NOTE'
   status: string
   total_amount: number
+  refund_amount: number | null
   currency: string
   customer_name: string | null
   customer_email: string | null
@@ -509,6 +510,7 @@ export default function InvoicesCreatedPage() {
       'Seller': inv.activity_seller || '',
       'Booking Creation Date': inv.booking_creation_date ? formatDate(inv.booking_creation_date) : '',
       'Amount': inv.total_amount || 0,
+      'Refund Amount': inv.refund_amount || '',
       'Currency': inv.currency || '',
       'PS Pratica ID': inv.ps_pratica_id || '',
       'Status': getInvoiceStatusBucket(inv),
@@ -923,8 +925,15 @@ export default function InvoicesCreatedPage() {
                         <td className="px-4 py-3 whitespace-nowrap">
                           <div className="flex items-center gap-1 text-sm font-medium text-gray-900">
                             <DollarSign className="h-3.5 w-3.5 text-gray-400" />
-                            {formatCurrency(invoice.total_amount, invoice.currency)}
+                            {isCreditNote
+                              ? formatCurrency(Math.abs(invoice.refund_amount ?? invoice.total_amount), invoice.currency)
+                              : formatCurrency(invoice.total_amount, invoice.currency)}
                           </div>
+                          {isCreditNote && invoice.refund_amount != null && (
+                            <div className="text-xs text-gray-400">
+                              Invoice: {formatCurrency(Math.abs(invoice.total_amount), invoice.currency)}
+                            </div>
+                          )}
                         </td>
                         <td className="px-4 py-3 whitespace-nowrap">
                           {invoice.ps_pratica_id ? (
@@ -1081,7 +1090,16 @@ export default function InvoicesCreatedPage() {
                   <DetailRow label="Email" value={selectedInvoice.customer_email} />
                   <DetailRow label="Seller" value={selectedInvoice.activity_seller} />
                   <DetailRow label="Booking Creation Date" value={formatDate(selectedInvoice.booking_creation_date)} />
-                  <DetailRow label="Amount" value={formatCurrency(selectedInvoice.total_amount, selectedInvoice.currency)} />
+                  {selectedInvoice.invoice_type === 'CREDIT_NOTE' ? (
+                    <>
+                      <DetailRow label="Refund Amount" value={formatCurrency(Math.abs(selectedInvoice.refund_amount ?? selectedInvoice.total_amount), selectedInvoice.currency)} />
+                      {selectedInvoice.refund_amount != null && (
+                        <DetailRow label="Original Invoice" value={formatCurrency(Math.abs(selectedInvoice.total_amount), selectedInvoice.currency)} />
+                      )}
+                    </>
+                  ) : (
+                    <DetailRow label="Amount" value={formatCurrency(selectedInvoice.total_amount, selectedInvoice.currency)} />
+                  )}
                   <DetailRow label="Currency" value={selectedInvoice.currency} />
                   <DetailRow label="PS Pratica ID" value={selectedInvoice.ps_pratica_id} mono />
                   <DetailRow label="PS Status" value={selectedInvoice.ps_status} />
