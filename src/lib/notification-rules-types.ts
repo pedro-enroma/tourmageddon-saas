@@ -26,6 +26,7 @@ export interface NotificationRule {
   conditions: ConditionNode
   channels: string[]
   email_recipients: string[]
+  telegram_chat_ids: string[]
   recipient_roles: string[]
   notification_title: string | null
   notification_body: string | null
@@ -65,6 +66,8 @@ export const TRIGGER_EVENTS = {
 // Available fields per trigger event
 export const TRIGGER_FIELDS: Record<string, { field: string; label: string; type: 'string' | 'number' | 'boolean' | 'date' }[]> = {
   booking_created: [
+    { field: 'booking_id', label: 'Booking ID', type: 'number' },
+    { field: 'customer_name', label: 'Customer Name', type: 'string' },
     { field: 'activity_name', label: 'Activity Name', type: 'string' },
     { field: 'product_name', label: 'Product Name', type: 'string' },
     { field: 'category_name', label: 'Category Name', type: 'string' },

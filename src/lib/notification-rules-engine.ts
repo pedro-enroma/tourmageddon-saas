@@ -1,5 +1,6 @@
 import { getServiceRoleClient } from '@/lib/supabase-server'
 import { sendPushToAllAdmins, PushPayload } from '@/lib/push-notifications'
+import { sendTelegramToChats, formatTelegramNotification } from '@/lib/telegram'
 import { Resend } from 'resend'
 
 // Initialize Resend
@@ -238,6 +239,17 @@ async function sendRuleNotification(rule: NotificationRule, data: Record<string,
       } catch (err) {
         console.error(`[Rules Engine] Email error for rule "${rule.name}":`, err)
       }
+    }
+  }
+
+  // Send Telegram message if enabled
+  if (rule.channels.includes('telegram') && rule.telegram_chat_ids?.length > 0) {
+    try {
+      const telegramMessage = formatTelegramNotification(title, body, url)
+      const result = await sendTelegramToChats(rule.telegram_chat_ids, telegramMessage)
+      console.log(`[Rules Engine] Telegram sent for rule "${rule.name}": ${result.sent} sent, ${result.failed} failed`)
+    } catch (err) {
+      console.error(`[Rules Engine] Telegram error for rule "${rule.name}":`, err)
     }
   }
 }

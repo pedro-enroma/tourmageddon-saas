@@ -58,6 +58,12 @@ const EMAIL_RECIPIENTS = [
   { id: 'visitasguiadas', name: 'Visitas Guiadas', email: 'visitasguiadas@enroma.com' },
 ]
 
+// Predefined Telegram recipients
+const TELEGRAM_RECIPIENTS = [
+  { id: 'channel', name: 'Tourmageddon Channel', chatId: '-1003389079815' },
+  { id: 'pedro', name: 'Pedro (DM)', chatId: '7282971209' },
+]
+
 // Reminder time options
 const REMINDER_OPTIONS = [
   { label: '30 minutes', value: () => addMinutes(new Date(), 30) },
@@ -104,6 +110,7 @@ export default function NotificationsPage() {
   const [remindDialogOpen, setRemindDialogOpen] = useState(false)
   const [selectedNotification, setSelectedNotification] = useState<Notification | null>(null)
   const [selectedEmails, setSelectedEmails] = useState<string[]>([])
+  const [selectedTelegramChats, setSelectedTelegramChats] = useState<string[]>([])
   const [sendingEmail, setSendingEmail] = useState(false)
   const [settingReminder, setSettingReminder] = useState(false)
 
@@ -158,12 +165,13 @@ export default function NotificationsPage() {
   const openEscalateDialog = (notification: Notification) => {
     setSelectedNotification(notification)
     setSelectedEmails([])
+    setSelectedTelegramChats([])
     setEscalateDialogOpen(true)
   }
 
-  // Send escalation email to selected recipients
-  const sendEscalationEmail = async () => {
-    if (!selectedNotification || selectedEmails.length === 0) return
+  // Send escalation to selected recipients (email + telegram)
+  const sendEscalation = async () => {
+    if (!selectedNotification || (selectedEmails.length === 0 && selectedTelegramChats.length === 0)) return
 
     setSendingEmail(true)
     try {
@@ -172,22 +180,35 @@ export default function NotificationsPage() {
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
           notificationId: selectedNotification.id,
-          recipients: selectedEmails
+          recipients: selectedEmails.length > 0 ? selectedEmails : undefined,
+          telegramChatIds: selectedTelegramChats.length > 0 ? selectedTelegramChats : undefined,
         })
       })
       const data = await response.json()
       if (response.ok) {
         setEscalateDialogOpen(false)
-        alert(`Email sent to ${selectedEmails.length} recipient(s)!`)
+        const parts: string[] = []
+        if (selectedEmails.length > 0) parts.push(`${selectedEmails.length} email(s)`)
+        if (selectedTelegramChats.length > 0) parts.push(`${selectedTelegramChats.length} Telegram chat(s)`)
+        alert(`Escalation sent to ${parts.join(' and ')}!`)
       } else {
-        alert(`Failed to send email: ${data.error}`)
+        alert(`Failed to escalate: ${data.error}`)
       }
     } catch (error) {
-      console.error('Error sending escalation email:', error)
-      alert('Failed to send escalation email')
+      console.error('Error sending escalation:', error)
+      alert('Failed to send escalation')
     } finally {
       setSendingEmail(false)
     }
+  }
+
+  // Toggle telegram chat selection
+  const toggleTelegramSelection = (chatId: string) => {
+    setSelectedTelegramChats(prev =>
+      prev.includes(chatId)
+        ? prev.filter(id => id !== chatId)
+        : [...prev, chatId]
+    )
   }
 
   // Open remind dialog
@@ -686,7 +707,7 @@ export default function NotificationsPage() {
           </DialogHeader>
           <div className="py-4">
             <p className="text-sm text-gray-500 mb-4">
-              Select recipients to escalate this notification via email:
+              Select recipients to escalate this notification:
             </p>
             {selectedNotification && (
               <div className="bg-gray-50 rounded-lg p-3 mb-4 text-sm">
@@ -694,7 +715,10 @@ export default function NotificationsPage() {
                 <div className="text-gray-600 text-xs mt-1">{selectedNotification.message}</div>
               </div>
             )}
-            <div className="space-y-3">
+
+            {/* Email recipients */}
+            <div className="text-xs font-semibold text-gray-400 uppercase tracking-wide mb-2">Email</div>
+            <div className="space-y-2 mb-4">
               {EMAIL_RECIPIENTS.map((recipient) => (
                 <div
                   key={recipient.id}
@@ -712,14 +736,35 @@ export default function NotificationsPage() {
                 </div>
               ))}
             </div>
+
+            {/* Telegram recipients */}
+            <div className="text-xs font-semibold text-gray-400 uppercase tracking-wide mb-2">Telegram</div>
+            <div className="space-y-2">
+              {TELEGRAM_RECIPIENTS.map((recipient) => (
+                <div
+                  key={recipient.id}
+                  className="flex items-center gap-3 p-3 border rounded-lg hover:bg-gray-50 cursor-pointer"
+                  onClick={() => toggleTelegramSelection(recipient.chatId)}
+                >
+                  <Checkbox
+                    checked={selectedTelegramChats.includes(recipient.chatId)}
+                    onCheckedChange={() => toggleTelegramSelection(recipient.chatId)}
+                  />
+                  <div className="flex-1">
+                    <div className="font-medium text-sm">{recipient.name}</div>
+                    <div className="text-xs text-gray-500">Chat ID: {recipient.chatId}</div>
+                  </div>
+                </div>
+              ))}
+            </div>
           </div>
           <DialogFooter>
             <Button variant="outline" onClick={() => setEscalateDialogOpen(false)}>
               Cancel
             </Button>
             <Button
-              onClick={sendEscalationEmail}
-              disabled={selectedEmails.length === 0 || sendingEmail}
+              onClick={sendEscalation}
+              disabled={(selectedEmails.length === 0 && selectedTelegramChats.length === 0) || sendingEmail}
               className="bg-orange-500 hover:bg-orange-600"
             >
               {sendingEmail ? (
@@ -730,7 +775,7 @@ export default function NotificationsPage() {
               ) : (
                 <>
                   <Send className="w-4 h-4 mr-2" />
-                  Send to {selectedEmails.length} recipient{selectedEmails.length !== 1 ? 's' : ''}
+                  Send to {selectedEmails.length + selectedTelegramChats.length} recipient{(selectedEmails.length + selectedTelegramChats.length) !== 1 ? 's' : ''}
                 </>
               )}
             </Button>

@@ -1,8 +1,13 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { getServiceRoleClient, verifySession, isAdmin } from '@/lib/supabase-server'
 import { Resend } from 'resend'
+import { sendTelegramToChats, formatTelegramNotification } from '@/lib/telegram'
 
-const resend = new Resend(process.env.RESEND_API_KEY)
+function getResend() {
+  const apiKey = process.env.RESEND_API_KEY
+  if (!apiKey) return null
+  return new Resend(apiKey)
+}
 
 export async function POST(request: NextRequest) {
   const { user, error: authError } = await verifySession()
@@ -18,10 +23,13 @@ export async function POST(request: NextRequest) {
 
   try {
     const body = await request.json()
-    const { notificationId, recipients } = body
+    const { notificationId, recipients, telegramChatIds } = body
 
-    if (!notificationId || !recipients || !Array.isArray(recipients) || recipients.length === 0) {
-      return NextResponse.json({ error: 'notificationId and recipients array are required' }, { status: 400 })
+    const hasEmail = recipients && Array.isArray(recipients) && recipients.length > 0
+    const hasTelegram = telegramChatIds && Array.isArray(telegramChatIds) && telegramChatIds.length > 0
+
+    if (!notificationId || (!hasEmail && !hasTelegram)) {
+      return NextResponse.json({ error: 'notificationId and at least one channel (recipients or telegramChatIds) are required' }, { status: 400 })
     }
 
     // Get the notification details
@@ -93,17 +101,44 @@ export async function POST(request: NextRequest) {
       </html>
     `
 
-    // Send email via Resend
-    const { error: emailError } = await resend.emails.send({
-      from: 'Tourmageddon Alerts <alerts@tourmageddon.it>',
-      to: recipients,
-      subject: `[ESCALATED] ${notification.title}`,
-      html: emailHtml
-    })
+    const results: { email?: { success: boolean; error?: string }; telegram?: { sent: number; failed: number } } = {}
 
-    if (emailError) {
-      console.error('Error sending escalation email:', emailError)
-      return NextResponse.json({ error: 'Failed to send email' }, { status: 500 })
+    // Send email via Resend
+    if (hasEmail) {
+      const resend = getResend()
+      if (!resend) {
+        return NextResponse.json({ error: 'Email service not configured' }, { status: 500 })
+      }
+
+      const { error: emailError } = await resend.emails.send({
+        from: process.env.RESEND_FROM_EMAIL || 'EnRoma.com <noreply@enroma.com>',
+        to: recipients,
+        subject: `[ESCALATED] ${notification.title}`,
+        html: emailHtml
+      })
+
+      if (emailError) {
+        console.error('Error sending escalation email:', emailError)
+        results.email = { success: false, error: emailError.message }
+      } else {
+        results.email = { success: true }
+      }
+    }
+
+    // Send Telegram message
+    if (hasTelegram) {
+      const telegramMessage = formatTelegramNotification(
+        `[ESCALATED] ${notification.title}`,
+        notification.message
+      )
+      results.telegram = await sendTelegramToChats(telegramChatIds, telegramMessage)
+    }
+
+    // Check if all channels failed
+    const emailFailed = results.email && !results.email.success
+    const telegramFailed = results.telegram && results.telegram.sent === 0 && results.telegram.failed > 0
+    if ((hasEmail && emailFailed && !hasTelegram) || (hasTelegram && telegramFailed && !hasEmail) || (emailFailed && telegramFailed)) {
+      return NextResponse.json({ error: 'Failed to send escalation', results }, { status: 500 })
     }
 
     // Log the escalation in the notification metadata
@@ -114,12 +149,12 @@ export async function POST(request: NextRequest) {
           ...((notification.metadata as Record<string, unknown>) || {}),
           escalated_at: new Date().toISOString(),
           escalated_by: user.email,
-          escalated_to: recipients
+          escalated_to: [...(hasEmail ? recipients : []), ...(hasTelegram ? telegramChatIds.map((id: string) => `telegram:${id}`) : [])]
         }
       })
       .eq('id', notificationId)
 
-    return NextResponse.json({ success: true, recipients })
+    return NextResponse.json({ success: true, results })
   } catch (err) {
     console.error('Unexpected error:', err)
     return NextResponse.json({ error: 'Internal server error' }, { status: 500 })

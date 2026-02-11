@@ -1,7 +1,7 @@
 'use client'
 
 import React, { useState, useEffect, useCallback } from 'react'
-import { Plus, Pencil, Trash2, Bell, BellOff, Mail, Smartphone, Search, RefreshCw, X, Save, Loader2 } from 'lucide-react'
+import { Plus, Pencil, Trash2, Bell, BellOff, Mail, Smartphone, Send, Search, RefreshCw, X, Save, Loader2 } from 'lucide-react'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
 import { Label } from '@/components/ui/label'
@@ -47,6 +47,7 @@ interface RuleForm {
   conditions: ConditionNode
   channels: string[]
   email_recipients: string[]
+  telegram_chat_ids: string[]
   recipient_roles: string[]
   notification_title: string
   notification_body: string
@@ -68,6 +69,7 @@ const defaultForm: RuleForm = {
   conditions: defaultConditions,
   channels: ['push'],
   email_recipients: [],
+  telegram_chat_ids: [],
   recipient_roles: ['admin'],
   notification_title: '',
   notification_body: '',
@@ -92,6 +94,9 @@ export default function NotificationRulesPage() {
 
   // Email recipient input
   const [emailInput, setEmailInput] = useState('')
+
+  // Telegram chat ID input
+  const [chatIdInput, setChatIdInput] = useState('')
 
   const fetchRules = useCallback(async () => {
     setLoading(true)
@@ -129,6 +134,7 @@ export default function NotificationRulesPage() {
       conditions: rule.conditions || defaultConditions,
       channels: rule.channels || ['push'],
       email_recipients: rule.email_recipients || [],
+      telegram_chat_ids: rule.telegram_chat_ids || [],
       recipient_roles: rule.recipient_roles || ['admin'],
       notification_title: rule.notification_title || '',
       notification_body: rule.notification_body || '',
@@ -225,6 +231,24 @@ export default function NotificationRulesPage() {
     setForm(prev => ({
       ...prev,
       email_recipients: prev.email_recipients.filter(e => e !== email),
+    }))
+  }
+
+  const addTelegramChatId = () => {
+    const trimmed = chatIdInput.trim()
+    if (trimmed && !form.telegram_chat_ids.includes(trimmed)) {
+      setForm(prev => ({
+        ...prev,
+        telegram_chat_ids: [...prev.telegram_chat_ids, trimmed],
+      }))
+      setChatIdInput('')
+    }
+  }
+
+  const removeTelegramChatId = (chatId: string) => {
+    setForm(prev => ({
+      ...prev,
+      telegram_chat_ids: prev.telegram_chat_ids.filter(id => id !== chatId),
     }))
   }
 
@@ -372,6 +396,7 @@ export default function NotificationRulesPage() {
                       <span className="flex items-center gap-1">
                         {rule.channels.includes('push') && <Smartphone className="h-3 w-3" />}
                         {rule.channels.includes('email') && <Mail className="h-3 w-3" />}
+                        {rule.channels.includes('telegram') && <Send className="h-3 w-3" />}
                         {rule.channels.join(', ')}
                       </span>
                       <span>|</span>
@@ -541,6 +566,16 @@ export default function NotificationRulesPage() {
                         <Mail className="h-4 w-4 text-gray-500" />
                         <span className="text-sm">Email</span>
                       </label>
+                      <label className="flex items-center gap-2 cursor-pointer">
+                        <input
+                          type="checkbox"
+                          checked={form.channels.includes('telegram')}
+                          onChange={() => toggleChannel('telegram')}
+                          className="rounded border-gray-300 text-brand-orange focus:ring-brand-orange"
+                        />
+                        <Send className="h-4 w-4 text-gray-500" />
+                        <span className="text-sm">Telegram</span>
+                      </label>
                     </div>
                   </div>
 
@@ -568,6 +603,54 @@ export default function NotificationRulesPage() {
                             >
                               {email}
                               <button onClick={() => removeEmailRecipient(email)} className="text-gray-400 hover:text-red-500">
+                                <X className="h-3 w-3" />
+                              </button>
+                            </span>
+                          ))}
+                        </div>
+                      )}
+                    </div>
+                  )}
+
+                  {form.channels.includes('telegram') && (
+                    <div>
+                      <Label>Telegram Chat IDs</Label>
+                      <p className="text-xs text-gray-500 mb-1">Add the chat ID or group ID where messages should be sent</p>
+                      <div
+                        className="flex items-center gap-2 mt-2 p-2 border rounded-lg hover:bg-gray-50 cursor-pointer"
+                        onClick={() => {
+                          const channelId = '-1003389079815'
+                          setForm(prev => ({
+                            ...prev,
+                            telegram_chat_ids: prev.telegram_chat_ids.includes(channelId)
+                              ? prev.telegram_chat_ids.filter(id => id !== channelId)
+                              : [...prev.telegram_chat_ids, channelId],
+                          }))
+                        }}
+                      >
+                        <input type="checkbox" checked={form.telegram_chat_ids.includes('-1003389079815')} readOnly className="rounded" />
+                        <span className="text-sm font-medium">Tourmageddon Channel</span>
+                      </div>
+                      <div className="flex gap-2 mt-2">
+                        <Input
+                          value={chatIdInput}
+                          onChange={(e) => setChatIdInput(e.target.value)}
+                          placeholder="Other chat ID..."
+                          onKeyDown={(e) => e.key === 'Enter' && (e.preventDefault(), addTelegramChatId())}
+                        />
+                        <Button type="button" variant="outline" onClick={addTelegramChatId}>
+                          Add
+                        </Button>
+                      </div>
+                      {form.telegram_chat_ids.filter(id => id !== '-1003389079815').length > 0 && (
+                        <div className="flex flex-wrap gap-2 mt-2">
+                          {form.telegram_chat_ids.filter(id => id !== '-1003389079815').map((chatId) => (
+                            <span
+                              key={chatId}
+                              className="inline-flex items-center gap-1 px-2 py-1 bg-gray-100 rounded text-sm"
+                            >
+                              {chatId}
+                              <button onClick={() => removeTelegramChatId(chatId)} className="text-gray-400 hover:text-red-500">
                                 <X className="h-3 w-3" />
                               </button>
                             </span>
