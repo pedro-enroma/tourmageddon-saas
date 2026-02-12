@@ -28,7 +28,7 @@ export async function GET() {
       ),
     ]
 
-    let customerMap: Record<string, string> = {}
+    const customerMap: Record<string, string> = {}
 
     if (bookingIds.length > 0) {
       const { data: bookingCustomers } = await supabase
