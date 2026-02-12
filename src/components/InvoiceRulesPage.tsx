@@ -1,7 +1,7 @@
 'use client'
 
 import React, { useState, useEffect, useCallback, useRef } from 'react'
-import { Plus, Pencil, Trash2, Calendar, Clock, Users, Search, RefreshCw, X, Save, Loader2, Receipt, AlertCircle, ChevronDown } from 'lucide-react'
+import { Plus, Pencil, Trash2, Calendar, Clock, Users, Search, RefreshCw, X, Save, Loader2, Receipt, AlertCircle, ChevronDown, CreditCard } from 'lucide-react'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
 import { Label } from '@/components/ui/label'
@@ -9,7 +9,7 @@ import { Label } from '@/components/ui/label'
 interface InvoiceRule {
   id: string
   name: string
-  invoice_date_type: 'travel_date' | 'creation_date'
+  invoice_date_type: 'travel_date' | 'creation_date' | 'stripe_payment'
   sellers: string[]
   invoice_start_date: string
   execution_time: string
@@ -21,7 +21,7 @@ interface InvoiceRule {
 interface RuleForm {
   id?: string
   name: string
-  invoice_date_type: 'travel_date' | 'creation_date'
+  invoice_date_type: 'travel_date' | 'creation_date' | 'stripe_payment'
   sellers: string[]
   invoice_start_date: string
   execution_time: string
@@ -129,7 +129,7 @@ export default function InvoiceRulesPage() {
   }
 
   const saveRule = async () => {
-    if (!form.name || form.sellers.length === 0) {
+    if (!form.name || (form.invoice_date_type !== 'stripe_payment' && form.sellers.length === 0)) {
       setError('Name and at least one seller are required')
       return
     }
@@ -321,12 +321,19 @@ export default function InvoiceRulesPage() {
                     <span className={`inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium ${
                       rule.invoice_date_type === 'travel_date'
                         ? 'bg-blue-100 text-blue-800'
+                        : rule.invoice_date_type === 'stripe_payment'
+                        ? 'bg-emerald-100 text-emerald-800'
                         : 'bg-purple-100 text-purple-800'
                     }`}>
                       {rule.invoice_date_type === 'travel_date' ? (
                         <>
                           <Calendar className="h-3 w-3 mr-1" />
                           Travel Date
+                        </>
+                      ) : rule.invoice_date_type === 'stripe_payment' ? (
+                        <>
+                          <CreditCard className="h-3 w-3 mr-1" />
+                          Stripe Payment
                         </>
                       ) : (
                         <>
@@ -337,21 +344,27 @@ export default function InvoiceRulesPage() {
                     </span>
                   </td>
                   <td className="px-6 py-4">
-                    <div className="flex flex-wrap gap-1">
-                      {rule.sellers.slice(0, 3).map((seller, idx) => (
-                        <span
-                          key={idx}
-                          className="inline-flex items-center px-2 py-0.5 rounded text-xs bg-gray-100 text-gray-700"
-                        >
-                          {seller}
-                        </span>
-                      ))}
-                      {rule.sellers.length > 3 && (
-                        <span className="inline-flex items-center px-2 py-0.5 rounded text-xs bg-gray-100 text-gray-500">
-                          +{rule.sellers.length - 3} more
-                        </span>
-                      )}
-                    </div>
+                    {rule.invoice_date_type === 'stripe_payment' ? (
+                      <span className="inline-flex items-center px-2 py-0.5 rounded text-xs bg-emerald-100 text-emerald-700 font-medium">
+                        All sellers
+                      </span>
+                    ) : (
+                      <div className="flex flex-wrap gap-1">
+                        {rule.sellers.slice(0, 3).map((seller, idx) => (
+                          <span
+                            key={idx}
+                            className="inline-flex items-center px-2 py-0.5 rounded text-xs bg-gray-100 text-gray-700"
+                          >
+                            {seller}
+                          </span>
+                        ))}
+                        {rule.sellers.length > 3 && (
+                          <span className="inline-flex items-center px-2 py-0.5 rounded text-xs bg-gray-100 text-gray-500">
+                            +{rule.sellers.length - 3} more
+                          </span>
+                        )}
+                      </div>
+                    )}
                   </td>
                   <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-500">
                     {formatDate(rule.invoice_start_date)}
@@ -441,7 +454,7 @@ export default function InvoiceRulesPage() {
               {/* Invoice Date Type */}
               <div>
                 <Label>Invoice Date Type</Label>
-                <div className="mt-2 grid grid-cols-2 gap-3">
+                <div className="mt-2 grid grid-cols-3 gap-3">
                   <button
                     type="button"
                     onClick={() => setForm({ ...form, invoice_date_type: 'creation_date' })}
@@ -476,10 +489,41 @@ export default function InvoiceRulesPage() {
                       Invoice on the day of travel via cron job
                     </p>
                   </button>
+                  <button
+                    type="button"
+                    onClick={() => setForm({ ...form, invoice_date_type: 'stripe_payment', sellers: [] })}
+                    className={`p-4 rounded-lg border-2 text-left transition-all ${
+                      form.invoice_date_type === 'stripe_payment'
+                        ? 'border-emerald-500 bg-emerald-50'
+                        : 'border-gray-200 hover:border-gray-300'
+                    }`}
+                  >
+                    <div className="flex items-center gap-2 mb-1">
+                      <CreditCard className={`h-5 w-5 ${form.invoice_date_type === 'stripe_payment' ? 'text-emerald-600' : 'text-gray-400'}`} />
+                      <span className="font-medium">Stripe Payment</span>
+                    </div>
+                    <p className="text-xs text-gray-500">
+                      Invoice triggered by Stripe payment
+                    </p>
+                  </button>
                 </div>
               </div>
 
               {/* Sellers Multi-select */}
+              {form.invoice_date_type === 'stripe_payment' ? (
+                <div>
+                  <Label>Sellers</Label>
+                  <div className="mt-1 min-h-[44px] px-3 py-2 border border-gray-200 rounded-lg bg-gray-50 flex items-center">
+                    <span className="inline-flex items-center px-2.5 py-1 rounded-md bg-emerald-100 text-emerald-800 text-sm font-medium">
+                      <Users className="h-3.5 w-3.5 mr-1.5" />
+                      All sellers
+                    </span>
+                  </div>
+                  <p className="mt-1 text-xs text-gray-500">
+                    Stripe payment rules apply to all sellers through the Stripe account
+                  </p>
+                </div>
+              ) : (
               <div className="relative">
                 <Label>Sellers</Label>
                 <div className="mt-1" ref={sellerDropdownRef}>
@@ -579,6 +623,7 @@ export default function InvoiceRulesPage() {
                   {form.sellers.length} seller{form.sellers.length !== 1 ? 's' : ''} selected
                 </p>
               </div>
+              )}
 
               {/* Invoice Start Date */}
               <div>
@@ -593,6 +638,8 @@ export default function InvoiceRulesPage() {
                 <p className="mt-1 text-xs text-gray-500">
                   {form.invoice_date_type === 'travel_date'
                     ? 'Only bookings with travel date >= this date will be invoiced'
+                    : form.invoice_date_type === 'stripe_payment'
+                    ? 'Only bookings with payments after this date will be invoiced'
                     : 'Only bookings created >= this date will be invoiced'}
                 </p>
               </div>

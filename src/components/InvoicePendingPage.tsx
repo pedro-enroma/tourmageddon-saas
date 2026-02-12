@@ -15,13 +15,13 @@ interface PendingBooking {
   activity_seller: string | null
   travel_date?: string
   rule_name?: string
-  rule_type?: 'travel_date' | 'creation_date'
+  rule_type?: 'travel_date' | 'creation_date' | 'stripe_payment'
 }
 
 interface InvoiceRule {
   id: string
   name: string
-  invoice_date_type: 'travel_date' | 'creation_date'
+  invoice_date_type: 'travel_date' | 'creation_date' | 'stripe_payment'
   sellers: string[]
   invoice_start_date: string
   is_active: boolean
@@ -328,9 +328,9 @@ export default function InvoicePendingPage() {
         </div>
       ) : (
         <>
-          {/* Creation Date (Instant) Rules - Paused */}
+          {/* Creation Date (Instant) Rules */}
           <BookingSection
-            title="Instant Invoice (Paused)"
+            title="Instant Invoice"
             icon={Receipt}
             bookings={creationDateBookings}
             emptyMessage="No bookings pending for instant invoice rules"
