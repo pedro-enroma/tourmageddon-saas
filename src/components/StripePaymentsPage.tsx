@@ -66,6 +66,7 @@ interface StripeRefund {
   status: 'RECEIVED' | 'PROCESSED'
   credit_note_id: string | null
   ps_movimento_iri: string | null
+  ps_pratica_iri: string | null
   error_message: string | null
   created_at: string
   processed_at: string | null
@@ -1058,7 +1059,7 @@ export default function StripePaymentsPage() {
                           Status
                         </th>
                         <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
-                          PS Credit Note
+                          PS Pratica
                         </th>
                         <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
                           Processed At
@@ -1097,8 +1098,8 @@ export default function StripePaymentsPage() {
                                 {getRefundStatusBadge(refund.status)}
                               </td>
                               <td className="px-4 py-3 whitespace-nowrap">
-                                {refund.ps_movimento_iri ? (
-                                  <span className="font-mono text-sm text-blue-600">{refund.ps_movimento_iri}</span>
+                                {refund.ps_pratica_iri ? (
+                                  <span className="font-mono text-sm text-blue-600">{refund.ps_pratica_iri}</span>
                                 ) : (
                                   <span className="text-sm text-gray-400">-</span>
                                 )}
@@ -1129,6 +1130,9 @@ export default function StripePaymentsPage() {
                                           <span className="text-xs font-medium text-red-800">Error:</span>
                                           <p className="text-sm text-red-700 mt-1">{refund.error_message}</p>
                                         </div>
+                                      )}
+                                      {refund.ps_pratica_iri && (
+                                        <DetailItem label="PS Pratica" value={refund.ps_pratica_iri} mono />
                                       )}
                                       {refund.ps_movimento_iri && (
                                         <DetailItem label="PS Movimento IRI" value={refund.ps_movimento_iri} mono />
