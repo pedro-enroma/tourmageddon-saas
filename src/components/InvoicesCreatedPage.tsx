@@ -4,7 +4,7 @@ import React, { useState, useEffect, useCallback, useMemo, useRef } from 'react'
 import {
   RefreshCw, Loader2, Receipt, AlertCircle, X, Search, User, DollarSign,
   CheckCircle2, XCircle, Clock, Filter, Plane, Download, ChevronDown,
-  ChevronUp, ChevronLeft, ChevronRight, RotateCcw, Eye, Calendar,
+  ChevronUp, ChevronLeft, ChevronRight, RotateCcw, Eye, Calendar, Plus,
 } from 'lucide-react'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
@@ -172,6 +172,44 @@ const buildStats = (items: Invoice[]): Stats => {
   )
 }
 
+// ── Manual Pratica Form ──
+
+interface ManualPraticaForm {
+  isCreditNote: boolean
+  firstName: string
+  lastName: string
+  phone: string
+  country: string
+  totalAmount: string
+  travelDate: string
+  confirmationCode: string
+  productTitle: string
+  sellerName: string
+  stripePaymentId: string
+  isPersonaFisica: boolean
+  codiceFiscale: string
+  partitaIva: string
+  ragioneSociale: string
+}
+
+const defaultManualForm: ManualPraticaForm = {
+  isCreditNote: false,
+  firstName: '',
+  lastName: '',
+  phone: '',
+  country: '',
+  totalAmount: '',
+  travelDate: '',
+  confirmationCode: '',
+  productTitle: '',
+  sellerName: '',
+  stripePaymentId: '',
+  isPersonaFisica: true,
+  codiceFiscale: '',
+  partitaIva: '',
+  ragioneSociale: '',
+}
+
 // ── Component ──
 
 export default function InvoicesCreatedPage() {
@@ -189,6 +227,13 @@ export default function InvoicesCreatedPage() {
   const [retryResults, setRetryResults] = useState<Record<number, 'success' | 'error'>>({})
   const [lastRefreshed, setLastRefreshed] = useState<Date>(new Date())
   const autoRefreshRef = useRef<NodeJS.Timeout | null>(null)
+
+  // ── Manual Pratica state ──
+  const [showManualForm, setShowManualForm] = useState(false)
+  const [manualForm, setManualForm] = useState<ManualPraticaForm>(defaultManualForm)
+  const [manualSubmitting, setManualSubmitting] = useState(false)
+  const [manualError, setManualError] = useState<string | null>(null)
+  const [manualSuccess, setManualSuccess] = useState(false)
 
   // ── Fetch data ──
 
@@ -535,6 +580,86 @@ export default function InvoicesCreatedPage() {
     return entries.map(([cur, amt]) => formatCurrency(amt, cur)).join(' / ')
   }
 
+  // ── Manual Pratica ──
+
+  const openManualForm = () => {
+    setManualForm(defaultManualForm)
+    setManualError(null)
+    setManualSuccess(false)
+    setShowManualForm(true)
+  }
+
+  const updateManualForm = <K extends keyof ManualPraticaForm>(key: K, value: ManualPraticaForm[K]) => {
+    setManualForm(prev => ({ ...prev, [key]: value }))
+  }
+
+  const submitManualPratica = async () => {
+    // Client-side validation
+    if (!manualForm.firstName.trim() || !manualForm.lastName.trim()) {
+      setManualError('First name and last name are required')
+      return
+    }
+    const amount = parseFloat(manualForm.totalAmount)
+    if (!amount || amount <= 0) {
+      setManualError('Amount must be greater than 0')
+      return
+    }
+    if (!manualForm.isPersonaFisica) {
+      if (!manualForm.partitaIva.trim()) {
+        setManualError('Partita IVA is required for persona giuridica')
+        return
+      }
+      if (!manualForm.ragioneSociale.trim()) {
+        setManualError('Ragione Sociale is required for persona giuridica')
+        return
+      }
+    }
+
+    setManualSubmitting(true)
+    setManualError(null)
+    try {
+      const payload: Record<string, unknown> = {
+        firstName: manualForm.firstName.trim(),
+        lastName: manualForm.lastName.trim(),
+        totalAmount: amount,
+        isPersonaFisica: manualForm.isPersonaFisica,
+        isCreditNote: manualForm.isCreditNote,
+      }
+      if (manualForm.travelDate) payload.travelDate = manualForm.travelDate
+      if (manualForm.confirmationCode.trim()) payload.confirmationCode = manualForm.confirmationCode.trim()
+      if (manualForm.productTitle.trim()) payload.productTitle = manualForm.productTitle.trim()
+      if (manualForm.phone.trim()) payload.phone = manualForm.phone.trim()
+      if (manualForm.country.trim()) payload.country = manualForm.country.trim()
+      if (manualForm.sellerName.trim()) payload.sellerName = manualForm.sellerName.trim()
+      if (manualForm.stripePaymentId.trim()) payload.stripePaymentId = manualForm.stripePaymentId.trim()
+      if (manualForm.isPersonaFisica && manualForm.codiceFiscale.trim()) {
+        payload.codiceFiscale = manualForm.codiceFiscale.trim()
+      }
+      if (!manualForm.isPersonaFisica) {
+        payload.partitaIva = manualForm.partitaIva.trim()
+        payload.ragioneSociale = manualForm.ragioneSociale.trim()
+      }
+
+      const response = await fetch('/api/invoices-created/manual', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(payload),
+      })
+      const data = await response.json()
+      if (data.error) throw new Error(data.error)
+
+      setManualSuccess(true)
+      setTimeout(() => {
+        setShowManualForm(false)
+        fetchInvoices()
+      }, 1500)
+    } catch (err) {
+      setManualError(err instanceof Error ? err.message : manualForm.isCreditNote ? 'Failed to create credit note' : 'Failed to create pratica')
+    } finally {
+      setManualSubmitting(false)
+    }
+  }
+
   // ── Render ──
 
   return (
@@ -551,6 +676,9 @@ export default function InvoicesCreatedPage() {
           </p>
         </div>
         <div className="flex items-center gap-2">
+          <Button size="sm" onClick={openManualForm}>
+            <Plus className="h-4 w-4 mr-2" /> Manual Pratica
+          </Button>
           <Button variant="outline" size="sm" onClick={exportToExcel} disabled={loading || sortedInvoices.length === 0}>
             <Download className="h-4 w-4 mr-2" /> Export
           </Button>
@@ -1040,6 +1168,292 @@ export default function InvoicesCreatedPage() {
           </div>
         </>
       )}
+
+      {/* Manual Pratica Sheet */}
+      <Sheet open={showManualForm} onOpenChange={(open) => { if (!open) setShowManualForm(false) }}>
+        <SheetContent side="right" className="sm:max-w-lg overflow-y-auto">
+          <SheetHeader>
+            <SheetTitle>Manual Pratica</SheetTitle>
+            <SheetDescription>Create and send a pratica to Partner Solution manually</SheetDescription>
+          </SheetHeader>
+
+          <div className="px-4 space-y-6 pb-6">
+            {manualSuccess && (
+              <div className="bg-green-50 border border-green-200 rounded-lg p-4 flex items-center gap-3">
+                <CheckCircle2 className="h-5 w-5 text-green-500 flex-shrink-0" />
+                <p className="text-sm text-green-700">
+                  {manualForm.isCreditNote ? 'Credit note created successfully!' : 'Pratica created successfully!'}
+                </p>
+              </div>
+            )}
+
+            {manualError && (
+              <div className="bg-red-50 border border-red-200 rounded-lg p-4 flex items-center gap-3">
+                <AlertCircle className="h-5 w-5 text-red-500 flex-shrink-0" />
+                <p className="text-sm text-red-700">{manualError}</p>
+              </div>
+            )}
+
+            {/* Section 1 — Document Type */}
+            <div>
+              <h3 className="text-xs font-semibold text-gray-400 uppercase tracking-wide mb-3">Document Type</h3>
+              <div className="flex items-center gap-4">
+                <label className="flex items-center gap-2 text-sm cursor-pointer">
+                  <input
+                    type="radio"
+                    name="docType"
+                    checked={!manualForm.isCreditNote}
+                    onChange={() => updateManualForm('isCreditNote', false)}
+                    disabled={manualSubmitting || manualSuccess}
+                    className="text-orange-600 focus:ring-orange-500"
+                  />
+                  Invoice
+                </label>
+                <label className="flex items-center gap-2 text-sm cursor-pointer">
+                  <input
+                    type="radio"
+                    name="docType"
+                    checked={manualForm.isCreditNote}
+                    onChange={() => updateManualForm('isCreditNote', true)}
+                    disabled={manualSubmitting || manualSuccess}
+                    className="text-orange-600 focus:ring-orange-500"
+                  />
+                  Credit Note
+                </label>
+              </div>
+              {manualForm.isCreditNote && (
+                <div className="mt-2 bg-amber-50 border border-amber-200 rounded-lg px-3 py-2">
+                  <p className="text-xs text-amber-700">Amount will be negated server-side</p>
+                </div>
+              )}
+            </div>
+
+            {/* Section 2 — Customer Info */}
+            <div>
+              <h3 className="text-xs font-semibold text-gray-400 uppercase tracking-wide mb-3">Customer Info</h3>
+
+              {/* Persona type toggle */}
+              <div className="flex items-center gap-4 mb-3">
+                <label className="flex items-center gap-2 text-sm cursor-pointer">
+                  <input
+                    type="radio"
+                    name="personaType"
+                    checked={manualForm.isPersonaFisica}
+                    onChange={() => updateManualForm('isPersonaFisica', true)}
+                    disabled={manualSubmitting || manualSuccess}
+                    className="text-orange-600 focus:ring-orange-500"
+                  />
+                  Persona Fisica
+                </label>
+                <label className="flex items-center gap-2 text-sm cursor-pointer">
+                  <input
+                    type="radio"
+                    name="personaType"
+                    checked={!manualForm.isPersonaFisica}
+                    onChange={() => updateManualForm('isPersonaFisica', false)}
+                    disabled={manualSubmitting || manualSuccess}
+                    className="text-orange-600 focus:ring-orange-500"
+                  />
+                  Persona Giuridica
+                </label>
+              </div>
+
+              <div className="grid grid-cols-2 gap-3">
+                <label className="text-xs font-medium text-gray-600">
+                  First Name *
+                  <Input
+                    value={manualForm.firstName}
+                    onChange={(e) => updateManualForm('firstName', e.target.value)}
+                    placeholder="Mario"
+                    className="mt-1"
+                    disabled={manualSubmitting || manualSuccess}
+                  />
+                </label>
+                <label className="text-xs font-medium text-gray-600">
+                  Last Name *
+                  <Input
+                    value={manualForm.lastName}
+                    onChange={(e) => updateManualForm('lastName', e.target.value)}
+                    placeholder="Rossi"
+                    className="mt-1"
+                    disabled={manualSubmitting || manualSuccess}
+                  />
+                </label>
+              </div>
+
+              <div className="mt-3 grid grid-cols-2 gap-3">
+                <label className="text-xs font-medium text-gray-600">
+                  Phone
+                  <Input
+                    value={manualForm.phone}
+                    onChange={(e) => updateManualForm('phone', e.target.value)}
+                    placeholder="+39 333 1234567"
+                    className="mt-1"
+                    disabled={manualSubmitting || manualSuccess}
+                  />
+                </label>
+                <label className="text-xs font-medium text-gray-600">
+                  Country
+                  <Input
+                    value={manualForm.country}
+                    onChange={(e) => updateManualForm('country', e.target.value.toUpperCase())}
+                    placeholder="ES"
+                    maxLength={2}
+                    className="mt-1 font-mono"
+                    disabled={manualSubmitting || manualSuccess}
+                  />
+                </label>
+              </div>
+
+              {/* Conditional fields */}
+              {manualForm.isPersonaFisica ? (
+                <div className="mt-3">
+                  <label className="text-xs font-medium text-gray-600">
+                    Codice Fiscale
+                    <Input
+                      value={manualForm.codiceFiscale}
+                      onChange={(e) => updateManualForm('codiceFiscale', e.target.value.toUpperCase())}
+                      placeholder="RSSMRA80A01H501U"
+                      maxLength={16}
+                      className="mt-1 font-mono"
+                      disabled={manualSubmitting || manualSuccess}
+                    />
+                  </label>
+                </div>
+              ) : (
+                <div className="mt-3 space-y-3">
+                  <label className="text-xs font-medium text-gray-600">
+                    Partita IVA *
+                    <Input
+                      value={manualForm.partitaIva}
+                      onChange={(e) => updateManualForm('partitaIva', e.target.value)}
+                      placeholder="12345678901"
+                      maxLength={11}
+                      className="mt-1 font-mono"
+                      disabled={manualSubmitting || manualSuccess}
+                    />
+                  </label>
+                  <label className="text-xs font-medium text-gray-600">
+                    Ragione Sociale *
+                    <Input
+                      value={manualForm.ragioneSociale}
+                      onChange={(e) => updateManualForm('ragioneSociale', e.target.value)}
+                      placeholder="Azienda S.r.l."
+                      className="mt-1"
+                      disabled={manualSubmitting || manualSuccess}
+                    />
+                  </label>
+                </div>
+              )}
+            </div>
+
+            {/* Section 3 — Payment Details */}
+            <div>
+              <h3 className="text-xs font-semibold text-gray-400 uppercase tracking-wide mb-3">Payment Details</h3>
+              <div className="grid grid-cols-2 gap-3">
+                <label className="text-xs font-medium text-gray-600">
+                  Amount (EUR) *
+                  <Input
+                    type="number"
+                    inputMode="decimal"
+                    min="0.01"
+                    step="0.01"
+                    value={manualForm.totalAmount}
+                    onChange={(e) => updateManualForm('totalAmount', e.target.value)}
+                    placeholder="100.00"
+                    className="mt-1"
+                    disabled={manualSubmitting || manualSuccess}
+                  />
+                </label>
+                <label className="text-xs font-medium text-gray-600">
+                  Travel Date
+                  <Input
+                    type="date"
+                    value={manualForm.travelDate}
+                    onChange={(e) => updateManualForm('travelDate', e.target.value)}
+                    className="mt-1"
+                    disabled={manualSubmitting || manualSuccess}
+                  />
+                </label>
+              </div>
+              <div className="grid grid-cols-2 gap-3 mt-3">
+                <label className="text-xs font-medium text-gray-600">
+                  Product Title
+                  <Input
+                    value={manualForm.productTitle}
+                    onChange={(e) => updateManualForm('productTitle', e.target.value)}
+                    placeholder="Tour UE ed Extra UE"
+                    className="mt-1"
+                    disabled={manualSubmitting || manualSuccess}
+                  />
+                </label>
+                <label className="text-xs font-medium text-gray-600">
+                  Seller Name
+                  <Input
+                    value={manualForm.sellerName}
+                    onChange={(e) => updateManualForm('sellerName', e.target.value)}
+                    placeholder="Seller name"
+                    className="mt-1"
+                    disabled={manualSubmitting || manualSuccess}
+                  />
+                </label>
+              </div>
+            </div>
+
+            {/* Section 4 — Linking */}
+            <div>
+              <h3 className="text-xs font-semibold text-gray-400 uppercase tracking-wide mb-3">Linking</h3>
+              <div className="grid grid-cols-2 gap-3">
+                <label className="text-xs font-medium text-gray-600">
+                  Confirmation Code
+                  <Input
+                    value={manualForm.confirmationCode}
+                    onChange={(e) => updateManualForm('confirmationCode', e.target.value)}
+                    placeholder="Auto-generated"
+                    className="mt-1 font-mono"
+                    disabled={manualSubmitting || manualSuccess}
+                  />
+                </label>
+                <label className="text-xs font-medium text-gray-600">
+                  Stripe Payment ID
+                  <Input
+                    value={manualForm.stripePaymentId}
+                    onChange={(e) => updateManualForm('stripePaymentId', e.target.value)}
+                    placeholder="UUID"
+                    className="mt-1 font-mono"
+                    disabled={manualSubmitting || manualSuccess}
+                  />
+                </label>
+              </div>
+            </div>
+
+            {/* Actions */}
+            <div className="flex items-center gap-3 pt-2">
+              <Button
+                variant="outline"
+                onClick={() => setShowManualForm(false)}
+                disabled={manualSubmitting}
+                className="flex-1"
+              >
+                Cancel
+              </Button>
+              <Button
+                onClick={submitManualPratica}
+                disabled={manualSubmitting || manualSuccess}
+                className="flex-1"
+              >
+                {manualSubmitting ? (
+                  <><Loader2 className="h-4 w-4 animate-spin mr-2" /> Sending...</>
+                ) : manualForm.isCreditNote ? (
+                  'Send Credit Note to PS'
+                ) : (
+                  'Send to PS'
+                )}
+              </Button>
+            </div>
+          </div>
+        </SheetContent>
+      </Sheet>
 
       {/* Detail Sheet */}
       <Sheet open={!!selectedInvoice} onOpenChange={(open) => { if (!open) setSelectedInvoice(null) }}>
