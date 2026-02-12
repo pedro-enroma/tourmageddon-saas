@@ -2,7 +2,7 @@
 'use client'
 
 import React, { useState, useEffect, useRef } from 'react'
-import { Menu, ChevronRight, Users, FileBarChart, LayoutDashboard, FileText, FileSpreadsheet, BarChart3, DollarSign, TrendingUp, RefreshCw, Percent, UserCog, Calendar, UserCheck, FolderOpen, MapPin, Ticket, Upload, List, Tags, Link2, Bell, Settings, Shield, ClipboardList, Headphones, Printer, Activity, Landmark, Search, X, Loader2, Building2, Send, Handshake, Receipt } from 'lucide-react'
+import { Menu, ChevronRight, Users, FileBarChart, LayoutDashboard, FileText, FileSpreadsheet, BarChart3, DollarSign, TrendingUp, RefreshCw, Percent, UserCog, Calendar, UserCheck, FolderOpen, MapPin, Ticket, Upload, List, Tags, Link2, Bell, Settings, Shield, ClipboardList, Headphones, Printer, Activity, Landmark, Search, X, Loader2, Building2, Send, Handshake, Receipt, CreditCard } from 'lucide-react'
 import { SidebarProvider, SidebarTrigger } from "@/components/ui/sidebar"
 import { Sidebar, SidebarContent, SidebarGroup, SidebarHeader, SidebarMenu, SidebarMenuButton, SidebarMenuItem, SidebarMenuSub, SidebarMenuSubButton, SidebarMenuSubItem } from "@/components/ui/sidebar"
 import RecapPage from '@/components/RecapPage'
@@ -48,6 +48,7 @@ import NotificationRulesPage from '@/components/NotificationRulesPage'
 import InvoiceRulesPage from '@/components/InvoiceRulesPage'
 import InvoicePendingPage from '@/components/InvoicePendingPage'
 import InvoicesCreatedPage from '@/components/InvoicesCreatedPage'
+import StripePaymentsPage from '@/components/StripePaymentsPage'
 import TourAnalyticsPage from '@/components/TourAnalyticsPage'
 import SellerActivitiesPage from '@/components/SellerActivitiesPage'
 import SellerCommissionRulesPage from '@/components/SellerCommissionRulesPage'
@@ -324,6 +325,11 @@ function AppSidebar({ currentView, onNavigate }: {
           title: "Invoices Created",
           icon: Receipt,
           view: "invoices-created",
+        },
+        {
+          title: "Stripe",
+          icon: CreditCard,
+          view: "stripe-payments",
         },
         {
           title: "Cost Reports",
@@ -1163,6 +1169,8 @@ export default function DashboardLayout() {
         return <InvoicePendingPage />
       case 'invoices-created':
         return <InvoicesCreatedPage />
+      case 'stripe-payments':
+        return <StripePaymentsPage />
       case 'content':
         return <ContentPage />
       case 'voucher-upload':
@@ -1262,6 +1270,8 @@ export default function DashboardLayout() {
         return 'Pending Invoices'
       case 'invoices-created':
         return 'Invoices Created'
+      case 'stripe-payments':
+        return 'Stripe'
       case 'content':
         return 'Templates & Meeting Points'
       case 'voucher-upload':
@@ -1328,7 +1338,7 @@ export default function DashboardLayout() {
     if (['marketing-export', 'staff-reports'].includes(currentView)) {
       return 'Reports'
     }
-    if (['finance-overview', 'cancellation-rate', 'affiliates', 'invoice-rules', 'invoice-pending', 'invoices-created', 'cost-reports', 'tour-analytics', 'seller-activities', 'seller-commission-rules', 'seller-commission-report'].includes(currentView)) {
+    if (['finance-overview', 'cancellation-rate', 'affiliates', 'invoice-rules', 'invoice-pending', 'invoices-created', 'stripe-payments', 'cost-reports', 'tour-analytics', 'seller-activities', 'seller-commission-rules', 'seller-commission-report'].includes(currentView)) {
       return 'Finance'
     }
     if (currentView === 'content') {

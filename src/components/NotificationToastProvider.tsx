@@ -1,6 +1,6 @@
 'use client'
 
-import { useEffect, useRef, useCallback } from 'react'
+import { useState, useEffect, useRef, useCallback } from 'react'
 import { toast } from 'sonner'
 import { supabase } from '@/lib/supabase'
 
@@ -257,52 +257,76 @@ function getSeverityBorderColor(severity: string): string {
 function showCustomToast({ title, message, severity, ruleName, count }: CustomToastProps): string | number {
   const ruleColor = getRuleColor(ruleName)
   const borderColor = getSeverityBorderColor(severity)
+  const timestamp = Date.now()
 
   return toast.custom(
     (id) => (
       <div
-        onClick={() => {
-          toast.dismiss(id)
-          navigateToNotifications()
-        }}
         style={{
           borderLeft: `4px solid ${borderColor}`,
         }}
-        className="w-full bg-white rounded-lg shadow-lg border border-gray-200 p-4 cursor-pointer hover:shadow-xl transition-shadow"
+        className="w-full bg-white rounded-xl shadow-lg border border-gray-200 overflow-hidden"
       >
-        {/* Rule name badge + count */}
-        <div className="flex items-center justify-between mb-1.5">
+        {/* Header row: rule badge + time + close */}
+        <div className="flex items-center gap-2 px-3 pt-3 pb-1">
           <span
             style={{
               backgroundColor: ruleColor.bg,
               color: ruleColor.text,
             }}
-            className="text-xs font-medium px-2 py-0.5 rounded-full"
+            className="text-[10px] font-semibold px-2 py-0.5 rounded-full uppercase tracking-wide"
           >
             {ruleName}
           </span>
           {count > 1 && (
-            <span className="text-xs font-bold text-gray-500 bg-gray-100 px-2 py-0.5 rounded-full">
+            <span className="text-[10px] font-bold text-gray-500 bg-gray-100 px-1.5 py-0.5 rounded-full">
               x{count}
             </span>
           )}
+          <span className="ml-auto text-[10px] text-gray-400 shrink-0">
+            <RelativeTime timestamp={timestamp} />
+          </span>
+          <button
+            onClick={(e) => {
+              e.stopPropagation()
+              toast.dismiss(id)
+            }}
+            className="ml-1 p-0.5 rounded-full hover:bg-gray-100 transition-colors text-gray-400 hover:text-gray-600"
+          >
+            <svg className="h-3.5 w-3.5" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round">
+              <line x1="18" y1="6" x2="6" y2="18" />
+              <line x1="6" y1="6" x2="18" y2="18" />
+            </svg>
+          </button>
         </div>
 
-        {/* Title */}
-        <div className="text-sm font-semibold text-gray-900 truncate">
-          {title}
-        </div>
-
-        {/* Message */}
-        {message && (
-          <div className="text-xs text-gray-500 mt-0.5 line-clamp-2">
-            {message}
+        {/* Body: clickable area to navigate */}
+        <div
+          onClick={() => {
+            toast.dismiss(id)
+            navigateToNotifications()
+          }}
+          className="px-3 pb-2 cursor-pointer"
+        >
+          <div className="text-sm font-semibold text-gray-900 truncate">
+            {title}
           </div>
-        )}
+          {message && (
+            <div className="text-xs text-gray-500 mt-0.5 line-clamp-2">
+              {message}
+            </div>
+          )}
+        </div>
 
-        {/* View All link */}
-        <div className="mt-2">
-          <span className="text-xs font-medium text-blue-600 hover:text-blue-800">
+        {/* Footer */}
+        <div
+          onClick={() => {
+            toast.dismiss(id)
+            navigateToNotifications()
+          }}
+          className="px-3 py-1.5 bg-gray-50 border-t border-gray-100 cursor-pointer hover:bg-gray-100 transition-colors"
+        >
+          <span className="text-[11px] font-medium text-blue-600">
             View All →
           </span>
         </div>
@@ -312,4 +336,23 @@ function showCustomToast({ title, message, severity, ruleName, count }: CustomTo
       duration: Infinity,
     }
   )
+}
+
+// --- Relative time component (updates live) ---
+
+function RelativeTime({ timestamp }: { timestamp: number }) {
+  const [, setTick] = useState(0)
+
+  useEffect(() => {
+    const interval = setInterval(() => setTick(t => t + 1), 10_000)
+    return () => clearInterval(interval)
+  }, [])
+
+  const seconds = Math.floor((Date.now() - timestamp) / 1000)
+  if (seconds < 5) return <>now</>
+  if (seconds < 60) return <>{seconds}s ago</>
+  const minutes = Math.floor(seconds / 60)
+  if (minutes < 60) return <>{minutes}m ago</>
+  const hours = Math.floor(minutes / 60)
+  return <>{hours}h ago</>
 }
