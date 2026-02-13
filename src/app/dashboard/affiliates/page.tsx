@@ -11,7 +11,7 @@ import { Label } from '@/components/ui/label';
 import { Textarea } from '@/components/ui/textarea';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
 import { toast } from 'sonner';
-import { Pencil, Trash2, Plus, TrendingUp, DollarSign } from 'lucide-react';
+import { Pencil, Trash2, Plus, TrendingUp, DollarSign, ShieldBan, Loader2 } from 'lucide-react';
 
 interface AffiliateCommission {
   id: number;
@@ -27,6 +27,13 @@ interface AffiliateStats {
   booking_count: number;
   total_revenue: number;
   total_commission: number;
+}
+
+interface AffiliateResetExclusion {
+  id: number;
+  affiliate_id: string;
+  reason: string | null;
+  created_at: string;
 }
 
 export default function AffiliatesPage() {
@@ -45,6 +52,10 @@ export default function AffiliatesPage() {
     commission_percentage: '',
     notes: ''
   });
+  const [exclusions, setExclusions] = useState<AffiliateResetExclusion[]>([]);
+  const [exclusionsLoading, setExclusionsLoading] = useState(false);
+  const [exclusionForm, setExclusionForm] = useState({ affiliate_id: '', reason: '' });
+  const [addingExclusion, setAddingExclusion] = useState(false);
 
   useEffect(() => {
     loadData();
@@ -107,12 +118,79 @@ export default function AffiliatesPage() {
 
         setStats(Object.values(aggregated));
       }
+
+      // Load reset exclusions
+      await loadExclusions();
     } catch (error) {
       toast.error('Error', {
         description: error instanceof Error ? error.message : 'An error occurred',
       });
     } finally {
       setLoading(false);
+    }
+  };
+
+  const loadExclusions = async () => {
+    setExclusionsLoading(true);
+    try {
+      const res = await fetch('/api/gtm/exclusions');
+      const json = await res.json();
+      if (res.ok) {
+        setExclusions(json.data || []);
+      } else {
+        console.error('Failed to load exclusions:', json.error);
+      }
+    } catch (error) {
+      console.error('Error loading exclusions:', error);
+    } finally {
+      setExclusionsLoading(false);
+    }
+  };
+
+  const handleAddExclusion = async () => {
+    if (!exclusionForm.affiliate_id) return;
+    setAddingExclusion(true);
+    try {
+      const res = await fetch('/api/gtm/exclusions', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          affiliate_id: exclusionForm.affiliate_id,
+          reason: exclusionForm.reason.trim() || undefined,
+        }),
+      });
+      const json = await res.json();
+      if (!res.ok) {
+        if (res.status === 409) {
+          toast.error('Already excluded', { description: 'This affiliate is already in the exclusion list.' });
+        } else {
+          toast.error('Error', { description: json.error || 'Failed to add exclusion' });
+        }
+        return;
+      }
+      toast.success('Exclusion added');
+      setExclusionForm({ affiliate_id: '', reason: '' });
+      await loadExclusions();
+    } catch (error) {
+      toast.error('Error', { description: error instanceof Error ? error.message : 'An error occurred' });
+    } finally {
+      setAddingExclusion(false);
+    }
+  };
+
+  const handleRemoveExclusion = async (affiliateId: string) => {
+    if (!confirm(`Remove reset exclusion for ${affiliateId}?`)) return;
+    try {
+      const res = await fetch(`/api/gtm/exclusions/${affiliateId}`, { method: 'DELETE' });
+      const json = await res.json();
+      if (!res.ok) {
+        toast.error('Error', { description: json.error || 'Failed to remove exclusion' });
+        return;
+      }
+      toast.success('Exclusion removed');
+      await loadExclusions();
+    } catch (error) {
+      toast.error('Error', { description: error instanceof Error ? error.message : 'An error occurred' });
     }
   };
 
@@ -438,6 +516,114 @@ export default function AffiliatesPage() {
               )}
             </TableBody>
           </Table>
+        </CardContent>
+      </Card>
+
+      {/* Reset Exclusions */}
+      <Card>
+        <CardHeader>
+          <div className="flex items-center gap-2">
+            <ShieldBan className="h-5 w-5" />
+            <CardTitle>Reset Exclusions</CardTitle>
+          </div>
+          <CardDescription>
+            Affiliates in this list will never have their affiliate_id reset during GTM hash-matching. Use this to protect specific affiliate assignments from being overwritten.
+          </CardDescription>
+        </CardHeader>
+        <CardContent>
+          {exclusionsLoading ? (
+            <div className="flex items-center justify-center py-8 text-muted-foreground">
+              <Loader2 className="mr-2 h-4 w-4 animate-spin" />
+              Loading exclusions...
+            </div>
+          ) : (
+            <>
+              <Table>
+                <TableHeader>
+                  <TableRow>
+                    <TableHead>Affiliate ID</TableHead>
+                    <TableHead>Reason</TableHead>
+                    <TableHead>Added</TableHead>
+                    <TableHead className="text-right">Actions</TableHead>
+                  </TableRow>
+                </TableHeader>
+                <TableBody>
+                  {exclusions.length === 0 ? (
+                    <TableRow>
+                      <TableCell colSpan={4} className="text-center text-muted-foreground">
+                        No exclusions configured. All affiliates are subject to GTM reset.
+                      </TableCell>
+                    </TableRow>
+                  ) : (
+                    exclusions.map((exclusion) => (
+                      <TableRow key={exclusion.id}>
+                        <TableCell className="font-medium">{exclusion.affiliate_id}</TableCell>
+                        <TableCell className="text-sm text-muted-foreground">
+                          {exclusion.reason || '-'}
+                        </TableCell>
+                        <TableCell className="text-sm text-muted-foreground">
+                          {new Date(exclusion.created_at).toLocaleDateString('it-IT')}
+                        </TableCell>
+                        <TableCell className="text-right">
+                          <Button
+                            variant="ghost"
+                            size="sm"
+                            onClick={() => handleRemoveExclusion(exclusion.affiliate_id)}
+                          >
+                            <Trash2 className="h-4 w-4 text-destructive" />
+                          </Button>
+                        </TableCell>
+                      </TableRow>
+                    ))
+                  )}
+                </TableBody>
+              </Table>
+
+              {/* Inline add form */}
+              <div className="flex items-end gap-3 mt-4 pt-4 border-t">
+                <div className="flex-1 max-w-[200px]">
+                  <Label htmlFor="exclusion-affiliate" className="text-sm mb-1 block">Affiliate</Label>
+                  <Select
+                    value={exclusionForm.affiliate_id}
+                    onValueChange={(value) => setExclusionForm({ ...exclusionForm, affiliate_id: value })}
+                  >
+                    <SelectTrigger id="exclusion-affiliate">
+                      <SelectValue placeholder="Select affiliate..." />
+                    </SelectTrigger>
+                    <SelectContent>
+                      {availableAffiliates
+                        .filter(id => !exclusions.some(e => e.affiliate_id === id))
+                        .map((affiliateId) => (
+                          <SelectItem key={affiliateId} value={affiliateId}>
+                            {affiliateId}
+                          </SelectItem>
+                        ))}
+                    </SelectContent>
+                  </Select>
+                </div>
+                <div className="flex-1">
+                  <Label htmlFor="exclusion-reason" className="text-sm mb-1 block">Reason (optional)</Label>
+                  <Input
+                    id="exclusion-reason"
+                    value={exclusionForm.reason}
+                    onChange={(e) => setExclusionForm({ ...exclusionForm, reason: e.target.value })}
+                    placeholder="e.g. Permanent partner"
+                  />
+                </div>
+                <Button
+                  onClick={handleAddExclusion}
+                  disabled={!exclusionForm.affiliate_id || addingExclusion}
+                >
+                  {addingExclusion ? (
+                    <Loader2 className="mr-2 h-4 w-4 animate-spin" />
+                  ) : (
+                    <Plus className="mr-2 h-4 w-4" />
+                  )}
+                  Add
+                </Button>
+              </div>
+            </>
+          )}
         </CardContent>
       </Card>
     </div>

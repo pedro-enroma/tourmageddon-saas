@@ -10,29 +10,35 @@ import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, D
 import { Label } from '@/components/ui/label'
 import { Textarea } from '@/components/ui/textarea'
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select'
+import { Checkbox } from '@/components/ui/checkbox'
 import { Tabs, TabsList, TabsTrigger } from '@/components/ui/tabs'
 import { Tooltip, TooltipContent, TooltipTrigger } from '@/components/ui/tooltip'
 import { toast } from 'sonner'
-import { Pencil, Trash2, Plus, Percent, Loader2 } from 'lucide-react'
+import { Pencil, Trash2, Plus, Percent, Loader2, Search, Calendar, CalendarPlus } from 'lucide-react'
+
+type CommissionRuleType = 'always' | 'year' | 'date_range'
+type DateBasis = 'travel_date' | 'creation_date'
 
 interface CommissionRule {
   id: string
   seller_id: number
   seller_name: string
-  activity_id: string | null
-  activity_title: string | null
+  activity_ids: number[]
+  activity_details: { id: number; activity_id: string; title: string }[]
   commission_percentage: number
-  rule_type: 'always' | 'year' | 'date_range'
+  rule_type: CommissionRuleType
+  date_basis: DateBasis
   year: number | null
   start_date: string | null
   end_date: string | null
-  priority: number | null
+  priority: number
   notes: string | null
   created_at: string
   updated_at: string
 }
 
 interface Activity {
+  id: number
   activity_id: string
   title: string
 }
@@ -51,20 +57,20 @@ export default function SellerCommissionRulesPage() {
   const [saving, setSaving] = useState(false)
   const [dialogOpen, setDialogOpen] = useState(false)
   const [editingId, setEditingId] = useState<string | null>(null)
+  const [activitySearch, setActivitySearch] = useState('')
   const [formData, setFormData] = useState({
     seller_name: '',
-    activity_id: '',
+    activity_ids: [] as number[],
+    all_activities: true,
     commission_percentage: '',
-    rule_type: 'always' as 'always' | 'year' | 'date_range',
+    rule_type: 'always' as CommissionRuleType,
+    date_basis: 'travel_date' as DateBasis,
     year: new Date().getFullYear().toString(),
     start_date: '',
     end_date: '',
+    priority: '0',
     notes: ''
   })
-
-  const activityTitleMap = useMemo(() => {
-    return new Map(activities.map(activity => [activity.activity_id, activity.title]))
-  }, [activities])
 
   const sellerActivityMap = useMemo(() => {
     const map = new Map<string, Set<string>>()
@@ -76,29 +82,20 @@ export default function SellerCommissionRulesPage() {
     return map
   }, [sellerActivities])
 
-  const getSellerActivityTitles = (sellerName: string) => {
-    const ids = sellerActivityMap.get(sellerName)
-    if (!ids || ids.size === 0) return []
-    const titles = Array.from(ids).map(id => activityTitleMap.get(id) || id)
-    return titles.sort((a, b) => a.localeCompare(b))
-  }
-
   const availableActivities = useMemo(() => {
-    if (!formData.seller_name) {
-      return activities
+    let filtered = activities
+    if (formData.seller_name) {
+      const allowed = sellerActivityMap.get(formData.seller_name) || new Set<string>()
+      filtered = activities.filter(a => allowed.has(a.activity_id))
     }
-    const allowed = sellerActivityMap.get(formData.seller_name) || new Set<string>()
-    let filtered = activities.filter(a => allowed.has(a.activity_id))
-
-    if (formData.activity_id && !allowed.has(formData.activity_id)) {
-      const current = activities.find(a => a.activity_id === formData.activity_id)
-      if (current) {
-        filtered = [current, ...filtered]
-      }
+    if (activitySearch) {
+      const search = activitySearch.toLowerCase()
+      filtered = filtered.filter(a =>
+        a.title.toLowerCase().includes(search) || a.activity_id.includes(search)
+      )
     }
-
     return filtered
-  }, [activities, formData.activity_id, formData.seller_name, sellerActivityMap])
+  }, [activities, formData.seller_name, sellerActivityMap, activitySearch])
 
   useEffect(() => {
     loadData()
@@ -108,29 +105,25 @@ export default function SellerCommissionRulesPage() {
   const loadData = async () => {
     setLoading(true)
     try {
-      // Load commission rules
       const rulesRes = await fetch('/api/seller-commissions/rules')
       const rulesData = await rulesRes.json()
       if (rulesRes.ok) {
         setRules(rulesData.data || [])
       }
 
-      // Load activities
       const { data: activitiesData } = await supabase
         .from('activities')
-        .select('activity_id, title')
+        .select('id, activity_id, title')
         .order('title')
 
       setActivities(activitiesData || [])
 
-      // Load sellers
       const sellersRes = await fetch('/api/seller-commissions/sellers')
       const sellersData = await sellersRes.json()
       if (sellersRes.ok) {
         setSellers(sellersData.sellers || [])
       }
 
-      // Load seller activity assignments
       const sellerActivitiesRes = await fetch('/api/seller-commissions/activities')
       const sellerActivitiesData = await sellerActivitiesRes.json()
       if (sellerActivitiesRes.ok) {
@@ -146,32 +139,48 @@ export default function SellerCommissionRulesPage() {
   }
 
   const openDialog = (rule?: CommissionRule) => {
+    setActivitySearch('')
     if (rule) {
       setEditingId(rule.id)
       setFormData({
         seller_name: rule.seller_name,
-        activity_id: rule.activity_id || '',
+        activity_ids: rule.activity_ids,
+        all_activities: rule.activity_ids.length === 0,
         commission_percentage: rule.commission_percentage.toString(),
         rule_type: rule.rule_type,
+        date_basis: rule.date_basis || 'travel_date',
         year: rule.year?.toString() || new Date().getFullYear().toString(),
         start_date: rule.start_date || '',
         end_date: rule.end_date || '',
+        priority: (rule.priority ?? 0).toString(),
         notes: rule.notes || ''
       })
     } else {
       setEditingId(null)
       setFormData({
         seller_name: '',
-        activity_id: '',
+        activity_ids: [],
+        all_activities: true,
         commission_percentage: '',
         rule_type: 'always',
+        date_basis: 'travel_date',
         year: new Date().getFullYear().toString(),
         start_date: '',
         end_date: '',
+        priority: '0',
         notes: ''
       })
     }
     setDialogOpen(true)
+  }
+
+  const toggleActivity = (activityId: number) => {
+    setFormData(prev => {
+      const ids = prev.activity_ids.includes(activityId)
+        ? prev.activity_ids.filter(id => id !== activityId)
+        : [...prev.activity_ids, activityId]
+      return { ...prev, activity_ids: ids }
+    })
   }
 
   const handleSubmit = async (e: React.FormEvent) => {
@@ -186,9 +195,7 @@ export default function SellerCommissionRulesPage() {
     }
 
     if (!formData.seller_name) {
-      toast.error('Error', {
-        description: 'Please select a seller',
-      })
+      toast.error('Error', { description: 'Please select a seller' })
       return
     }
 
@@ -197,12 +204,14 @@ export default function SellerCommissionRulesPage() {
       const payload = {
         id: editingId,
         seller_name: formData.seller_name,
-        activity_id: formData.activity_id || null,
+        activity_ids: formData.all_activities ? [] : formData.activity_ids,
         commission_percentage: percentage,
         rule_type: formData.rule_type,
+        date_basis: formData.date_basis,
         year: formData.rule_type === 'year' ? parseInt(formData.year) : null,
         start_date: formData.rule_type === 'date_range' ? formData.start_date : null,
         end_date: formData.rule_type === 'date_range' ? formData.end_date : null,
+        priority: parseInt(formData.priority) || 0,
         notes: formData.notes || null
       }
 
@@ -218,7 +227,6 @@ export default function SellerCommissionRulesPage() {
       }
 
       toast.success(`Commission rule ${editingId ? 'updated' : 'created'} successfully`)
-
       setDialogOpen(false)
       loadData()
     } catch (error) {
@@ -244,7 +252,6 @@ export default function SellerCommissionRulesPage() {
       }
 
       toast.success('Commission rule deleted successfully')
-
       loadData()
     } catch (error) {
       toast.error('Error', {
@@ -253,27 +260,23 @@ export default function SellerCommissionRulesPage() {
     }
   }
 
-  const getActivityTitle = (rule: CommissionRule) => {
-    if (!rule.activity_id) return 'All Activities'
-    return rule.activity_title || rule.activity_id
-  }
-
   const renderActivityCell = (rule: CommissionRule) => {
-    if (rule.activity_id) {
-      return getActivityTitle(rule)
+    if (rule.activity_ids.length === 0) {
+      return (
+        <span className="text-muted-foreground">All activities</span>
+      )
     }
 
-    const titles = getSellerActivityTitles(rule.seller_name)
-    const countLabel = `${titles.length} activities`
-    const tooltipContent = titles.length > 0 ? titles.join('\n') : 'No activities assigned'
+    const titles = rule.activity_details.map(a => a.title).sort()
+    const displayLabel = titles.length === 1 ? titles[0] : `${titles.length} activities`
 
     return (
       <Tooltip>
         <TooltipTrigger asChild>
-          <span className="cursor-help text-muted-foreground">{countLabel}</span>
+          <span className="cursor-help">{displayLabel}</span>
         </TooltipTrigger>
         <TooltipContent className="max-w-xs whitespace-pre-line">
-          {tooltipContent}
+          {titles.join('\n')}
         </TooltipContent>
       </Tooltip>
     )
@@ -295,25 +298,20 @@ export default function SellerCommissionRulesPage() {
     }
   }
 
-  const getPriorityBadge = (rule: CommissionRule) => {
-    const hasActivity = rule.activity_id !== null
-    let priority: number
-    if (rule.rule_type === 'date_range') priority = hasActivity ? 1 : 4
-    else if (rule.rule_type === 'year') priority = hasActivity ? 2 : 5
-    else priority = hasActivity ? 3 : 6
-
-    const colors: Record<number, string> = {
-      1: 'bg-green-100 text-green-800',
-      2: 'bg-green-50 text-green-700',
-      3: 'bg-yellow-100 text-yellow-800',
-      4: 'bg-yellow-50 text-yellow-700',
-      5: 'bg-orange-100 text-orange-800',
-      6: 'bg-orange-50 text-orange-700'
+  const getDateBasisBadge = (rule: CommissionRule) => {
+    const baseClass = "inline-flex items-center gap-1 px-2 py-0.5 rounded text-xs font-medium"
+    if (rule.date_basis === 'creation_date') {
+      return (
+        <span className={`${baseClass} bg-blue-50 text-blue-700`}>
+          <CalendarPlus className="h-3 w-3" />
+          Booking Date
+        </span>
+      )
     }
-
     return (
-      <span className={`inline-flex items-center px-2 py-0.5 rounded text-xs font-medium ${colors[priority]}`}>
-        P{priority}
+      <span className={`${baseClass} bg-purple-50 text-purple-700`}>
+        <Calendar className="h-3 w-3" />
+        Travel Date
       </span>
     )
   }
@@ -341,7 +339,7 @@ export default function SellerCommissionRulesPage() {
               Add Rule
             </Button>
           </DialogTrigger>
-          <DialogContent className="max-w-lg">
+          <DialogContent className="max-w-2xl max-h-[90vh] overflow-y-auto">
             <form onSubmit={handleSubmit}>
               <DialogHeader>
                 <DialogTitle>{editingId ? 'Edit' : 'Create'} Commission Rule</DialogTitle>
@@ -350,11 +348,12 @@ export default function SellerCommissionRulesPage() {
                 </DialogDescription>
               </DialogHeader>
               <div className="space-y-4 py-4">
+                {/* Seller */}
                 <div className="space-y-2">
                   <Label htmlFor="seller">Seller</Label>
                   <Select
                     value={formData.seller_name}
-                    onValueChange={(value) => setFormData({ ...formData, seller_name: value })}
+                    onValueChange={(value) => setFormData({ ...formData, seller_name: value, activity_ids: [], all_activities: true })}
                   >
                     <SelectTrigger>
                       <SelectValue placeholder="Select seller..." />
@@ -369,33 +368,72 @@ export default function SellerCommissionRulesPage() {
                   </Select>
                 </div>
 
+                {/* Activities Multi-Select */}
                 <div className="space-y-2">
-                  <div className="flex items-center justify-between">
-                    <Label htmlFor="activity">Activity (optional)</Label>
+                  <Label>Activities</Label>
+                  <div className="flex items-center gap-2 mb-2">
+                    <Checkbox
+                      id="all-activities"
+                      checked={formData.all_activities}
+                      onCheckedChange={(checked) => {
+                        setFormData({
+                          ...formData,
+                          all_activities: !!checked,
+                          activity_ids: checked ? [] : formData.activity_ids
+                        })
+                      }}
+                    />
+                    <label htmlFor="all-activities" className="text-sm font-medium cursor-pointer">
+                      All activities
+                    </label>
                   </div>
-                  <Select
-                    value={formData.activity_id || '__all__'}
-                    onValueChange={(value) => setFormData({ ...formData, activity_id: value === '__all__' ? '' : value })}
-                  >
-                    <SelectTrigger>
-                      <SelectValue placeholder="All activities..." />
-                    </SelectTrigger>
-                    <SelectContent>
-                      <SelectItem value="__all__">All Activities</SelectItem>
-                      {availableActivities.map((activity) => (
-                        <SelectItem key={activity.activity_id} value={activity.activity_id}>
-                          {activity.title}
-                        </SelectItem>
-                      ))}
-                    </SelectContent>
-                  </Select>
-                  <p className="text-xs text-muted-foreground">
-                    {formData.seller_name
-                      ? `Showing ${availableActivities.length} activities assigned to ${formData.seller_name}`
-                      : 'Select a seller to filter activities'}
-                  </p>
+                  {!formData.all_activities && (
+                    <div className="border rounded-md overflow-hidden">
+                      <div className="p-2 border-b">
+                        <div className="relative">
+                          <Search className="absolute left-2 top-2.5 h-4 w-4 text-muted-foreground" />
+                          <Input
+                            placeholder="Search activities..."
+                            value={activitySearch}
+                            onChange={(e) => setActivitySearch(e.target.value)}
+                            className="pl-8 h-9"
+                          />
+                        </div>
+                      </div>
+                      <div className="max-h-48 overflow-y-auto p-2 space-y-1">
+                        {availableActivities.length === 0 ? (
+                          <p className="text-sm text-muted-foreground text-center py-2">
+                            {formData.seller_name ? 'No activities found' : 'Select a seller first'}
+                          </p>
+                        ) : (
+                          availableActivities.map((activity) => (
+                            <div key={activity.id} className="flex items-center gap-2 py-1 px-1 rounded hover:bg-muted/50 min-w-0">
+                              <Checkbox
+                                id={`activity-${activity.id}`}
+                                checked={formData.activity_ids.includes(activity.id)}
+                                onCheckedChange={() => toggleActivity(activity.id)}
+                                className="shrink-0"
+                              />
+                              <label
+                                htmlFor={`activity-${activity.id}`}
+                                className="text-sm cursor-pointer truncate min-w-0"
+                              >
+                                {activity.title}
+                              </label>
+                            </div>
+                          ))
+                        )}
+                      </div>
+                      {formData.activity_ids.length > 0 && (
+                        <div className="p-2 border-t text-xs text-muted-foreground">
+                          {formData.activity_ids.length} activit{formData.activity_ids.length === 1 ? 'y' : 'ies'} selected
+                        </div>
+                      )}
+                    </div>
+                  )}
                 </div>
 
+                {/* Commission Percentage */}
                 <div className="space-y-2">
                   <Label htmlFor="percentage">Commission Percentage</Label>
                   <Input
@@ -411,11 +449,12 @@ export default function SellerCommissionRulesPage() {
                   />
                 </div>
 
+                {/* Rule Type */}
                 <div className="space-y-2">
                   <Label>Rule Type</Label>
                   <Tabs
                     value={formData.rule_type}
-                    onValueChange={(value) => setFormData({ ...formData, rule_type: value as 'always' | 'year' | 'date_range' })}
+                    onValueChange={(value) => setFormData({ ...formData, rule_type: value as CommissionRuleType })}
                   >
                     <TabsList className="grid w-full grid-cols-3">
                       <TabsTrigger value="always">Always</TabsTrigger>
@@ -425,6 +464,24 @@ export default function SellerCommissionRulesPage() {
                   </Tabs>
                 </div>
 
+                {/* Date Basis */}
+                <div className="space-y-2">
+                  <Label>Date Basis</Label>
+                  <Select
+                    value={formData.date_basis}
+                    onValueChange={(value) => setFormData({ ...formData, date_basis: value as DateBasis })}
+                  >
+                    <SelectTrigger>
+                      <SelectValue />
+                    </SelectTrigger>
+                    <SelectContent>
+                      <SelectItem value="travel_date">Travel Date — when the tour happens</SelectItem>
+                      <SelectItem value="creation_date">Booking Date — when the booking was created</SelectItem>
+                    </SelectContent>
+                  </Select>
+                </div>
+
+                {/* Year input */}
                 {formData.rule_type === 'year' && (
                   <div className="space-y-2">
                     <Label htmlFor="year">Year</Label>
@@ -440,8 +497,9 @@ export default function SellerCommissionRulesPage() {
                   </div>
                 )}
 
+                {/* Date range inputs */}
                 {formData.rule_type === 'date_range' && (
-                  <div className="grid grid-cols-2 gap-4">
+                  <div className="grid grid-cols-2 gap-2">
                     <div className="space-y-2">
                       <Label htmlFor="start_date">Start Date</Label>
                       <Input
@@ -465,6 +523,22 @@ export default function SellerCommissionRulesPage() {
                   </div>
                 )}
 
+                {/* Priority */}
+                <div className="space-y-2">
+                  <Label htmlFor="priority">Priority</Label>
+                  <Input
+                    id="priority"
+                    type="number"
+                    min="0"
+                    value={formData.priority}
+                    onChange={(e) => setFormData({ ...formData, priority: e.target.value })}
+                  />
+                  <p className="text-xs text-muted-foreground">
+                    Higher number = checked first. Use this to control which rule wins when multiple match.
+                  </p>
+                </div>
+
+                {/* Notes */}
                 <div className="space-y-2">
                   <Label htmlFor="notes">Notes (optional)</Label>
                   <Textarea
@@ -530,63 +604,26 @@ export default function SellerCommissionRulesPage() {
         </Card>
       </div>
 
-      {/* Priority Legend */}
-      <Card>
-        <CardHeader className="pb-3">
-          <CardTitle className="text-sm">Rule Priority</CardTitle>
-          <CardDescription>
-            When multiple rules match, the most specific one is applied (lowest priority number wins)
-          </CardDescription>
-        </CardHeader>
-        <CardContent>
-          <div className="flex flex-wrap gap-4 text-sm">
-            <div className="flex items-center gap-2">
-              <span className="bg-green-100 text-green-800 px-2 py-0.5 rounded text-xs font-medium">P1</span>
-              <span>Activity + Date Range</span>
-            </div>
-            <div className="flex items-center gap-2">
-              <span className="bg-green-50 text-green-700 px-2 py-0.5 rounded text-xs font-medium">P2</span>
-              <span>Activity + Year</span>
-            </div>
-            <div className="flex items-center gap-2">
-              <span className="bg-yellow-100 text-yellow-800 px-2 py-0.5 rounded text-xs font-medium">P3</span>
-              <span>Activity + Always</span>
-            </div>
-            <div className="flex items-center gap-2">
-              <span className="bg-yellow-50 text-yellow-700 px-2 py-0.5 rounded text-xs font-medium">P4</span>
-              <span>All Activities + Date Range</span>
-            </div>
-            <div className="flex items-center gap-2">
-              <span className="bg-orange-100 text-orange-800 px-2 py-0.5 rounded text-xs font-medium">P5</span>
-              <span>All Activities + Year</span>
-            </div>
-            <div className="flex items-center gap-2">
-              <span className="bg-orange-50 text-orange-700 px-2 py-0.5 rounded text-xs font-medium">P6</span>
-              <span>All Activities + Always</span>
-            </div>
-          </div>
-        </CardContent>
-      </Card>
-
       {/* Rules Table */}
       <Card>
         <CardHeader>
           <CardTitle>Commission Rules</CardTitle>
           <CardDescription>
-            Configure commission percentages. Rules with lower priority numbers take precedence.
+            Rules are sorted by priority (highest first). When multiple rules match, the first match wins.
           </CardDescription>
         </CardHeader>
         <CardContent>
+          <div className="overflow-x-auto">
           <Table>
             <TableHeader>
               <TableRow>
-                <TableHead>Priority</TableHead>
+                <TableHead className="w-12">P</TableHead>
                 <TableHead>Seller</TableHead>
-                <TableHead>Activity</TableHead>
-                <TableHead>Commission</TableHead>
-                <TableHead>Rule Type</TableHead>
+                <TableHead>Activities</TableHead>
+                <TableHead className="w-16">%</TableHead>
+                <TableHead>Rule</TableHead>
                 <TableHead>Notes</TableHead>
-                <TableHead className="text-right">Actions</TableHead>
+                <TableHead className="text-right w-20">Actions</TableHead>
               </TableRow>
             </TableHeader>
             <TableBody>
@@ -599,31 +636,42 @@ export default function SellerCommissionRulesPage() {
               ) : (
                 rules.map((rule) => (
                   <TableRow key={rule.id}>
-                    <TableCell>{getPriorityBadge(rule)}</TableCell>
+                    <TableCell>
+                      <span className="inline-flex items-center px-1.5 py-0.5 rounded text-xs font-medium bg-gray-100 text-gray-800">
+                        {rule.priority}
+                      </span>
+                    </TableCell>
                     <TableCell className="font-medium">{rule.seller_name}</TableCell>
                     <TableCell>{renderActivityCell(rule)}</TableCell>
                     <TableCell className="font-medium text-green-600">
                       {rule.commission_percentage}%
                     </TableCell>
-                    <TableCell>{getRuleTypeBadge(rule)}</TableCell>
-                    <TableCell className="text-sm text-muted-foreground max-w-xs truncate">
+                    <TableCell>
+                      <div className="flex flex-col gap-1">
+                        {getRuleTypeBadge(rule)}
+                        {getDateBasisBadge(rule)}
+                      </div>
+                    </TableCell>
+                    <TableCell className="text-sm text-muted-foreground max-w-[150px] truncate">
                       {rule.notes || '-'}
                     </TableCell>
                     <TableCell className="text-right">
-                      <div className="flex justify-end gap-2">
+                      <div className="flex justify-end gap-1">
                         <Button
                           variant="ghost"
-                          size="sm"
+                          size="icon"
+                          className="h-8 w-8"
                           onClick={() => openDialog(rule)}
                         >
-                          <Pencil className="h-4 w-4" />
+                          <Pencil className="h-3.5 w-3.5" />
                         </Button>
                         <Button
                           variant="ghost"
-                          size="sm"
+                          size="icon"
+                          className="h-8 w-8"
                           onClick={() => handleDelete(rule.id, rule.seller_name)}
                         >
-                          <Trash2 className="h-4 w-4 text-destructive" />
+                          <Trash2 className="h-3.5 w-3.5 text-destructive" />
                         </Button>
                       </div>
                     </TableCell>
@@ -632,6 +680,7 @@ export default function SellerCommissionRulesPage() {
               )}
             </TableBody>
           </Table>
+          </div>
         </CardContent>
       </Card>
     </div>

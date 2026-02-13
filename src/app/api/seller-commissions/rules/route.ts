@@ -1,7 +1,20 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { getServiceRoleClient, verifySession } from '@/lib/supabase-server'
 
-// GET - List all commission rules with seller names
+const formatSupabaseError = (err: unknown) => {
+  if (!err) return 'Unknown error'
+  if (typeof err === 'string') return err
+  if (err instanceof Error) return err.message
+  const anyErr = err as { message?: string; details?: string; hint?: string; code?: string }
+  return [
+    anyErr.message,
+    anyErr.details,
+    anyErr.hint,
+    anyErr.code ? `code:${anyErr.code}` : null
+  ].filter(Boolean).join(' | ')
+}
+
+// GET - List all commission rules with seller names and activity associations
 export async function GET() {
   const { user, error: authError } = await verifySession()
   if (authError || !user) {
@@ -16,9 +29,9 @@ export async function GET() {
       .select(`
         id,
         seller_id,
-        activity_id,
         commission_percentage,
         rule_type,
+        date_basis,
         applicable_year,
         date_range_start,
         date_range_end,
@@ -30,25 +43,32 @@ export async function GET() {
         sellers (
           id,
           title
+        ),
+        seller_commission_rule_activities (
+          activity_id
         )
       `)
       .eq('is_active', true)
-      .order('seller_id')
+      .order('priority', { ascending: false })
 
     if (error) {
       console.error('Error fetching commission rules:', error)
       return NextResponse.json({ error: 'Failed to fetch commission rules' }, { status: 500 })
     }
 
-    // Get activity details
-    const activityIds = [...new Set((data || []).filter(d => d.activity_id).map(d => d.activity_id))]
+    // Collect all activity IDs from junction table to fetch titles
+    const allActivityIds = [...new Set(
+      (data || []).flatMap(d =>
+        (d.seller_commission_rule_activities as { activity_id: number }[]).map(a => a.activity_id)
+      )
+    )]
     const activitiesMap = new Map<number, { id: number; activity_id: string; title: string }>()
 
-    if (activityIds.length > 0) {
+    if (allActivityIds.length > 0) {
       const { data: activitiesData } = await supabase
         .from('activities')
         .select('id, activity_id, title')
-        .in('id', activityIds)
+        .in('id', allActivityIds)
 
       activitiesData?.forEach(a => {
         activitiesMap.set(a.id, a)
@@ -58,16 +78,22 @@ export async function GET() {
     // Transform data
     const transformedData = (data || []).map(item => {
       const sellerInfo = item.sellers as unknown as { id: number; title: string } | null
-      const activity = item.activity_id ? activitiesMap.get(item.activity_id) : null
+      const ruleActivities = (item.seller_commission_rule_activities as { activity_id: number }[]) || []
+      const activityIds = ruleActivities.map(a => a.activity_id)
+      const activityDetails = activityIds.map(id => {
+        const activity = activitiesMap.get(id)
+        return activity ? { id: activity.id, activity_id: activity.activity_id, title: activity.title } : { id, activity_id: String(id), title: String(id) }
+      })
 
       return {
         id: item.id,
         seller_id: item.seller_id,
         seller_name: sellerInfo?.title || 'Unknown',
-        activity_id: activity?.activity_id || null,
-        activity_title: activity?.title || null,
+        activity_ids: activityIds,
+        activity_details: activityDetails,
         commission_percentage: item.commission_percentage,
         rule_type: item.rule_type,
+        date_basis: item.date_basis || 'travel_date',
         year: item.applicable_year,
         start_date: item.date_range_start,
         end_date: item.date_range_end,
@@ -85,7 +111,7 @@ export async function GET() {
   }
 }
 
-// POST - Create new commission rule
+// POST - Create new commission rule with activity associations
 export async function POST(request: NextRequest) {
   const { user, error: authError } = await verifySession()
   if (authError || !user) {
@@ -93,21 +119,8 @@ export async function POST(request: NextRequest) {
   }
 
   try {
-    const formatSupabaseError = (err: unknown) => {
-      if (!err) return 'Unknown error'
-      if (typeof err === 'string') return err
-      if (err instanceof Error) return err.message
-      const anyErr = err as { message?: string; details?: string; hint?: string; code?: string }
-      return [
-        anyErr.message,
-        anyErr.details,
-        anyErr.hint,
-        anyErr.code ? `code:${anyErr.code}` : null
-      ].filter(Boolean).join(' | ')
-    }
-
     const body = await request.json()
-    const { seller_name, activity_id, commission_percentage, rule_type, year, start_date, end_date, notes } = body
+    const { seller_name, activity_ids, commission_percentage, rule_type, date_basis, year, start_date, end_date, priority, notes } = body
 
     if (!seller_name) {
       return NextResponse.json({ error: 'seller_name is required' }, { status: 400 })
@@ -120,6 +133,10 @@ export async function POST(request: NextRequest) {
 
     if (!['always', 'year', 'date_range'].includes(rule_type)) {
       return NextResponse.json({ error: 'rule_type must be always, year, or date_range' }, { status: 400 })
+    }
+
+    if (date_basis && !['travel_date', 'creation_date'].includes(date_basis)) {
+      return NextResponse.json({ error: 'date_basis must be travel_date or creation_date' }, { status: 400 })
     }
 
     const supabase = getServiceRoleClient()
@@ -135,58 +152,39 @@ export async function POST(request: NextRequest) {
       return NextResponse.json({ error: `Seller "${seller_name}" not found` }, { status: 404 })
     }
 
-    // Find activity ID if provided
-    let activityDbId = null
-    if (activity_id) {
-      const { data: activityData } = await supabase
-        .from('activities')
-        .select('id')
-        .eq('activity_id', activity_id)
-        .single()
-
-      activityDbId = activityData?.id || null
-    }
-
-    // Calculate priority based on specificity
-    let priority = 6
-    const hasActivity = activityDbId !== null
-    if (rule_type === 'date_range') priority = hasActivity ? 1 : 4
-    else if (rule_type === 'year') priority = hasActivity ? 2 : 5
-    else priority = hasActivity ? 3 : 6
-
-    const basePayload = {
-      activity_id: activityDbId,
+    const rulePayload = {
+      seller_id: sellerData.id,
       commission_percentage: percentage,
       rule_type,
+      date_basis: date_basis || 'travel_date',
       applicable_year: rule_type === 'year' ? parseInt(year) : null,
       date_range_start: rule_type === 'date_range' ? start_date : null,
       date_range_end: rule_type === 'date_range' ? end_date : null,
-      priority,
+      priority: priority ?? 0,
       is_active: true,
       notes: notes || null
     }
 
-    const primaryPayload = { ...basePayload, seller_id: sellerData.id }
-
-    let { data, error } = await supabase
+    // Step 1: Insert the rule
+    let { data: newRule, error } = await supabase
       .from('seller_commission_rules')
-      .insert([primaryPayload])
+      .insert([rulePayload])
       .select()
       .single()
 
+    // Fallback to seller_id field if FK constraint fails
     if (error && error.code === '23503' && sellerData.seller_id && sellerData.seller_id !== sellerData.id) {
-      const fallbackPayload = { ...basePayload, seller_id: sellerData.seller_id }
       const fallback = await supabase
         .from('seller_commission_rules')
-        .insert([fallbackPayload])
+        .insert([{ ...rulePayload, seller_id: sellerData.seller_id }])
         .select()
         .single()
 
-      data = fallback.data
+      newRule = fallback.data
       error = fallback.error
     }
 
-    if (error) {
+    if (error || !newRule) {
       console.error('Error creating commission rule:', error)
       return NextResponse.json(
         { error: `Failed to create commission rule: ${formatSupabaseError(error)}` },
@@ -194,14 +192,37 @@ export async function POST(request: NextRequest) {
       )
     }
 
-    return NextResponse.json({ data }, { status: 201 })
+    // Step 2: Link activities (if specific activities selected)
+    const activityIdsList: number[] = Array.isArray(activity_ids) ? activity_ids : []
+    if (activityIdsList.length > 0) {
+      const { error: linkError } = await supabase
+        .from('seller_commission_rule_activities')
+        .insert(
+          activityIdsList.map(activityId => ({
+            rule_id: newRule.id,
+            activity_id: activityId
+          }))
+        )
+
+      if (linkError) {
+        console.error('Error linking activities:', linkError)
+        // Clean up the rule we just created
+        await supabase.from('seller_commission_rules').delete().eq('id', newRule.id)
+        return NextResponse.json(
+          { error: `Failed to link activities: ${formatSupabaseError(linkError)}` },
+          { status: 500 }
+        )
+      }
+    }
+
+    return NextResponse.json({ data: newRule }, { status: 201 })
   } catch (err) {
     console.error('Unexpected error:', err)
     return NextResponse.json({ error: 'Invalid request body' }, { status: 400 })
   }
 }
 
-// PUT - Update commission rule
+// PUT - Update commission rule and its activity associations
 export async function PUT(request: NextRequest) {
   const { user, error: authError } = await verifySession()
   if (authError || !user) {
@@ -209,21 +230,8 @@ export async function PUT(request: NextRequest) {
   }
 
   try {
-    const formatSupabaseError = (err: unknown) => {
-      if (!err) return 'Unknown error'
-      if (typeof err === 'string') return err
-      if (err instanceof Error) return err.message
-      const anyErr = err as { message?: string; details?: string; hint?: string; code?: string }
-      return [
-        anyErr.message,
-        anyErr.details,
-        anyErr.hint,
-        anyErr.code ? `code:${anyErr.code}` : null
-      ].filter(Boolean).join(' | ')
-    }
-
     const body = await request.json()
-    const { id, seller_name, activity_id, commission_percentage, rule_type, year, start_date, end_date, notes } = body
+    const { id, seller_name, activity_ids, commission_percentage, rule_type, date_basis, year, start_date, end_date, priority, notes } = body
 
     if (!id) {
       return NextResponse.json({ error: 'id is required' }, { status: 400 })
@@ -251,51 +259,31 @@ export async function PUT(request: NextRequest) {
       return NextResponse.json({ error: `Seller "${seller_name}" not found` }, { status: 404 })
     }
 
-    // Find activity ID if provided
-    let activityDbId = null
-    if (activity_id) {
-      const { data: activityData } = await supabase
-        .from('activities')
-        .select('id')
-        .eq('activity_id', activity_id)
-        .single()
-
-      activityDbId = activityData?.id || null
-    }
-
-    // Calculate priority
-    let priority = 6
-    const hasActivity = activityDbId !== null
-    if (rule_type === 'date_range') priority = hasActivity ? 1 : 4
-    else if (rule_type === 'year') priority = hasActivity ? 2 : 5
-    else priority = hasActivity ? 3 : 6
-
-    const basePayload = {
-      activity_id: activityDbId,
+    const rulePayload = {
+      seller_id: sellerData.id,
       commission_percentage: percentage,
       rule_type,
+      date_basis: date_basis || 'travel_date',
       applicable_year: rule_type === 'year' ? parseInt(year) : null,
       date_range_start: rule_type === 'date_range' ? start_date : null,
       date_range_end: rule_type === 'date_range' ? end_date : null,
-      priority,
+      priority: priority ?? 0,
       notes: notes || null,
       updated_at: new Date().toISOString()
     }
 
-    const primaryPayload = { ...basePayload, seller_id: sellerData.id }
-
+    // Step 1: Update the rule
     let { data, error } = await supabase
       .from('seller_commission_rules')
-      .update(primaryPayload)
+      .update(rulePayload)
       .eq('id', id)
       .select()
       .single()
 
     if (error && error.code === '23503' && sellerData.seller_id && sellerData.seller_id !== sellerData.id) {
-      const fallbackPayload = { ...basePayload, seller_id: sellerData.seller_id }
       const fallback = await supabase
         .from('seller_commission_rules')
-        .update(fallbackPayload)
+        .update({ ...rulePayload, seller_id: sellerData.seller_id })
         .eq('id', id)
         .select()
         .single()
@@ -312,6 +300,34 @@ export async function PUT(request: NextRequest) {
       )
     }
 
+    // Step 2: Replace activity associations
+    // Delete existing links
+    const { error: deleteError } = await supabase
+      .from('seller_commission_rule_activities')
+      .delete()
+      .eq('rule_id', id)
+
+    if (deleteError) {
+      console.error('Error deleting activity links:', deleteError)
+    }
+
+    // Insert new links
+    const activityIdsList: number[] = Array.isArray(activity_ids) ? activity_ids : []
+    if (activityIdsList.length > 0) {
+      const { error: linkError } = await supabase
+        .from('seller_commission_rule_activities')
+        .insert(
+          activityIdsList.map(activityId => ({
+            rule_id: id,
+            activity_id: activityId
+          }))
+        )
+
+      if (linkError) {
+        console.error('Error linking activities:', linkError)
+      }
+    }
+
     return NextResponse.json({ data })
   } catch (err) {
     console.error('Unexpected error:', err)
@@ -319,7 +335,7 @@ export async function PUT(request: NextRequest) {
   }
 }
 
-// DELETE - Deactivate commission rule (soft delete)
+// DELETE - Deactivate commission rule (soft delete, junction entries cascade)
 export async function DELETE(request: NextRequest) {
   const { user, error: authError } = await verifySession()
   if (authError || !user) {
