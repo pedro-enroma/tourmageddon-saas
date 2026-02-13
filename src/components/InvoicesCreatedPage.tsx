@@ -42,7 +42,7 @@ interface Invoice {
 interface InvoiceRule {
   id: string
   name: string
-  invoice_date_type: 'travel_date' | 'creation_date'
+  invoice_date_type: 'travel_date' | 'creation_date' | 'stripe_payment'
   sellers: string[]
   is_active: boolean
 }
@@ -282,7 +282,7 @@ export default function InvoicesCreatedPage() {
   }, [filters.ruleId, rules])
 
   const ruleDateType = selectedRule?.invoice_date_type || null
-  const dateLabel = ruleDateType === 'travel_date' ? 'Travel Date' : ruleDateType === 'creation_date' ? 'Creation Date' : 'Date'
+  const dateLabel = ruleDateType === 'travel_date' ? 'Travel Date' : ruleDateType === 'creation_date' ? 'Creation Date' : ruleDateType === 'stripe_payment' ? 'Stripe Payment' : 'Date'
 
   // ── Formatting ──
 
@@ -595,35 +595,44 @@ export default function InvoicesCreatedPage() {
 
   const submitManualPratica = async () => {
     // Client-side validation
-    if (!manualForm.firstName.trim() || !manualForm.lastName.trim()) {
-      setManualError('First name and last name are required')
-      return
+    if (manualForm.isPersonaFisica) {
+      if (!manualForm.firstName.trim() || !manualForm.lastName.trim()) {
+        setManualError('First name and last name are required')
+        return
+      }
+    } else {
+      if (!manualForm.ragioneSociale.trim()) {
+        setManualError('Ragione Sociale is required for persona giuridica')
+        return
+      }
+      if (!manualForm.partitaIva.trim()) {
+        setManualError('Partita IVA is required for persona giuridica')
+        return
+      }
     }
     const amount = parseFloat(manualForm.totalAmount)
     if (!amount || amount <= 0) {
       setManualError('Amount must be greater than 0')
       return
     }
-    if (!manualForm.isPersonaFisica) {
-      if (!manualForm.partitaIva.trim()) {
-        setManualError('Partita IVA is required for persona giuridica')
-        return
-      }
-      if (!manualForm.ragioneSociale.trim()) {
-        setManualError('Ragione Sociale is required for persona giuridica')
-        return
-      }
-    }
 
     setManualSubmitting(true)
     setManualError(null)
     try {
       const payload: Record<string, unknown> = {
-        firstName: manualForm.firstName.trim(),
-        lastName: manualForm.lastName.trim(),
         totalAmount: amount,
         isPersonaFisica: manualForm.isPersonaFisica,
         isCreditNote: manualForm.isCreditNote,
+      }
+      if (manualForm.isPersonaFisica) {
+        payload.firstName = manualForm.firstName.trim()
+        payload.lastName = manualForm.lastName.trim()
+        if (manualForm.codiceFiscale.trim()) {
+          payload.codiceFiscale = manualForm.codiceFiscale.trim()
+        }
+      } else {
+        payload.ragioneSociale = manualForm.ragioneSociale.trim()
+        payload.partitaIva = manualForm.partitaIva.trim()
       }
       if (manualForm.travelDate) payload.travelDate = manualForm.travelDate
       if (manualForm.confirmationCode.trim()) payload.confirmationCode = manualForm.confirmationCode.trim()
@@ -632,13 +641,6 @@ export default function InvoicesCreatedPage() {
       if (manualForm.country.trim()) payload.country = manualForm.country.trim()
       if (manualForm.sellerName.trim()) payload.sellerName = manualForm.sellerName.trim()
       if (manualForm.stripePaymentId.trim()) payload.stripePaymentId = manualForm.stripePaymentId.trim()
-      if (manualForm.isPersonaFisica && manualForm.codiceFiscale.trim()) {
-        payload.codiceFiscale = manualForm.codiceFiscale.trim()
-      }
-      if (!manualForm.isPersonaFisica) {
-        payload.partitaIva = manualForm.partitaIva.trim()
-        payload.ragioneSociale = manualForm.ragioneSociale.trim()
-      }
 
       const response = await fetch('/api/invoices-created/manual', {
         method: 'POST',
@@ -774,7 +776,7 @@ export default function InvoicesCreatedPage() {
                   <option value="all">All rules</option>
                   {rules.map(rule => (
                     <option key={rule.id} value={rule.id}>
-                      {rule.name} ({rule.invoice_date_type === 'travel_date' ? 'Travel Date' : 'Creation Date'})
+                      {rule.name} ({rule.invoice_date_type === 'travel_date' ? 'Travel Date' : rule.invoice_date_type === 'stripe_payment' ? 'Stripe Payment' : 'Creation Date'})
                     </option>
                   ))}
                 </select>
@@ -1258,28 +1260,41 @@ export default function InvoicesCreatedPage() {
                 </label>
               </div>
 
-              <div className="grid grid-cols-2 gap-3">
+              {manualForm.isPersonaFisica ? (
+                <div className="grid grid-cols-2 gap-3">
+                  <label className="text-xs font-medium text-gray-600">
+                    First Name *
+                    <Input
+                      value={manualForm.firstName}
+                      onChange={(e) => updateManualForm('firstName', e.target.value)}
+                      placeholder="Mario"
+                      className="mt-1"
+                      disabled={manualSubmitting || manualSuccess}
+                    />
+                  </label>
+                  <label className="text-xs font-medium text-gray-600">
+                    Last Name *
+                    <Input
+                      value={manualForm.lastName}
+                      onChange={(e) => updateManualForm('lastName', e.target.value)}
+                      placeholder="Rossi"
+                      className="mt-1"
+                      disabled={manualSubmitting || manualSuccess}
+                    />
+                  </label>
+                </div>
+              ) : (
                 <label className="text-xs font-medium text-gray-600">
-                  First Name *
+                  Ragione Sociale *
                   <Input
-                    value={manualForm.firstName}
-                    onChange={(e) => updateManualForm('firstName', e.target.value)}
-                    placeholder="Mario"
+                    value={manualForm.ragioneSociale}
+                    onChange={(e) => updateManualForm('ragioneSociale', e.target.value)}
+                    placeholder="Azienda S.r.l."
                     className="mt-1"
                     disabled={manualSubmitting || manualSuccess}
                   />
                 </label>
-                <label className="text-xs font-medium text-gray-600">
-                  Last Name *
-                  <Input
-                    value={manualForm.lastName}
-                    onChange={(e) => updateManualForm('lastName', e.target.value)}
-                    placeholder="Rossi"
-                    className="mt-1"
-                    disabled={manualSubmitting || manualSuccess}
-                  />
-                </label>
-              </div>
+              )}
 
               <div className="mt-3 grid grid-cols-2 gap-3">
                 <label className="text-xs font-medium text-gray-600">
@@ -1321,7 +1336,7 @@ export default function InvoicesCreatedPage() {
                   </label>
                 </div>
               ) : (
-                <div className="mt-3 space-y-3">
+                <div className="mt-3">
                   <label className="text-xs font-medium text-gray-600">
                     Partita IVA *
                     <Input
@@ -1330,16 +1345,6 @@ export default function InvoicesCreatedPage() {
                       placeholder="12345678901"
                       maxLength={11}
                       className="mt-1 font-mono"
-                      disabled={manualSubmitting || manualSuccess}
-                    />
-                  </label>
-                  <label className="text-xs font-medium text-gray-600">
-                    Ragione Sociale *
-                    <Input
-                      value={manualForm.ragioneSociale}
-                      onChange={(e) => updateManualForm('ragioneSociale', e.target.value)}
-                      placeholder="Azienda S.r.l."
-                      className="mt-1"
                       disabled={manualSubmitting || manualSuccess}
                     />
                   </label>

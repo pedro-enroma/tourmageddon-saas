@@ -160,6 +160,27 @@ export default function StripePaymentsPage() {
     return () => { if (autoRefreshRef.current) clearInterval(autoRefreshRef.current) }
   }, [fetchPayments, activeTab]) // eslint-disable-line react-hooks/exhaustive-deps
 
+  // ── Retry invoice state ──
+  const [retryingPaymentId, setRetryingPaymentId] = useState<string | null>(null)
+
+  const retryInvoice = async (payment: StripePayment) => {
+    if (!payment.booking_id) return
+    setRetryingPaymentId(payment.id)
+    try {
+      const response = await fetch(`/api/stripe-payments/${payment.id}/retry-invoice`, {
+        method: 'POST',
+      })
+      const data = await response.json()
+      if (data.error) throw new Error(data.error)
+      fetchPayments()
+    } catch (err) {
+      console.error('Error retrying invoice:', err)
+      setPaymentsError(err instanceof Error ? err.message : 'Failed to retry invoice')
+    } finally {
+      setRetryingPaymentId(null)
+    }
+  }
+
   // ── Manual Pratica state ──
   const [showManualForm, setShowManualForm] = useState(false)
   const [manualForm, setManualForm] = useState({
@@ -219,35 +240,44 @@ export default function StripePaymentsPage() {
   }
 
   const submitManualPratica = async () => {
-    if (!manualForm.firstName.trim() || !manualForm.lastName.trim()) {
-      setManualError('First name and last name are required')
-      return
+    if (manualForm.isPersonaFisica) {
+      if (!manualForm.firstName.trim() || !manualForm.lastName.trim()) {
+        setManualError('First name and last name are required')
+        return
+      }
+    } else {
+      if (!manualForm.ragioneSociale.trim()) {
+        setManualError('Ragione Sociale is required for persona giuridica')
+        return
+      }
+      if (!manualForm.partitaIva.trim()) {
+        setManualError('Partita IVA is required for persona giuridica')
+        return
+      }
     }
     const amount = parseFloat(manualForm.totalAmount)
     if (!amount || amount <= 0) {
       setManualError('Amount must be greater than 0')
       return
     }
-    if (!manualForm.isPersonaFisica) {
-      if (!manualForm.partitaIva.trim()) {
-        setManualError('Partita IVA is required for persona giuridica')
-        return
-      }
-      if (!manualForm.ragioneSociale.trim()) {
-        setManualError('Ragione Sociale is required for persona giuridica')
-        return
-      }
-    }
 
     setManualSubmitting(true)
     setManualError(null)
     try {
       const payload: Record<string, unknown> = {
-        firstName: manualForm.firstName.trim(),
-        lastName: manualForm.lastName.trim(),
         totalAmount: amount,
         isPersonaFisica: manualForm.isPersonaFisica,
         isCreditNote: manualForm.isCreditNote,
+      }
+      if (manualForm.isPersonaFisica) {
+        payload.firstName = manualForm.firstName.trim()
+        payload.lastName = manualForm.lastName.trim()
+        if (manualForm.codiceFiscale.trim()) {
+          payload.codiceFiscale = manualForm.codiceFiscale.trim()
+        }
+      } else {
+        payload.ragioneSociale = manualForm.ragioneSociale.trim()
+        payload.partitaIva = manualForm.partitaIva.trim()
       }
       if (manualForm.travelDate) payload.travelDate = manualForm.travelDate
       if (manualForm.confirmationCode.trim()) payload.confirmationCode = manualForm.confirmationCode.trim()
@@ -256,13 +286,6 @@ export default function StripePaymentsPage() {
       if (manualForm.country.trim()) payload.country = manualForm.country.trim()
       if (manualForm.sellerName.trim()) payload.sellerName = manualForm.sellerName.trim()
       if (manualForm.stripePaymentId.trim()) payload.stripePaymentId = manualForm.stripePaymentId.trim()
-      if (manualForm.isPersonaFisica && manualForm.codiceFiscale.trim()) {
-        payload.codiceFiscale = manualForm.codiceFiscale.trim()
-      }
-      if (!manualForm.isPersonaFisica) {
-        payload.partitaIva = manualForm.partitaIva.trim()
-        payload.ragioneSociale = manualForm.ragioneSociale.trim()
-      }
 
       const response = await fetch('/api/invoices-created/manual', {
         method: 'POST',
@@ -818,6 +841,22 @@ export default function StripePaymentsPage() {
                                     <Send className="h-3 w-3 mr-1" /> Send to PS
                                   </Button>
                                 )}
+                                {payment.status === 'MATCHED' && !payment.invoice && payment.booking_id && (
+                                  <Button
+                                    variant="outline"
+                                    size="sm"
+                                    className="h-6 px-2 text-xs border-amber-300 text-amber-700 hover:bg-amber-50"
+                                    onClick={(e) => { e.stopPropagation(); retryInvoice(payment) }}
+                                    disabled={retryingPaymentId === payment.id}
+                                  >
+                                    {retryingPaymentId === payment.id ? (
+                                      <Loader2 className="h-3 w-3 animate-spin mr-1" />
+                                    ) : (
+                                      <RotateCcw className="h-3 w-3 mr-1" />
+                                    )}
+                                    Retry Invoice
+                                  </Button>
+                                )}
                               </div>
                             </td>
                             <td className="px-4 py-3 whitespace-nowrap">
@@ -1263,28 +1302,41 @@ export default function StripePaymentsPage() {
                 </label>
               </div>
 
-              <div className="grid grid-cols-2 gap-3">
+              {manualForm.isPersonaFisica ? (
+                <div className="grid grid-cols-2 gap-3">
+                  <label className="text-xs font-medium text-gray-600">
+                    First Name *
+                    <Input
+                      value={manualForm.firstName}
+                      onChange={(e) => updateManualField('firstName', e.target.value)}
+                      placeholder="Mario"
+                      className="mt-1"
+                      disabled={manualSubmitting || manualSuccess}
+                    />
+                  </label>
+                  <label className="text-xs font-medium text-gray-600">
+                    Last Name *
+                    <Input
+                      value={manualForm.lastName}
+                      onChange={(e) => updateManualField('lastName', e.target.value)}
+                      placeholder="Rossi"
+                      className="mt-1"
+                      disabled={manualSubmitting || manualSuccess}
+                    />
+                  </label>
+                </div>
+              ) : (
                 <label className="text-xs font-medium text-gray-600">
-                  First Name *
+                  Ragione Sociale *
                   <Input
-                    value={manualForm.firstName}
-                    onChange={(e) => updateManualField('firstName', e.target.value)}
-                    placeholder="Mario"
+                    value={manualForm.ragioneSociale}
+                    onChange={(e) => updateManualField('ragioneSociale', e.target.value)}
+                    placeholder="Azienda S.r.l."
                     className="mt-1"
                     disabled={manualSubmitting || manualSuccess}
                   />
                 </label>
-                <label className="text-xs font-medium text-gray-600">
-                  Last Name *
-                  <Input
-                    value={manualForm.lastName}
-                    onChange={(e) => updateManualField('lastName', e.target.value)}
-                    placeholder="Rossi"
-                    className="mt-1"
-                    disabled={manualSubmitting || manualSuccess}
-                  />
-                </label>
-              </div>
+              )}
 
               <div className="mt-3 grid grid-cols-2 gap-3">
                 <label className="text-xs font-medium text-gray-600">
@@ -1310,6 +1362,7 @@ export default function StripePaymentsPage() {
                 </label>
               </div>
 
+              {/* Conditional fields */}
               {manualForm.isPersonaFisica ? (
                 <div className="mt-3">
                   <label className="text-xs font-medium text-gray-600">
@@ -1325,7 +1378,7 @@ export default function StripePaymentsPage() {
                   </label>
                 </div>
               ) : (
-                <div className="mt-3 space-y-3">
+                <div className="mt-3">
                   <label className="text-xs font-medium text-gray-600">
                     Partita IVA *
                     <Input
@@ -1334,16 +1387,6 @@ export default function StripePaymentsPage() {
                       placeholder="12345678901"
                       maxLength={11}
                       className="mt-1 font-mono"
-                      disabled={manualSubmitting || manualSuccess}
-                    />
-                  </label>
-                  <label className="text-xs font-medium text-gray-600">
-                    Ragione Sociale *
-                    <Input
-                      value={manualForm.ragioneSociale}
-                      onChange={(e) => updateManualField('ragioneSociale', e.target.value)}
-                      placeholder="Azienda S.r.l."
-                      className="mt-1"
                       disabled={manualSubmitting || manualSuccess}
                     />
                   </label>
