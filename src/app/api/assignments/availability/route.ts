@@ -51,7 +51,7 @@ export async function POST(request: NextRequest) {
           .from('guide_service_group_members')
           .select('group_id')
           .eq('activity_availability_id', activity_availability_id)
-          .single()
+          .maybeSingle()
 
         let allAvailabilityIds = [activity_availability_id]
 
@@ -232,7 +232,7 @@ export async function DELETE(request: NextRequest) {
           .from('guide_service_group_members')
           .select('group_id')
           .eq('activity_availability_id', Number(activity_availability_id))
-          .single()
+          .maybeSingle()
 
         let allAvailabilityIds = [Number(activity_availability_id)]
 

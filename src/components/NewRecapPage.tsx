@@ -1894,7 +1894,7 @@ export default function NewRecapPage() {
         .from('guide_service_group_members')
         .select('group_id')
         .eq('activity_availability_id', Number(slot.availabilityId))
-        .single()
+        .maybeSingle()
 
       let serviceGroupAvailIds: number[] = []
       if (currentGroupMember) {
