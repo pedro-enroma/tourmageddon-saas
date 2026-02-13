@@ -178,7 +178,13 @@
       "Bash(vercel ls)",
       "mcp__plugin_supabase_supabase__search_docs",
       "WebFetch(domain:ui.shadcn.com)",
-      "mcp__plugin_supabase_supabase__list_edge_functions"
+      "mcp__plugin_supabase_supabase__list_edge_functions",
+      "Bash(xargs:*)",
+      "mcp__plugin_supabase_supabase__get_logs",
+      "Bash(git -C /Users/pedromartinezsaro/Desktop/tourmageddon-saas log --oneline -20)",
+      "Bash(git -C /Users/pedromartinezsaro/Desktop/tourmageddon-saas show --stat 93a0428)",
+      "Bash(git -C /Users/pedromartinezsaro/Desktop/tourmageddon-saas log --all --source --remotes --oneline -- \"*manual*\")",
+      "Bash(git status:*)"
     ],
     "deny": [],
     "ask": []
