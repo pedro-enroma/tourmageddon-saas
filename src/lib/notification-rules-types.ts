@@ -74,6 +74,7 @@ export const TRIGGER_FIELDS: Record<string, { field: string; label: string; type
     { field: 'ticket_count', label: 'Ticket Count', type: 'number' },
     { field: 'participant_count', label: 'Participant Count', type: 'number' },
     { field: 'travel_date', label: 'Travel Date', type: 'date' },
+    { field: 'start_time', label: 'Start Time', type: 'string' },
     { field: 'days_until_travel', label: 'Days Until Travel', type: 'number' },
     { field: 'seller_name', label: 'Seller Name', type: 'string' },
     { field: 'has_children', label: 'Has Children', type: 'boolean' },

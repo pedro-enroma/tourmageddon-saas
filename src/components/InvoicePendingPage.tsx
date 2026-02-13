@@ -69,7 +69,10 @@ export default function InvoicePendingPage() {
   // Match bookings to rules
   const getMatchingRule = (booking: PendingBooking): InvoiceRule | null => {
     if (!booking.activity_seller) return null
-    return rules.find(rule => rule.sellers.includes(booking.activity_seller!)) || null
+    return rules.find(rule =>
+      (rule.invoice_date_type === 'stripe_payment' && (!rule.sellers || rule.sellers.length === 0)) ||
+      rule.sellers.includes(booking.activity_seller!)
+    ) || null
   }
 
   // Get unique sellers from bookings
@@ -160,6 +163,8 @@ export default function InvoicePendingPage() {
                 <span className={`px-2 py-0.5 rounded text-xs font-medium ${
                   rule.invoice_date_type === 'creation_date'
                     ? 'bg-purple-100 text-purple-700'
+                    : rule.invoice_date_type === 'stripe_payment'
+                    ? 'bg-emerald-100 text-emerald-700'
                     : 'bg-blue-100 text-blue-700'
                 }`}>
                   {rule.name}
